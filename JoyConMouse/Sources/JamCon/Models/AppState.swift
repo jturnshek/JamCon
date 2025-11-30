@@ -146,7 +146,7 @@ class AppState: ObservableObject {
     @Published var isGyroCalibrated: Bool = false
 
     // MARK: - Accessibility Permission
-    @Published var hasAccessibilityPermission: Bool = false
+    @Published var hasAccessibilityPermission: Bool = AXIsProcessTrusted()
 
     /// Check if the app has Accessibility permission
     func checkAccessibilityPermission() {

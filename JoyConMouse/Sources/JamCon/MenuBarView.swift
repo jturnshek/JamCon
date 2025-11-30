@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
+    @StateObject private var keyCaptureManager = KeyCaptureManager()
     @State private var showButtonMapping = false
     @State private var selectedMappingRole: MappingRole = .primary
 
@@ -47,6 +48,17 @@ struct MenuBarView: View {
         }
         .padding()
         .frame(width: 280)
+        .onAppear {
+            keyCaptureManager.onCapture = { button, combo in
+                setAction(.keyPress(combo), for: button)
+            }
+        }
+        .onDisappear {
+            keyCaptureManager.cancelCapture()
+        }
+        .onChange(of: selectedMappingRole) { _, _ in
+            keyCaptureManager.cancelCapture()
+        }
     }
 
     // MARK: - Accessibility Warning
@@ -240,7 +252,7 @@ struct MenuBarView: View {
                         .foregroundColor(.secondary)
                         .frame(width: 30, alignment: .trailing)
                 }
-                Slider(value: $appState.smoothThreshold, in: 0...20, step: 1)
+                Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
             }
 
             // Calibration status and button
@@ -344,69 +356,94 @@ struct MenuBarView: View {
 
     private func buttonMappingRow(_ button: LogicalButton) -> some View {
         HStack {
-            Text(button.displayName)
+            Text(button.displayName(mirrored: appState.mirrorFaceButtons))
                 .font(.caption)
                 .frame(width: 60, alignment: .leading)
 
             Spacer()
 
-            actionMenu(for: button)
+            actionControl(for: button)
         }
     }
 
-    private func actionMenu(for button: LogicalButton) -> some View {
-        let currentAction = currentMapping[button]
+    @ViewBuilder
+    private func actionControl(for button: LogicalButton) -> some View {
+        if keyCaptureManager.isCapturing(button: button) {
+            keyCaptureView
+        } else {
+            actionDisplayRow(for: button)
+        }
+    }
 
-        return Menu {
-            Button("None") { setAction(.none, for: button) }
-
-            Divider()
-
-            Menu("Mouse") {
-                Button("Left Click") { setAction(.mouseClick(.left), for: button) }
-                Button("Right Click") { setAction(.mouseClick(.right), for: button) }
-                Button("Middle Click") { setAction(.mouseClick(.middle), for: button) }
-            }
-
-            Divider()
-
-            Menu("Keyboard") {
-                Menu("Navigation") {
-                    Button("Escape") { setAction(.keyPress(.escape), for: button) }
-                    Button("Enter") { setAction(.keyPress(.enter), for: button) }
-                    Button("Space") { setAction(.keyPress(.space), for: button) }
-                    Button("Tab") { setAction(.keyPress(.tab), for: button) }
-                    Button("Backspace") { setAction(.keyPress(.backspace), for: button) }
-                }
-
-                Menu("Arrows") {
-                    Button("Up") { setAction(.keyPress(.arrowUp), for: button) }
-                    Button("Down") { setAction(.keyPress(.arrowDown), for: button) }
-                    Button("Left") { setAction(.keyPress(.arrowLeft), for: button) }
-                    Button("Right") { setAction(.keyPress(.arrowRight), for: button) }
-                }
-
-                Menu("Shortcuts") {
-                    Button("Copy") { setAction(.keyPress(.copy), for: button) }
-                    Button("Paste") { setAction(.keyPress(.paste), for: button) }
-                    Button("Cut") { setAction(.keyPress(.cut), for: button) }
-                    Button("Undo") { setAction(.keyPress(.undo), for: button) }
-                    Button("Redo") { setAction(.keyPress(.redo), for: button) }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(currentAction.displayName)
+    private var keyCaptureView: some View {
+        HStack(spacing: 4) {
+            if keyCaptureManager.currentModifiers.isEmpty {
+                Text("Press keys...")
                     .font(.caption)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            } else {
+                Text(keyCaptureManager.currentModifiers.displayString)
+                    .font(.caption)
             }
+
+            Button(action: { keyCaptureManager.cancelCapture() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color.accentColor.opacity(0.2))
+        .cornerRadius(4)
+    }
+
+    private func actionDisplayRow(for button: LogicalButton) -> some View {
+        let action = currentMapping[button]
+
+        return HStack(spacing: 4) {
+            // Click to capture keyboard shortcut
+            Button(action: {
+                keyCaptureManager.startCapture(for: button)
+            }) {
+                HStack(spacing: 2) {
+                    Image(systemName: "keyboard")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(action.displayName)
+                        .font(.caption)
+                }
+            }
+            .buttonStyle(.plain)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Color.secondary.opacity(0.1))
             .cornerRadius(4)
+
+            // Clear button (only show if action is not .none)
+            if action != .none {
+                Button(action: { setAction(.none, for: button) }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Mouse click dropdown
+            Menu {
+                Button("Left Click") { setAction(.mouseClick(.left), for: button) }
+                Button("Right Click") { setAction(.mouseClick(.right), for: button) }
+                Button("Middle Click") { setAction(.mouseClick(.middle), for: button) }
+            } label: {
+                Image(systemName: "computermouse")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 20)
         }
-        .menuStyle(.borderlessButton)
     }
 
     private var currentMapping: ButtonMappingProfile {

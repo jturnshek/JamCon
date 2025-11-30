@@ -1,5 +1,6 @@
 import Foundation
 import Carbon.HIToolbox
+import AppKit
 
 // MARK: - Key Modifiers
 
@@ -18,6 +19,16 @@ struct KeyModifiers: OptionSet, Codable, Hashable, Sendable {
         if contains(.shift)   { parts.append("⇧") }
         if contains(.command) { parts.append("⌘") }
         return parts.joined()
+    }
+
+    /// Convert NSEvent modifier flags to KeyModifiers
+    static func from(_ flags: NSEvent.ModifierFlags) -> KeyModifiers {
+        var modifiers: KeyModifiers = []
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        return modifiers
     }
 }
 
@@ -160,15 +171,29 @@ enum LogicalButton: String, CaseIterable, Codable, Hashable, Sendable {
         switch self {
         case .trigger: return "Trigger"
         case .shoulder: return "Shoulder"
-        case .faceTop: return "Top"
-        case .faceBottom: return "Bottom"
-        case .faceLeft: return "Left"
-        case .faceRight: return "Right"
+        case .faceTop: return "↑/X"
+        case .faceBottom: return "↓/B"
+        case .faceLeft: return "←/Y"
+        case .faceRight: return "→/A"
         case .menu: return "Menu (+/-)"
         case .system: return "System"
         case .stick: return "Stick Click"
         case .sl: return "SL"
         case .sr: return "SR"
+        }
+    }
+
+    /// Display name that reflects the current mirror state
+    /// Format: "[D-pad direction]/[Face button]"
+    /// Only the arrow changes when mirrored (letter stays same - Y is always faceLeft, A is always faceRight)
+    func displayName(mirrored: Bool) -> String {
+        switch self {
+        case .faceLeft:
+            return mirrored ? "→/Y" : "←/Y"  // Y is always faceLeft on right controller
+        case .faceRight:
+            return mirrored ? "←/A" : "→/A"  // A is always faceRight on right controller
+        default:
+            return displayName  // faceTop, faceBottom, and others stay the same
         }
     }
 
@@ -204,10 +229,10 @@ enum LogicalButton: String, CaseIterable, Codable, Hashable, Sendable {
             switch button {
             case .zl: return .trigger
             case .l: return .shoulder
-            // Mirror OFF: same position = same action (Up→Top, Left→Left)
-            // Mirror ON: flipped like a mirror (Up→Bottom, Left→Right)
-            case .up: return mirrorFaceButtons ? .faceBottom : .faceTop
-            case .down: return mirrorFaceButtons ? .faceTop : .faceBottom
+            // Up/Down stay the same (same physical position on both controllers)
+            // Left/Right swap when mirrored (D-pad is on opposite side from face buttons)
+            case .up: return .faceTop
+            case .down: return .faceBottom
             case .left: return mirrorFaceButtons ? .faceRight : .faceLeft
             case .right: return mirrorFaceButtons ? .faceLeft : .faceRight
             case .minus: return .menu
