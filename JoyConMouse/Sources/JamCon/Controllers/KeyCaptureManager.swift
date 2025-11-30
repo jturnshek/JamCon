@@ -50,9 +50,9 @@ class KeyCaptureManager: ObservableObject {
         // Event mask for key down and modifier changes
         let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
 
-        // Create event tap at session level to intercept system shortcuts
+        // Create event tap at HID level to catch arrows/shortcuts even when menus are focused
         guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: CGEventMask(eventMask),

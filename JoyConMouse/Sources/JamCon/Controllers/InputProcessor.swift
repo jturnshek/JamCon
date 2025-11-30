@@ -161,20 +161,20 @@ class InputProcessor {
     private var overrideMode: OverrideMode = .none
     private var overrideCounts: [OverrideMode: Int] = [:]
 
-    // MARK: - Clutch State
+    // MARK: - Cursor Lock State (clutch/scroll/zoom)
 
-    private var clutchActive: Bool = false
-    private var clutchNeutralStart: TimeInterval?
-    private var clutchNeutralAccumulator: (x: Double, y: Double, z: Double) = (0, 0, 0)
-    private var clutchNeutralCount: Int = 0
-    private var clutchBiasUpdatedAt: TimeInterval?
-    private var clutchRollStart: Double?
+    private var cursorLockActive: Bool = false
+    private var lockNeutralStart: TimeInterval?
+    private var lockNeutralAccumulator: (x: Double, y: Double, z: Double) = (0, 0, 0)
+    private var lockNeutralCount: Int = 0
+    private var lockBiasUpdatedAt: TimeInterval?
+    private var lockRollStart: Double?
     private var rollCompensation: Double = 0  // Radians
     private var currentRoll: Double = 0       // Radians
     private var releaseRampStart: TimeInterval?
     private let releaseRampDuration: TimeInterval = 0.08
-    private let clutchQuietThreshold: Double = 0.8
-    private let clutchQuietMinDuration: TimeInterval = 0.35
+    private let lockQuietThreshold: Double = 0.8
+    private let lockQuietMinDuration: TimeInterval = 0.35
 
     /// Queue for hold timers to avoid main-thread jitter
     private let holdQueue = DispatchQueue(label: "InputProcessor.holdQueue", qos: .userInitiated)
@@ -258,9 +258,9 @@ class InputProcessor {
         // Integrate roll (radians) so we can deskew axes when the controller is canted
         currentRoll += calibrated.x * dt * (.pi / 180.0)
 
-        // While clutch is held, watch for quiet IMU to refresh neutral/bias
-        if clutchActive {
-            updateClutchNeutral(rawGyro: gyro, timestamp: now)
+        // While cursor is locked (clutch/scroll/zoom), watch for quiet IMU to refresh neutral/bias
+        if cursorLockActive {
+            updateLockNeutral(rawGyro: gyro, timestamp: now)
         }
 
         // 4. Extract axes for pointing-forward grip
@@ -283,7 +283,7 @@ class InputProcessor {
         let filteredYaw = yawFilter.filter(value: yaw, timestamp: now)
         let filteredPitch = pitchFilter.filter(value: pitch, timestamp: now)
 
-        // 7. Deskew axes if the controller was re-gripped with roll (clutch)
+        // 7. Deskew axes if the controller was re-gripped with roll (lock)
         let (compensatedYaw, compensatedPitch) = applyRollCompensation(yaw: filteredYaw, pitch: filteredPitch)
 
         // 8. Apply gentle acceleration curve on angular speed
@@ -292,7 +292,7 @@ class InputProcessor {
 
         // Scale: sensitivity * 0.1 gives good range with slider
         let baseScale = sensitivity * 0.1
-        let ramp = clutchRampFactor(now: now)
+        let ramp = lockRampFactor(now: now)
         let dx = CGFloat(compensatedYaw * dt * baseScale * accelGain * ramp)
         let dy = CGFloat(compensatedPitch * dt * baseScale * accelGain * ramp)
 
@@ -457,25 +457,27 @@ class InputProcessor {
         lastSmoothThreshold = nil
         overrideMode = .none
         overrideCounts = [:]
-        clutchActive = false
-        clutchNeutralStart = nil
-        clutchNeutralAccumulator = (0, 0, 0)
-        clutchNeutralCount = 0
-        clutchBiasUpdatedAt = nil
-        clutchRollStart = nil
+        cursorLockActive = false
+        lockNeutralStart = nil
+        lockNeutralAccumulator = (0, 0, 0)
+        lockNeutralCount = 0
+        lockBiasUpdatedAt = nil
+        lockRollStart = nil
         rollCompensation = 0
         currentRoll = 0
         releaseRampStart = nil
     }
 
     func beginOverride(_ mode: OverrideMode) {
-        let wasClutch = (overrideCounts[.clutch] ?? 0) > 0
+        let previousMode = currentOverride()
+        let wasLocking = isLockingMode(previousMode)
         overrideCounts[mode, default: 0] += 1
-        let isClutch = (overrideCounts[.clutch] ?? 0) > 0
-        if !wasClutch && isClutch {
-            handleClutchStarted()
+        let newMode = currentOverride()
+        overrideMode = newMode
+        let isLocking = isLockingMode(newMode)
+        if !wasLocking && isLocking {
+            handleCursorLockStarted()
         }
-        overrideMode = currentOverride()
     }
 
     func endOverride(_ mode: OverrideMode) {
@@ -484,11 +486,14 @@ class InputProcessor {
         } else {
             overrideCounts.removeValue(forKey: mode)
         }
-        let isClutch = (overrideCounts[.clutch] ?? 0) > 0
-        if clutchActive && !isClutch {
-            handleClutchEnded()
+        let previousMode = overrideMode
+        let wasLocking = isLockingMode(previousMode)
+        let newMode = currentOverride()
+        overrideMode = newMode
+        let isLocking = isLockingMode(newMode)
+        if wasLocking && !isLocking {
+            handleCursorLockEnded()
         }
-        overrideMode = currentOverride()
     }
 
     private func currentOverride() -> OverrideMode {
@@ -498,22 +503,31 @@ class InputProcessor {
         return .none
     }
 
-    private func handleClutchStarted() {
-        clutchActive = true
-        clutchNeutralStart = nil
-        clutchNeutralAccumulator = (0, 0, 0)
-        clutchNeutralCount = 0
-        clutchBiasUpdatedAt = nil
+    private func isLockingMode(_ mode: OverrideMode) -> Bool {
+        switch mode {
+        case .clutch, .scroll, .zoom:
+            return true
+        case .none:
+            return false
+        }
+    }
+
+    private func handleCursorLockStarted() {
+        cursorLockActive = true
+        lockNeutralStart = nil
+        lockNeutralAccumulator = (0, 0, 0)
+        lockNeutralCount = 0
+        lockBiasUpdatedAt = nil
         releaseRampStart = nil
-        clutchRollStart = currentRoll
+        lockRollStart = currentRoll
         yawFilter.reset()
         pitchFilter.reset()
         lastTimestamp = nil
     }
 
-    private func handleClutchEnded() {
-        clutchActive = false
-        if let startRoll = clutchRollStart {
+    private func handleCursorLockEnded() {
+        cursorLockActive = false
+        if let startRoll = lockRollStart {
             let delta = currentRoll - startRoll
             let twoPi = Double.pi * 2.0
             var normalized = delta.truncatingRemainder(dividingBy: twoPi)
@@ -521,16 +535,16 @@ class InputProcessor {
             if normalized < -Double.pi { normalized += twoPi }
             rollCompensation = normalized
         }
-        clutchRollStart = nil
-        clutchNeutralStart = nil
-        clutchNeutralAccumulator = (0, 0, 0)
-        clutchNeutralCount = 0
-        clutchBiasUpdatedAt = nil
+        lockRollStart = nil
+        lockNeutralStart = nil
+        lockNeutralAccumulator = (0, 0, 0)
+        lockNeutralCount = 0
+        lockBiasUpdatedAt = nil
         releaseRampStart = CACurrentMediaTime()
     }
 
-    private func clutchRampFactor(now: TimeInterval) -> Double {
-        guard let start = releaseRampStart else { return clutchActive ? 0.0 : 1.0 }
+    private func lockRampFactor(now: TimeInterval) -> Double {
+        guard let start = releaseRampStart else { return 1.0 }
         let progress = max(0, now - start) / releaseRampDuration
         if progress >= 1.0 {
             releaseRampStart = nil
@@ -539,41 +553,41 @@ class InputProcessor {
         return progress
     }
 
-    private func updateClutchNeutral(rawGyro: GyroData, timestamp: TimeInterval) {
+    private func updateLockNeutral(rawGyro: GyroData, timestamp: TimeInterval) {
         let magnitude = sqrt(rawGyro.x * rawGyro.x + rawGyro.y * rawGyro.y + rawGyro.z * rawGyro.z)
 
-        if magnitude < clutchQuietThreshold {
-            if clutchNeutralStart == nil {
-                clutchNeutralStart = timestamp
-                clutchNeutralAccumulator = (rawGyro.x, rawGyro.y, rawGyro.z)
-                clutchNeutralCount = 1
+        if magnitude < lockQuietThreshold {
+            if lockNeutralStart == nil {
+                lockNeutralStart = timestamp
+                lockNeutralAccumulator = (rawGyro.x, rawGyro.y, rawGyro.z)
+                lockNeutralCount = 1
             } else {
-                clutchNeutralAccumulator.x += rawGyro.x
-                clutchNeutralAccumulator.y += rawGyro.y
-                clutchNeutralAccumulator.z += rawGyro.z
-                clutchNeutralCount += 1
+                lockNeutralAccumulator.x += rawGyro.x
+                lockNeutralAccumulator.y += rawGyro.y
+                lockNeutralAccumulator.z += rawGyro.z
+                lockNeutralCount += 1
             }
 
-            if let start = clutchNeutralStart,
-               timestamp - start >= clutchQuietMinDuration,
-               clutchNeutralCount >= 12,
-               (clutchBiasUpdatedAt == nil || timestamp - (clutchBiasUpdatedAt ?? 0) > 0.2) {
-                let invCount = 1.0 / Double(clutchNeutralCount)
+            if let start = lockNeutralStart,
+               timestamp - start >= lockQuietMinDuration,
+               lockNeutralCount >= 12,
+               (lockBiasUpdatedAt == nil || timestamp - (lockBiasUpdatedAt ?? 0) > 0.2) {
+                let invCount = 1.0 / Double(lockNeutralCount)
                 let avg = (
-                    x: clutchNeutralAccumulator.x * invCount,
-                    y: clutchNeutralAccumulator.y * invCount,
-                    z: clutchNeutralAccumulator.z * invCount
+                    x: lockNeutralAccumulator.x * invCount,
+                    y: lockNeutralAccumulator.y * invCount,
+                    z: lockNeutralAccumulator.z * invCount
                 )
                 biasEstimator.forceBias((avg.x, avg.y, avg.z))
-                clutchBiasUpdatedAt = timestamp
-                clutchNeutralStart = nil
-                clutchNeutralAccumulator = (0, 0, 0)
-                clutchNeutralCount = 0
+                lockBiasUpdatedAt = timestamp
+                lockNeutralStart = nil
+                lockNeutralAccumulator = (0, 0, 0)
+                lockNeutralCount = 0
             }
         } else {
-            clutchNeutralStart = nil
-            clutchNeutralAccumulator = (0, 0, 0)
-            clutchNeutralCount = 0
+            lockNeutralStart = nil
+            lockNeutralAccumulator = (0, 0, 0)
+            lockNeutralCount = 0
         }
     }
 
