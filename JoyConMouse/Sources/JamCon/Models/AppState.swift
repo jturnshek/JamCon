@@ -19,6 +19,7 @@ final class InputSettings: @unchecked Sendable {
     private var _secondaryMapping: ButtonMappingProfile = .defaultSecondary
     private var _primaryControllerId: UUID? = nil
     private var _mirrorFaceButtons: Bool = true
+    private var _holdThreshold: Double = 1.0
 
     var isEnabled: Bool {
         get { lock.withLock { _isEnabled } }
@@ -73,6 +74,11 @@ final class InputSettings: @unchecked Sendable {
     var mirrorFaceButtons: Bool {
         get { lock.withLock { _mirrorFaceButtons } }
         set { lock.withLock { _mirrorFaceButtons = newValue } }
+    }
+
+    var holdThreshold: Double {
+        get { lock.withLock { _holdThreshold } }
+        set { lock.withLock { _holdThreshold = newValue } }
     }
 }
 
@@ -141,6 +147,9 @@ class AppState: ObservableObject {
     @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = true {
         didSet { inputSettings.mirrorFaceButtons = mirrorFaceButtons }
     }
+    @AppStorage("holdThreshold") var holdThreshold: Double = 1.0 {
+        didSet { inputSettings.holdThreshold = holdThreshold }
+    }
 
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
@@ -198,6 +207,7 @@ class AppState: ObservableObject {
         inputSettings.secondaryMapping = loadedSecondary
         inputSettings.primaryControllerId = nil  // Will be set when first controller connects
         inputSettings.mirrorFaceButtons = mirrorFaceButtons
+        inputSettings.holdThreshold = holdThreshold
 
         // Check Accessibility permission on startup
         checkAccessibilityPermission()
@@ -301,8 +311,12 @@ class AppState: ObservableObject {
             guard settings.isEnabled else { return }
             let isPrimary = settings.primaryControllerId == controllerId
             let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
-            let action = mapping.action(for: button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons)
-            processor?.processAction(action, isDown: true)
+
+            // Get logical button for hold detection
+            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
+            let actions = mapping[logicalButton]
+
+            processor?.handleButtonDown(logicalButton, actions: actions, holdThreshold: settings.holdThreshold)
         }
 
         joyConController?.onButtonRelease = { [weak self] controllerId, controllerType, button in
@@ -311,10 +325,11 @@ class AppState: ObservableObject {
             let processor = self.inputProcessor
 
             guard settings.isEnabled else { return }
-            let isPrimary = settings.primaryControllerId == controllerId
-            let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
-            let action = mapping.action(for: button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons)
-            processor?.processAction(action, isDown: false)
+
+            // Get logical button for hold detection
+            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
+
+            processor?.handleButtonUp(logicalButton)
         }
 
         // Stick: only process from primary controller

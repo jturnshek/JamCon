@@ -258,6 +258,14 @@ enum LogicalButton: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Action Type
+
+/// Distinguishes between press (tap) and hold (long press) actions
+enum ActionType: String, Codable, Hashable, Sendable {
+    case press
+    case hold
+}
+
 // MARK: - Button Action
 
 enum ButtonAction: Codable, Equatable, Hashable, Sendable {
@@ -281,28 +289,46 @@ enum ButtonAction: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+// MARK: - Button Actions (Press + Hold)
+
+/// Combined actions for press (tap) and hold (long press) on a button
+struct ButtonActions: Codable, Equatable, Hashable, Sendable {
+    var press: ButtonAction
+    var hold: ButtonAction
+
+    init(press: ButtonAction = .none, hold: ButtonAction = .none) {
+        self.press = press
+        self.hold = hold
+    }
+
+    /// Check if any action is configured
+    var hasAnyAction: Bool {
+        press != .none || hold != .none
+    }
+}
+
 // MARK: - Button Mapping Profile
 
 struct ButtonMappingProfile: Codable, Equatable {
-    var mappings: [String: ButtonAction]  // LogicalButton.rawValue -> ButtonAction
+    var mappings: [String: ButtonActions]  // LogicalButton.rawValue -> ButtonActions
 
-    init(mappings: [LogicalButton: ButtonAction] = [:]) {
+    init(mappings: [LogicalButton: ButtonActions] = [:]) {
         self.mappings = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value) })
     }
 
-    subscript(button: LogicalButton) -> ButtonAction {
-        get { mappings[button.rawValue] ?? .none }
+    subscript(button: LogicalButton) -> ButtonActions {
+        get { mappings[button.rawValue] ?? ButtonActions() }
         set { mappings[button.rawValue] = newValue }
     }
 
-    /// Look up action for a physical button by translating to logical button first
-    func action(
+    /// Look up actions for a physical button by translating to logical button first
+    func actions(
         for button: JoyConButton,
         controllerType: ControllerType,
         mirrorFaceButtons: Bool
-    ) -> ButtonAction {
+    ) -> ButtonActions {
         guard let logical = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: mirrorFaceButtons) else {
-            return .none
+            return ButtonActions()
         }
         return self[logical]
     }
@@ -310,17 +336,35 @@ struct ButtonMappingProfile: Codable, Equatable {
     // Default profile for primary controller
     static var defaultPrimary: ButtonMappingProfile {
         ButtonMappingProfile(mappings: [
-            .trigger: .mouseClick(.left),
-            .shoulder: .mouseClick(.right),
+            .trigger: ButtonActions(press: .mouseClick(.left)),
+            .shoulder: ButtonActions(press: .mouseClick(.right)),
         ])
     }
 
     // Default profile for secondary controller
     static var defaultSecondary: ButtonMappingProfile {
         ButtonMappingProfile(mappings: [
-            .trigger: .mouseClick(.left),
-            .shoulder: .mouseClick(.right),
+            .trigger: ButtonActions(press: .mouseClick(.left)),
+            .shoulder: ButtonActions(press: .mouseClick(.right)),
         ])
+    }
+}
+
+// MARK: - Old Format Migration
+
+/// Old profile format for migration (single action per button)
+private struct OldButtonMappingProfile: Codable {
+    var mappings: [String: ButtonAction]
+
+    /// Migrate old format to new format (single actions become press actions)
+    func migrated() -> ButtonMappingProfile {
+        var newMappings: [String: ButtonActions] = [:]
+        for (key, action) in mappings {
+            newMappings[key] = ButtonActions(press: action, hold: .none)
+        }
+        var profile = ButtonMappingProfile()
+        profile.mappings = newMappings
+        return profile
     }
 }
 
@@ -329,12 +373,22 @@ struct ButtonMappingProfile: Codable, Equatable {
 extension ButtonMappingProfile {
     static func load(from key: String) -> ButtonMappingProfile? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-        do {
-            return try JSONDecoder().decode(ButtonMappingProfile.self, from: data)
-        } catch {
-            print("[ButtonMappingProfile] Failed to decode from '\(key)': \(error)")
-            return nil
+
+        // Try new format first
+        if let profile = try? JSONDecoder().decode(ButtonMappingProfile.self, from: data) {
+            return profile
         }
+
+        // Fall back to old format (migrate single actions to press)
+        if let oldProfile = try? JSONDecoder().decode(OldButtonMappingProfile.self, from: data) {
+            print("[ButtonMappingProfile] Migrating old profile format from '\(key)'")
+            let migrated = oldProfile.migrated()
+            migrated.save(to: key)  // Save migrated format
+            return migrated
+        }
+
+        print("[ButtonMappingProfile] Failed to decode from '\(key)'")
+        return nil
     }
 
     func save(to key: String) {

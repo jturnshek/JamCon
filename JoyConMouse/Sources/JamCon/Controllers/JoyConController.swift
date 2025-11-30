@@ -117,6 +117,22 @@ class JoyConController {
         // Enable IMU (6-axis sensor)
         controller.enableIMU(enable: true)
 
+        // Set player LEDs to indicate connection (stops the flashing)
+        // First controller = LED 1, second = LED 2, etc.
+        let playerNumber = controllers.count + 1
+        switch playerNumber {
+        case 1:
+            controller.setPlayerLights(l1: .on, l2: .off, l3: .off, l4: .off)
+        case 2:
+            controller.setPlayerLights(l1: .off, l2: .on, l3: .off, l4: .off)
+        case 3:
+            controller.setPlayerLights(l1: .on, l2: .on, l3: .off, l4: .off)
+        case 4:
+            controller.setPlayerLights(l1: .off, l2: .off, l3: .on, l4: .off)
+        default:
+            controller.setPlayerLights(l1: .on, l2: .on, l3: .on, l4: .on)
+        }
+
         // Set up input handlers
         setupControllerHandlers(controller, connectedController: connectedController)
 

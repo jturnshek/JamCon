@@ -3,10 +3,10 @@ import Combine
 import Carbon.HIToolbox
 import CoreGraphics
 
-/// Tracks which button is currently being configured for key capture
+/// Tracks which button and action type is currently being configured for key capture
 enum KeyCaptureState: Equatable {
     case idle
-    case capturing(button: LogicalButton)
+    case capturing(button: LogicalButton, actionType: ActionType)
 }
 
 /// Manages keyboard event capture for button mapping configuration
@@ -19,12 +19,12 @@ class KeyCaptureManager: ObservableObject {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    /// Callback when a key combo is captured - provides the button and combo
-    var onCapture: ((LogicalButton, KeyCombo) -> Void)?
+    /// Callback when a key combo is captured - provides the button, action type, and combo
+    var onCapture: ((LogicalButton, ActionType, KeyCombo) -> Void)?
 
-    /// Start capturing keyboard input for a specific button
-    func startCapture(for button: LogicalButton) {
-        captureState = .capturing(button: button)
+    /// Start capturing keyboard input for a specific button and action type
+    func startCapture(for button: LogicalButton, actionType: ActionType) {
+        captureState = .capturing(button: button, actionType: actionType)
         currentModifiers = []
         installEventTap()
     }
@@ -36,10 +36,10 @@ class KeyCaptureManager: ObservableObject {
         currentModifiers = []
     }
 
-    /// Check if currently capturing for a specific button
-    func isCapturing(button: LogicalButton) -> Bool {
-        if case .capturing(let b) = captureState {
-            return b == button
+    /// Check if currently capturing for a specific button and action type
+    func isCapturing(button: LogicalButton, actionType: ActionType) -> Bool {
+        if case .capturing(let b, let t) = captureState {
+            return b == button && t == actionType
         }
         return false
     }
@@ -97,7 +97,7 @@ class KeyCaptureManager: ObservableObject {
             return Unmanaged.passRetained(event)
         }
 
-        guard case .capturing(let button) = captureState else {
+        guard case .capturing(let button, let actionType) = captureState else {
             return Unmanaged.passRetained(event)  // Pass through if not capturing
         }
 
@@ -117,19 +117,11 @@ class KeyCaptureManager: ObservableObject {
         if type == .keyDown {
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
-            // Escape with no modifiers cancels capture
-            if keyCode == UInt16(kVK_Escape) && modifiers.isEmpty {
-                Task { @MainActor in
-                    self.cancelCapture()
-                }
-                return nil  // Consume the event
-            }
-
-            // Capture the key combo
+            // Capture the key combo (including Escape - use X button to cancel)
             let combo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
 
             Task { @MainActor in
-                self.onCapture?(button, combo)
+                self.onCapture?(button, actionType, combo)
                 self.removeEventTap()
                 self.captureState = .idle
                 self.currentModifiers = []

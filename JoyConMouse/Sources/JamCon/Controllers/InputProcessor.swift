@@ -197,10 +197,71 @@ class InputProcessor {
         onMouseMove?(dx, dy)
     }
 
-    // MARK: - Button Processing
+    // MARK: - Button Hold Detection
 
-    /// Process a button action (called after translating physical button to action)
-    func processAction(_ action: ButtonAction, isDown: Bool) {
+    /// Tracks button press state for hold detection
+    private var buttonState: [LogicalButton: ButtonPressState] = [:]
+    private var holdTimers: [LogicalButton: DispatchWorkItem] = [:]
+
+    private struct ButtonPressState {
+        let pressTime: Date
+        let actions: ButtonActions
+        var holdFired: Bool = false
+    }
+
+    /// Handle button press with hold detection
+    /// - Parameters:
+    ///   - button: The logical button pressed
+    ///   - actions: The configured actions for press and hold
+    ///   - holdThreshold: Time in seconds before hold action fires
+    func handleButtonDown(_ button: LogicalButton, actions: ButtonActions, holdThreshold: Double) {
+        // Cancel any existing timer for this button
+        holdTimers[button]?.cancel()
+        holdTimers[button] = nil
+
+        // Track the press
+        buttonState[button] = ButtonPressState(pressTime: Date(), actions: actions)
+
+        // If there's a hold action, schedule it
+        if actions.hold != .none {
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                // Mark hold as fired and execute hold action
+                if var state = self.buttonState[button] {
+                    state.holdFired = true
+                    self.buttonState[button] = state
+                    self.executeAction(actions.hold, isDown: true)
+                }
+            }
+            holdTimers[button] = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + holdThreshold, execute: workItem)
+        }
+    }
+
+    /// Handle button release with hold detection
+    /// - Parameter button: The logical button released
+    func handleButtonUp(_ button: LogicalButton) {
+        // Cancel hold timer if still pending
+        holdTimers[button]?.cancel()
+        holdTimers[button] = nil
+
+        guard let state = buttonState[button] else { return }
+        buttonState[button] = nil
+
+        if state.holdFired {
+            // Hold action was triggered - release the hold action
+            executeAction(state.actions.hold, isDown: false)
+        } else {
+            // Released before hold threshold - fire press action (down + up)
+            if state.actions.press != .none {
+                executeAction(state.actions.press, isDown: true)
+                executeAction(state.actions.press, isDown: false)
+            }
+        }
+    }
+
+    /// Execute a single action (internal helper)
+    private func executeAction(_ action: ButtonAction, isDown: Bool) {
         switch action {
         case .none:
             break
@@ -213,6 +274,13 @@ class InputProcessor {
                 onKeyUp?(keyCombo)
             }
         }
+    }
+
+    // MARK: - Legacy Button Processing (for simple actions)
+
+    /// Process a button action (called after translating physical button to action)
+    func processAction(_ action: ButtonAction, isDown: Bool) {
+        executeAction(action, isDown: isDown)
     }
 
     // MARK: - Stick Processing

@@ -3,7 +3,8 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var keyCaptureManager = KeyCaptureManager()
-    @State private var showButtonMapping = false
+    @State private var showMouseSection = false
+    @State private var showButtonsSection = false
     @State private var selectedMappingRole: MappingRole = .primary
 
     enum MappingRole: String, CaseIterable {
@@ -28,29 +29,24 @@ struct MenuBarView: View {
 
             Divider()
 
-            // Sensitivity settings
-            sensitivitySection
+            // Collapsible Mouse section
+            mouseSection
 
             Divider()
 
-            // Stabilization settings
-            stabilizationSection
+            // Collapsible Buttons section
+            buttonsSection
 
             Divider()
 
-            // Button mapping
-            buttonMappingSection
-
-            Divider()
-
-            // Footer with accessibility and quit
+            // Footer with quit
             footerSection
         }
         .padding()
-        .frame(width: 280)
+        .frame(width: 420)
         .onAppear {
-            keyCaptureManager.onCapture = { button, combo in
-                setAction(.keyPress(combo), for: button)
+            keyCaptureManager.onCapture = { button, actionType, combo in
+                setAction(.keyPress(combo), for: button, actionType: actionType)
             }
         }
         .onDisappear {
@@ -58,6 +54,11 @@ struct MenuBarView: View {
         }
         .onChange(of: selectedMappingRole) { _, _ in
             keyCaptureManager.cancelCapture()
+        }
+        .onChange(of: showButtonsSection) { _, newValue in
+            if !newValue {
+                keyCaptureManager.cancelCapture()
+            }
         }
     }
 
@@ -195,108 +196,18 @@ struct MenuBarView: View {
         .disabled(!appState.isConnected)
     }
 
-    // MARK: - Sensitivity Section
+    // MARK: - Mouse Section (Collapsible)
 
-    private var sensitivitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Sensitivity")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            // Mouse sensitivity
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Mouse")
-                        .font(.caption)
-                    Spacer()
-                    Text(String(format: "%.0f", appState.gyroSensitivity))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(width: 30, alignment: .trailing)
-                }
-                Slider(value: $appState.gyroSensitivity, in: 1...50, step: 1)
-            }
-
-            // Scroll sensitivity
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Scroll")
-                        .font(.caption)
-                    Spacer()
-                    Text(String(format: "%.0f", appState.scrollSensitivity))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(width: 30, alignment: .trailing)
-                }
-                Slider(value: $appState.scrollSensitivity, in: 1...20, step: 1)
-            }
-        }
-    }
-
-    // MARK: - Stabilization Section
-
-    private var stabilizationSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Stabilization")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            // Smoothing threshold
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Smoothing")
-                        .font(.caption)
-                    Spacer()
-                    Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .frame(width: 30, alignment: .trailing)
-                }
-                Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
-            }
-
-            // Calibration status and button
-            HStack {
-                // Status indicator
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(appState.isGyroCalibrated ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    Text(appState.isGyroCalibrated ? "Calibrated" : "Calibrating...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                // Recalibrate button
-                Button(action: appState.resetGyroCalibration) {
-                    Text("Recalibrate")
-                        .font(.caption)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(!appState.isConnected)
-            }
-
-            Text("Hold controller still to calibrate")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-    }
-
-    // MARK: - Button Mapping Section
-
-    private var buttonMappingSection: some View {
+    private var mouseSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Expandable header
-            Button(action: { withAnimation { showButtonMapping.toggle() } }) {
+            Button(action: { withAnimation { showMouseSection.toggle() } }) {
                 HStack {
-                    Image(systemName: "keyboard")
-                    Text("Button Mapping")
+                    Image(systemName: "cursorarrow.motionlines")
+                    Text("Mouse")
                         .font(.subheadline)
                     Spacer()
-                    Image(systemName: showButtonMapping ? "chevron.up" : "chevron.down")
+                    Image(systemName: showMouseSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -304,7 +215,130 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
             .foregroundColor(.secondary)
 
-            if showButtonMapping {
+            if showMouseSection {
+                // Sensitivity subsection
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sensitivity")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // Mouse sensitivity
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Speed")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.0f", appState.gyroSensitivity))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 30, alignment: .trailing)
+                        }
+                        Slider(value: $appState.gyroSensitivity, in: 1...50, step: 1)
+                    }
+
+                    // Scroll sensitivity
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Scroll")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.0f", appState.scrollSensitivity))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 30, alignment: .trailing)
+                        }
+                        Slider(value: $appState.scrollSensitivity, in: 1...20, step: 1)
+                    }
+                }
+
+                Divider()
+
+                // Stabilization subsection
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Stabilization")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // Smoothing threshold
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Smoothing")
+                                .font(.caption)
+                            Spacer()
+                            Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 30, alignment: .trailing)
+                        }
+                        Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
+                    }
+
+                    // Calibration status and button
+                    HStack {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(appState.isGyroCalibrated ? Color.green : Color.orange)
+                                .frame(width: 8, height: 8)
+                            Text(appState.isGyroCalibrated ? "Calibrated" : "Calibrating...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button(action: appState.resetGyroCalibration) {
+                            Text("Recalibrate")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!appState.isConnected)
+                    }
+
+                    Text("Hold controller still to calibrate")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Buttons Section (Collapsible)
+
+    private var buttonsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Expandable header
+            Button(action: { withAnimation { showButtonsSection.toggle() } }) {
+                HStack {
+                    Image(systemName: "keyboard")
+                    Text("Buttons")
+                        .font(.subheadline)
+                    Spacer()
+                    Image(systemName: showButtonsSection ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+
+            if showButtonsSection {
+                // Hold delay slider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Hold Delay")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.1fs", appState.holdThreshold))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 30, alignment: .trailing)
+                    }
+                    Slider(value: $appState.holdThreshold, in: 0.2...2.0, step: 0.1)
+                }
+
+                Divider()
+
                 // Mirror toggle
                 Toggle(isOn: $appState.mirrorFaceButtons) {
                     Text("Mirror face buttons")
@@ -326,6 +360,9 @@ struct MenuBarView: View {
                 .pickerStyle(.segmented)
                 .padding(.vertical, 4)
 
+                // Column headers
+                buttonMappingHeader
+
                 // Button mappings
                 ForEach(LogicalButton.buttonGroups, id: \.name) { group in
                     buttonGroupView(group)
@@ -342,6 +379,25 @@ struct MenuBarView: View {
         }
     }
 
+    private var buttonMappingHeader: some View {
+        HStack(spacing: 8) {
+            Text("Button")
+                .font(.caption)
+                .fontWeight(.medium)
+                .frame(width: 70, alignment: .leading)
+            Text("Press")
+                .font(.caption)
+                .fontWeight(.medium)
+                .frame(maxWidth: .infinity)
+            Text("Hold")
+                .font(.caption)
+                .fontWeight(.medium)
+                .frame(maxWidth: .infinity)
+        }
+        .foregroundColor(.secondary)
+        .padding(.bottom, 2)
+    }
+
     private func buttonGroupView(_ group: (name: String, buttons: [LogicalButton])) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(group.name)
@@ -355,23 +411,24 @@ struct MenuBarView: View {
     }
 
     private func buttonMappingRow(_ button: LogicalButton) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(button.displayName(mirrored: appState.mirrorFaceButtons))
                 .font(.caption)
-                .frame(width: 60, alignment: .leading)
+                .frame(width: 70, alignment: .leading)
 
-            Spacer()
-
-            actionControl(for: button)
+            actionCell(for: button, actionType: .press)
+            actionCell(for: button, actionType: .hold)
         }
     }
 
     @ViewBuilder
-    private func actionControl(for button: LogicalButton) -> some View {
-        if keyCaptureManager.isCapturing(button: button) {
+    private func actionCell(for button: LogicalButton, actionType: ActionType) -> some View {
+        if keyCaptureManager.isCapturing(button: button, actionType: actionType) {
             keyCaptureView
+                .frame(maxWidth: .infinity)
         } else {
-            actionDisplayRow(for: button)
+            actionDisplayCell(for: button, actionType: actionType)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -399,13 +456,14 @@ struct MenuBarView: View {
         .cornerRadius(4)
     }
 
-    private func actionDisplayRow(for button: LogicalButton) -> some View {
-        let action = currentMapping[button]
+    private func actionDisplayCell(for button: LogicalButton, actionType: ActionType) -> some View {
+        let actions = currentMapping[button]
+        let action = actionType == .press ? actions.press : actions.hold
 
-        return HStack(spacing: 4) {
+        return HStack(spacing: 2) {
             // Click to capture keyboard shortcut
             Button(action: {
-                keyCaptureManager.startCapture(for: button)
+                keyCaptureManager.startCapture(for: button, actionType: actionType)
             }) {
                 HStack(spacing: 2) {
                     Image(systemName: "keyboard")
@@ -413,17 +471,18 @@ struct MenuBarView: View {
                         .foregroundColor(.secondary)
                     Text(action.displayName)
                         .font(.caption)
+                        .lineLimit(1)
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 4)
             .padding(.vertical, 2)
             .background(Color.secondary.opacity(0.1))
             .cornerRadius(4)
 
             // Clear button (only show if action is not .none)
             if action != .none {
-                Button(action: { setAction(.none, for: button) }) {
+                Button(action: { setAction(.none, for: button, actionType: actionType) }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -433,16 +492,16 @@ struct MenuBarView: View {
 
             // Mouse click dropdown
             Menu {
-                Button("Left Click") { setAction(.mouseClick(.left), for: button) }
-                Button("Right Click") { setAction(.mouseClick(.right), for: button) }
-                Button("Middle Click") { setAction(.mouseClick(.middle), for: button) }
+                Button("Left Click") { setAction(.mouseClick(.left), for: button, actionType: actionType) }
+                Button("Right Click") { setAction(.mouseClick(.right), for: button, actionType: actionType) }
+                Button("Middle Click") { setAction(.mouseClick(.middle), for: button, actionType: actionType) }
             } label: {
                 Image(systemName: "computermouse")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 20)
+            .frame(width: 16)
         }
     }
 
@@ -453,12 +512,24 @@ struct MenuBarView: View {
         }
     }
 
-    private func setAction(_ action: ButtonAction, for button: LogicalButton) {
+    private func setAction(_ action: ButtonAction, for button: LogicalButton, actionType: ActionType) {
         switch selectedMappingRole {
         case .primary:
-            appState.primaryMapping[button] = action
+            var actions = appState.primaryMapping[button]
+            if actionType == .press {
+                actions.press = action
+            } else {
+                actions.hold = action
+            }
+            appState.primaryMapping[button] = actions
         case .secondary:
-            appState.secondaryMapping[button] = action
+            var actions = appState.secondaryMapping[button]
+            if actionType == .press {
+                actions.press = action
+            } else {
+                actions.hold = action
+            }
+            appState.secondaryMapping[button] = actions
         }
     }
 
