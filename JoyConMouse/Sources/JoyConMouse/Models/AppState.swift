@@ -8,10 +8,11 @@ final class InputSettings: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
 
     private var _isEnabled: Bool = true
-    private var _gyroSensitivity: Double = 15.0
-    private var _scrollSensitivity: Double = 5.0
+    private var _gyroSensitivity: Double = 5.0
+    private var _scrollSensitivity: Double = 10.0
     private var _gyroDeadzone: Double = 1.0
     private var _stickDeadzone: Double = 0.15
+    private var _smoothThreshold: Double = 20.0
     private var _controllerType: ControllerType = .none
 
     var isEnabled: Bool {
@@ -39,6 +40,11 @@ final class InputSettings: @unchecked Sendable {
         set { lock.withLock { _stickDeadzone = newValue } }
     }
 
+    var smoothThreshold: Double {
+        get { lock.withLock { _smoothThreshold } }
+        set { lock.withLock { _smoothThreshold = newValue } }
+    }
+
     var controllerType: ControllerType {
         get { lock.withLock { _controllerType } }
         set { lock.withLock { _controllerType = newValue } }
@@ -59,10 +65,10 @@ class AppState: ObservableObject {
     @AppStorage("isEnabled") var isEnabled: Bool = true {
         didSet { inputSettings.isEnabled = isEnabled }
     }
-    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 15.0 {
+    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 5.0 {
         didSet { inputSettings.gyroSensitivity = gyroSensitivity }
     }
-    @AppStorage("scrollSensitivity") var scrollSensitivity: Double = 5.0 {
+    @AppStorage("scrollSensitivity") var scrollSensitivity: Double = 10.0 {
         didSet { inputSettings.scrollSensitivity = scrollSensitivity }
     }
     @AppStorage("gyroDeadzone") var gyroDeadzone: Double = 1.0 {
@@ -71,11 +77,17 @@ class AppState: ObservableObject {
     @AppStorage("stickDeadzone") var stickDeadzone: Double = 0.15 {
         didSet { inputSettings.stickDeadzone = stickDeadzone }
     }
+    @AppStorage("smoothThreshold") var smoothThreshold: Double = 20.0 {
+        didSet { inputSettings.smoothThreshold = smoothThreshold }
+    }
+
+    // MARK: - Calibration State
+    @Published var isGyroCalibrated: Bool = false
 
     // MARK: - Controllers
     private var joyConController: JoyConController?
     private var mouseController: MouseController?
-    private var inputProcessor: InputProcessor?
+    private(set) var inputProcessor: InputProcessor?
 
     // Thread-safe settings cache for input callbacks
     private let inputSettings = InputSettings()
@@ -89,6 +101,7 @@ class AppState: ObservableObject {
         inputSettings.scrollSensitivity = scrollSensitivity
         inputSettings.gyroDeadzone = gyroDeadzone
         inputSettings.stickDeadzone = stickDeadzone
+        inputSettings.smoothThreshold = smoothThreshold
 
         setupControllers()
     }
@@ -120,9 +133,24 @@ class AppState: ObservableObject {
         }
 
         // Wire up Joy-Con events - NO main thread dispatch for input processing
-        joyConController?.onGyroUpdate = { [settings, processor] gyro in
+        joyConController?.onGyroUpdate = { [weak self, settings, processor] gyro in
             guard settings.isEnabled else { return }
-            processor?.processGyro(gyro, sensitivity: settings.gyroSensitivity, deadzone: settings.gyroDeadzone)
+            processor?.processGyro(
+                gyro,
+                sensitivity: settings.gyroSensitivity,
+                deadzone: settings.gyroDeadzone,
+                smoothThreshold: settings.smoothThreshold
+            )
+
+            // Update calibration status on main thread (infrequently)
+            if let processor = processor {
+                let isCalibrated = processor.biasEstimator.isCalibrated
+                Task { @MainActor in
+                    if self?.isGyroCalibrated != isCalibrated {
+                        self?.isGyroCalibrated = isCalibrated
+                    }
+                }
+            }
         }
 
         joyConController?.onButtonPress = { [settings, processor] button in
@@ -162,6 +190,13 @@ class AppState: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    /// Reset gyro calibration - controller will recalibrate when held still
+    func resetGyroCalibration() {
+        inputProcessor?.biasEstimator.reset()
+        inputProcessor?.smoother.reset()
+        isGyroCalibrated = false
     }
 
     func quit() {

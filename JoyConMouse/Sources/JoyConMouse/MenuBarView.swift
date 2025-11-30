@@ -20,6 +20,11 @@ struct MenuBarView: View {
 
             Divider()
 
+            // Stabilization settings
+            stabilizationSection
+
+            Divider()
+
             // Footer with accessibility and quit
             footerSection
         }
@@ -127,6 +132,58 @@ struct MenuBarView: View {
                 }
                 Slider(value: $appState.scrollSensitivity, in: 1...20, step: 1)
             }
+        }
+    }
+
+    // MARK: - Stabilization Section
+
+    private var stabilizationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Stabilization")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            // Smoothing threshold
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Smoothing")
+                        .font(.caption)
+                    Spacer()
+                    Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(width: 30, alignment: .trailing)
+                }
+                Slider(value: $appState.smoothThreshold, in: 0...20, step: 1)
+            }
+
+            // Calibration status and button
+            HStack {
+                // Status indicator
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(appState.isGyroCalibrated ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(appState.isGyroCalibrated ? "Calibrated" : "Calibrating...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                // Recalibrate button
+                Button(action: appState.resetGyroCalibration) {
+                    Text("Recalibrate")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!appState.isConnected)
+            }
+
+            Text("Hold controller still to calibrate")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
     }
 
