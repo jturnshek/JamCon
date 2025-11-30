@@ -151,6 +151,10 @@ class InputProcessor {
     private var lastReportedCalibration: Bool?
     private var lastSmoothThreshold: Double?
     private var lastFilterBeta: Double?
+    private var lastInstantSpeed: Double = 0
+    private var lastSpeedEMA: Double = 0
+    private var lastJerkEMA: Double = 0
+    private var lastBetaSpeed: Double = 0
 
     enum OverrideMode {
         case none
@@ -196,10 +200,28 @@ class InputProcessor {
         }
     }
 
-    private func accelerationGain(for speed: Double, maxExtraGain: Double) -> Double {
-        // Gentle acceleration: 1x near rest, up to (1 + maxExtraGain) for fast flicks
-        let normalized = max(0, speed / 150.0)
-        return 1.0 + min(maxExtraGain, pow(normalized, 1.2) * maxExtraGain)
+    private func pointerAccelerationGain(for speed: Double, maxExtraGain: Double) -> Double {
+        // Pointer-like table:
+        // Zone A: precision linear up to speedA
+        // Zone B: gentle ramp to ~1.5-2x
+        // Zone C: short ballistic ramp to maxExtraGain
+        let effectiveMax = max(0, maxExtraGain)
+        let speedA = 20.0
+        let speedB = 90.0
+        let speedC = 180.0
+
+        if speed <= speedA {
+            return 1.0  // precision zone
+        } else if speed <= speedB {
+            let t = (speed - speedA) / (speedB - speedA)
+            // ramp up to mid gain (half of effectiveMax)
+            let mid = effectiveMax * 0.5
+            return 1.0 + t * mid
+        } else {
+            let clamped = min(speed, speedC)
+            let t = (clamped - speedB) / (speedC - speedB)
+            return 1.0 + min(effectiveMax, effectiveMax * 0.5 + t * effectiveMax * 0.5)
+        }
     }
 
     private func updateFilters(for smoothThreshold: Double, beta: Double) {
@@ -217,6 +239,32 @@ class InputProcessor {
         pitchFilter.beta = beta
     }
 
+    private func smoothedSpeed(_ instantaneous: Double) -> Double {
+        // Short EMA to stabilize acceleration curve selection
+        let alpha = 0.15
+        lastInstantSpeed = instantaneous
+        lastSpeedEMA = alpha * instantaneous + (1 - alpha) * lastSpeedEMA
+        return lastSpeedEMA
+    }
+
+    private func dynamicFilterBeta(forYaw yaw: Double, pitch: Double, baseBeta: Double, dt: Double, mode: AdaptiveSmoothingMode) -> Double {
+        switch mode {
+        case .off:
+            return baseBeta
+        case .speed, .speedAndJerk:
+            let speed = sqrt(yaw * yaw + pitch * pitch)
+            let jerk = abs(speed - lastBetaSpeed) / max(dt, 0.001)
+            lastBetaSpeed = speed
+            let jerkAlpha = 0.25
+            lastJerkEMA = jerkAlpha * jerk + (1 - jerkAlpha) * lastJerkEMA
+
+            let speedTerm = min(1.0, speed / 150.0)
+            let jerkTerm = mode == .speedAndJerk ? min(1.0, lastJerkEMA / 200.0) : 0
+            let boost = max(speedTerm, jerkTerm) * 0.2  // cap boost to 0.2
+            return min(1.0, baseBeta + boost)
+        }
+    }
+
     /// Process gyroscope data and convert to mouse movement
     /// - Parameters:
     ///   - gyro: Gyroscope values (x, y, z) in degrees per second
@@ -231,7 +279,12 @@ class InputProcessor {
         deadzone: Double,
         smoothThreshold: Double? = nil,
         filterBeta: Double = 0.35,
-        accelerationMaxExtra: Double = 2.0
+        accelerationMaxExtra: Double = 2.0,
+        accelerationMode: AccelerationMode = .legacy,
+        precisionZoneEnabled: Bool = false,
+        earlyRampEnabled: Bool = false,
+        adaptiveSmoothingMode: AdaptiveSmoothingMode = .off,
+        autoNeutralRefresh: Bool = true
     ) {
         let now = timestamp
 
@@ -259,7 +312,7 @@ class InputProcessor {
         currentRoll += calibrated.x * dt * (.pi / 180.0)
 
         // While cursor is locked (clutch/scroll/zoom), watch for quiet IMU to refresh neutral/bias
-        if cursorLockActive {
+        if cursorLockActive || autoNeutralRefresh {
             updateLockNeutral(rawGyro: gyro, timestamp: now)
         }
 
@@ -269,7 +322,7 @@ class InputProcessor {
         var yaw = calibrated.z
         var pitch = -calibrated.y  // Negated for natural direction
 
-        // 5. Apply soft cutoff (replaces hard deadzone)
+        // 4. Apply soft cutoff (replaces hard deadzone)
         yaw = applySoftCutoff(value: yaw, cutoffSpeed: cutoffSpeed, recoverySpeed: deadzone)
         pitch = applySoftCutoff(value: pitch, cutoffSpeed: cutoffSpeed, recoverySpeed: deadzone)
 
@@ -280,15 +333,28 @@ class InputProcessor {
         }
 
         // 6. Adaptive smoothing (minimal lag for fast motion)
+        let adaptiveBeta = dynamicFilterBeta(forYaw: yaw, pitch: pitch, baseBeta: filterBeta, dt: dt, mode: adaptiveSmoothingMode)
+        yawFilter.beta = adaptiveBeta
+        pitchFilter.beta = adaptiveBeta
+
         let filteredYaw = yawFilter.filter(value: yaw, timestamp: now)
         let filteredPitch = pitchFilter.filter(value: pitch, timestamp: now)
 
         // 7. Deskew axes if the controller was re-gripped with roll (lock)
-        let (compensatedYaw, compensatedPitch) = applyRollCompensation(yaw: filteredYaw, pitch: filteredPitch)
+        let (compensatedYaw, compensatedPitch) = applyRollCompensation(
+            yaw: filteredYaw,
+            pitch: filteredPitch
+        )
 
-        // 8. Apply gentle acceleration curve on angular speed
+        // 8. Apply acceleration curve on angular speed (mode-dependent)
         let speed = sqrt(compensatedYaw * compensatedYaw + compensatedPitch * compensatedPitch)
-        let accelGain = accelerationGain(for: speed, maxExtraGain: accelerationMaxExtra)
+        let accelGain = accelerationGain(
+            for: smoothedSpeed(speed),
+            maxExtraGain: accelerationMaxExtra,
+            mode: accelerationMode,
+            precisionZoneEnabled: precisionZoneEnabled,
+            earlyRampEnabled: earlyRampEnabled
+        )
 
         // Scale: sensitivity * 0.1 gives good range with slider
         let baseScale = sensitivity * 0.1
@@ -466,6 +532,10 @@ class InputProcessor {
         rollCompensation = 0
         currentRoll = 0
         releaseRampStart = nil
+        lastInstantSpeed = 0
+        lastSpeedEMA = 0
+        lastJerkEMA = 0
+        lastBetaSpeed = 0
     }
 
     func beginOverride(_ mode: OverrideMode) {
@@ -598,6 +668,21 @@ class InputProcessor {
         let compensatedYaw = yaw * cosR + pitch * sinR
         let compensatedPitch = -yaw * sinR + pitch * cosR
         return (compensatedYaw, compensatedPitch)
+    }
+
+    private func accelerationGain(for speed: Double, maxExtraGain: Double, mode: AccelerationMode, precisionZoneEnabled: Bool, earlyRampEnabled: Bool) -> Double {
+        let cappedMax = max(0, maxExtraGain)
+        let precisionMaxSpeed = 20.0
+        if precisionZoneEnabled && speed <= precisionMaxSpeed {
+            let t = speed / precisionMaxSpeed
+            return 1.0 + cappedMax * t * 0.1  // subtle lift only
+        }
+
+        let normDivisor = earlyRampEnabled ? 130.0 : 150.0
+        let exponent = earlyRampEnabled ? 1.15 : 1.2
+        let normalized = max(0, speed / normDivisor)
+        let rawGain = 1.0 + min(cappedMax, pow(normalized, exponent) * cappedMax)
+        return rawGain
     }
 }
 

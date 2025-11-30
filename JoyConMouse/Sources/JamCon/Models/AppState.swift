@@ -2,6 +2,32 @@ import SwiftUI
 import Combine
 import os.lock
 import ApplicationServices  // For AXIsProcessTrusted
+import Foundation
+
+// MARK: - Tuning Modes
+
+enum AccelerationMode: String, Codable, Hashable, CaseIterable {
+    case legacy
+
+    var displayName: String {
+        return "Legacy (Raw Gain)"
+    }
+}
+
+enum AdaptiveSmoothingMode: String, Codable, Hashable, CaseIterable {
+    case off
+    case speed
+    case speedAndJerk
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .speed: return "Speed-aware"
+        case .speedAndJerk: return "Speed + Jerk"
+        }
+    }
+}
+
 
 /// Thread-safe settings cache for input processing
 /// Avoids main thread dispatch for high-frequency gyro updates
@@ -22,9 +48,16 @@ final class InputSettings: @unchecked Sendable {
     private var _holdThreshold: Double = 0.6
     private var _filterBeta: Double = 0.5
     private var _accelerationGain: Double = 80.0
+    private var _precisionZoneEnabled: Bool = false
+    private var _earlyRampEnabled: Bool = false
     private var _clutchButtons: Set<LogicalButton> = []
     private var _scrollButtons: Set<LogicalButton> = []
     private var _zoomButtons: Set<LogicalButton> = []
+    private var _accelerationMode: AccelerationMode = .legacy
+    private var _adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
+    private var _autoNeutralRefresh: Bool = true
+    private var _idleTimeoutMinutes: Double = 15.0
+    private var _autoPowerOffEnabled: Bool = true
 
     var isEnabled: Bool {
         get { lock.withLock { _isEnabled } }
@@ -95,6 +128,29 @@ final class InputSettings: @unchecked Sendable {
         get { lock.withLock { _accelerationGain } }
         set { lock.withLock { _accelerationGain = newValue } }
     }
+    var precisionZoneEnabled: Bool {
+        get { lock.withLock { _precisionZoneEnabled } }
+        set { lock.withLock { _precisionZoneEnabled = newValue } }
+    }
+    var earlyRampEnabled: Bool {
+        get { lock.withLock { _earlyRampEnabled } }
+        set { lock.withLock { _earlyRampEnabled = newValue } }
+    }
+
+    var accelerationMode: AccelerationMode {
+        get { lock.withLock { _accelerationMode } }
+        set { lock.withLock { _accelerationMode = newValue } }
+    }
+
+    var adaptiveSmoothingMode: AdaptiveSmoothingMode {
+        get { lock.withLock { _adaptiveSmoothingMode } }
+        set { lock.withLock { _adaptiveSmoothingMode = newValue } }
+    }
+
+    var autoNeutralRefresh: Bool {
+        get { lock.withLock { _autoNeutralRefresh } }
+        set { lock.withLock { _autoNeutralRefresh = newValue } }
+    }
 
     var clutchButtons: Set<LogicalButton> {
         get { lock.withLock { _clutchButtons } }
@@ -109,6 +165,16 @@ final class InputSettings: @unchecked Sendable {
     var zoomButtons: Set<LogicalButton> {
         get { lock.withLock { _zoomButtons } }
         set { lock.withLock { _zoomButtons = newValue } }
+    }
+
+    var idleTimeoutMinutes: Double {
+        get { lock.withLock { _idleTimeoutMinutes } }
+        set { lock.withLock { _idleTimeoutMinutes = newValue } }
+    }
+
+    var autoPowerOffEnabled: Bool {
+        get { lock.withLock { _autoPowerOffEnabled } }
+        set { lock.withLock { _autoPowerOffEnabled = newValue } }
     }
 }
 
@@ -186,6 +252,21 @@ class AppState: ObservableObject {
     @AppStorage("accelerationGain") var accelerationGain: Double = 80.0 {
         didSet { inputSettings.accelerationGain = accelerationGain }
     }
+    @AppStorage("precisionZoneEnabled") var precisionZoneEnabled: Bool = false {
+        didSet { inputSettings.precisionZoneEnabled = precisionZoneEnabled }
+    }
+    @AppStorage("earlyRampEnabled") var earlyRampEnabled: Bool = false {
+        didSet { inputSettings.earlyRampEnabled = earlyRampEnabled }
+    }
+    @AppStorage("accelerationMode") var accelerationMode: AccelerationMode = .legacy {
+        didSet { inputSettings.accelerationMode = accelerationMode }
+    }
+    @AppStorage("adaptiveSmoothingMode") var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk {
+        didSet { inputSettings.adaptiveSmoothingMode = adaptiveSmoothingMode }
+    }
+    @AppStorage("autoNeutralRefresh") var autoNeutralRefresh: Bool = true {
+        didSet { inputSettings.autoNeutralRefresh = autoNeutralRefresh }
+    }
     @AppStorage("dragButtons") private var clutchButtonsRaw: String = "" {
         didSet { inputSettings.clutchButtons = parseButtons(from: clutchButtonsRaw) }
     }
@@ -194,6 +275,12 @@ class AppState: ObservableObject {
     }
     @AppStorage("zoomButtons") private var zoomButtonsRaw: String = "" {
         didSet { inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw) }
+    }
+    @AppStorage("idleTimeoutMinutes") var idleTimeoutMinutes: Double = 15.0 {
+        didSet { inputSettings.idleTimeoutMinutes = idleTimeoutMinutes }
+    }
+    @AppStorage("autoPowerOffEnabled") var autoPowerOffEnabled: Bool = true {
+        didSet { inputSettings.autoPowerOffEnabled = autoPowerOffEnabled }
     }
 
     // MARK: - Calibration State
@@ -236,6 +323,10 @@ class AppState: ObservableObject {
 
     /// Timer for periodic accessibility permission checks
     private var accessibilityCheckTimer: Timer?
+    /// Timer for controller idle power-off checks
+    private var idleTimer: Timer?
+    /// Track override (drag/scroll/zoom) active state to suppress idle shutdowns mid-gesture
+    private var overrideActive = false
 
     init() {
         // Load saved mappings or use defaults
@@ -258,9 +349,16 @@ class AppState: ObservableObject {
         inputSettings.holdThreshold = holdThreshold
         inputSettings.filterBeta = filterBeta
         inputSettings.accelerationGain = accelerationGain
+        inputSettings.precisionZoneEnabled = precisionZoneEnabled
+        inputSettings.earlyRampEnabled = earlyRampEnabled
+        inputSettings.accelerationMode = accelerationMode
+        inputSettings.adaptiveSmoothingMode = adaptiveSmoothingMode
+        inputSettings.autoNeutralRefresh = autoNeutralRefresh
         inputSettings.clutchButtons = parseButtons(from: clutchButtonsRaw)
         inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw)
         inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw)
+        inputSettings.idleTimeoutMinutes = idleTimeoutMinutes
+        inputSettings.autoPowerOffEnabled = autoPowerOffEnabled
 
         // Check Accessibility permission on startup
         checkAccessibilityPermission()
@@ -269,10 +367,12 @@ class AppState: ObservableObject {
 
         // Start periodic accessibility permission check
         startAccessibilityMonitoring()
+        startIdleMonitoring()
     }
 
     deinit {
         accessibilityCheckTimer?.invalidate()
+        idleTimer?.invalidate()
         joyConController?.stopScanning()
     }
 
@@ -344,7 +444,12 @@ class AppState: ObservableObject {
                 deadzone: settings.gyroDeadzone,
                 smoothThreshold: settings.smoothThreshold,
                 filterBeta: settings.filterBeta,
-                accelerationMaxExtra: settings.accelerationGain
+                accelerationMaxExtra: settings.accelerationGain,
+                accelerationMode: settings.accelerationMode,
+                precisionZoneEnabled: settings.precisionZoneEnabled,
+                earlyRampEnabled: settings.earlyRampEnabled,
+                adaptiveSmoothingMode: settings.adaptiveSmoothingMode,
+                autoNeutralRefresh: settings.autoNeutralRefresh
             )
         }
         processor?.onCalibrationChange = { [weak self] isCalibrated in
@@ -538,6 +643,31 @@ class AppState: ObservableObject {
     func resetGyroCalibration() {
         inputProcessor?.resetFilters()
         isGyroCalibrated = false
+    }
+
+    // MARK: - Idle Power-Off
+
+    private func startIdleMonitoring() {
+        idleTimer?.invalidate()
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.checkIdleControllers()
+            }
+        }
+    }
+
+    private func checkIdleControllers() {
+        guard autoPowerOffEnabled else { return }
+        let timeoutSeconds = idleTimeoutMinutes * 60.0
+        let now = CACurrentMediaTime()
+        let idleControllers = joyConController?.controllers.filter {
+            now - $0.lastActivity >= timeoutSeconds
+        } ?? []
+
+        idleControllers.forEach { controller in
+            // Only power off if we still have a matching controller instance
+            controller.controller.setHCIState(state: .disconnect)
+        }
     }
 
     /// Set a controller type as the primary controller

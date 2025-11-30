@@ -11,13 +11,15 @@ struct ConnectedController: Identifiable {
     let controller: Controller
     var batteryLevel: BatteryLevel
     let connectedOrder: Int
+    var lastActivity: TimeInterval
 
-    init(controller: Controller, type: ControllerType, connectedOrder: Int) {
+    init(controller: Controller, type: ControllerType, connectedOrder: Int, lastActivity: TimeInterval = CACurrentMediaTime()) {
         self.id = UUID()
         self.controller = controller
         self.type = type
         self.batteryLevel = .unknown
         self.connectedOrder = connectedOrder
+        self.lastActivity = lastActivity
     }
 }
 
@@ -32,6 +34,7 @@ class JoyConController {
     var onStickUpdate: ((_ controllerId: UUID, _ position: StickPosition) -> Void)?
     var onConnectionChange: ((_ controllers: [ConnectedController]) -> Void)?
     var onBatteryUpdate: ((_ controllerId: UUID, _ level: BatteryLevel) -> Void)?
+    var onActivity: ((_ controllerId: UUID) -> Void)?
 
     // MARK: - State
 
@@ -188,12 +191,14 @@ class JoyConController {
                 y: Double(gyro.y),
                 z: Double(gyro.z)
             )
+            self?.markActivity(for: controller)
             self?.onGyroUpdate?(controllerId, gyroData, CACurrentMediaTime())
         }
 
         // Button press
         controller.buttonPressHandler = { [weak self] button in
             if let joyConButton = self?.mapJoyConSwiftButton(button) {
+                self?.markActivity(for: controller)
                 self?.onButtonPress?(controllerId, type, joyConButton)
             }
         }
@@ -201,6 +206,7 @@ class JoyConController {
         // Button release
         controller.buttonReleaseHandler = { [weak self] button in
             if let joyConButton = self?.mapJoyConSwiftButton(button) {
+                self?.markActivity(for: controller)
                 self?.onButtonRelease?(controllerId, type, joyConButton)
             }
         }
@@ -210,17 +216,20 @@ class JoyConController {
         if type == .rightJoyCon {
             controller.rightStickPosHandler = { [weak self] pos in
                 let position = StickPosition(x: Double(pos.x), y: Double(pos.y))
+                self?.markActivity(for: controller)
                 self?.onStickUpdate?(controllerId, position)
             }
         } else if type == .leftJoyCon {
             controller.leftStickPosHandler = { [weak self] pos in
                 let position = StickPosition(x: Double(pos.x), y: Double(pos.y))
+                self?.markActivity(for: controller)
                 self?.onStickUpdate?(controllerId, position)
             }
         } else if type == .proController {
             // Pro Controller has both sticks - use right stick for scrolling
             controller.rightStickPosHandler = { [weak self] pos in
                 let position = StickPosition(x: Double(pos.x), y: Double(pos.y))
+                self?.markActivity(for: controller)
                 self?.onStickUpdate?(controllerId, position)
             }
         }
@@ -283,6 +292,21 @@ class JoyConController {
             return .unknown
         @unknown default:
             return .unknown
+        }
+    }
+
+    // MARK: - Activity Tracking
+
+    private func markActivity(for controller: Controller) {
+        let key = ObjectIdentifier(controller)
+        let controllerId: UUID? = controllersLock.withLock {
+            guard var entry = $0[key] else { return nil }
+            entry.lastActivity = CACurrentMediaTime()
+            $0[key] = entry
+            return entry.id
+        }
+        if let id = controllerId {
+            onActivity?(id)
         }
     }
 }

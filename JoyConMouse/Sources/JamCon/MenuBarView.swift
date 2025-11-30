@@ -334,6 +334,18 @@ struct MenuBarView: View {
                                     .foregroundColor(.secondary)
                             }
 
+                            Toggle(isOn: $appState.precisionZoneEnabled) {
+                                Text("Precision Zone (low speed)")
+                                    .font(.caption)
+                            }
+                            .toggleStyle(.switch)
+
+                            Toggle(isOn: $appState.earlyRampEnabled) {
+                                Text("Early Ramp (reach top gain sooner)")
+                                    .font(.caption)
+                            }
+                            .toggleStyle(.switch)
+
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text("Filter Responsiveness")
@@ -348,6 +360,21 @@ struct MenuBarView: View {
                                 Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Adaptive Smoothing")
+                                        .font(.caption)
+                                    Spacer()
+                                    Picker("", selection: $appState.adaptiveSmoothingMode) {
+                                        ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
+                                            Text(mode.displayName).tag(mode)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                }
                             }
                         }
                     }
@@ -412,6 +439,32 @@ struct MenuBarView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.vertical, 4)
+
+                // Auto power-off
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(isOn: $appState.autoPowerOffEnabled) {
+                        Text("Auto power-off")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    if appState.autoPowerOffEnabled {
+                        HStack {
+                            Text("Idle (min)")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.0f", appState.idleTimeoutMinutes))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 36, alignment: .trailing)
+                        }
+                        Slider(value: $appState.idleTimeoutMinutes, in: 1...120, step: 1)
+                    }
+                    Text("Turns controllers off after inactivity; press any button to wake and reconnect.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
 
                 // Column headers
                 buttonMappingHeader
