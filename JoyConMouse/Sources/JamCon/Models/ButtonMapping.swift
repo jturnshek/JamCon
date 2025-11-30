@@ -253,7 +253,7 @@ enum LogicalButton: String, CaseIterable, Codable, Hashable, Sendable {
         [
             ("Triggers", [.trigger, .shoulder]),
             ("Face Buttons", [.faceTop, .faceBottom, .faceLeft, .faceRight]),
-            ("Other", [.menu, .stick, .sl, .sr]),
+            ("Other", [.menu, .system, .stick, .sl, .sr]),
         ]
     }
 }
