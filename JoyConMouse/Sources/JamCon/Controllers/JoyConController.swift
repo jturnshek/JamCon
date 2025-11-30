@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import JoyConSwift
 import os.lock
+import QuartzCore
 
 /// Represents a connected controller with its metadata
 struct ConnectedController: Identifiable {
@@ -9,12 +10,14 @@ struct ConnectedController: Identifiable {
     let type: ControllerType
     let controller: Controller
     var batteryLevel: BatteryLevel
+    let connectedOrder: Int
 
-    init(controller: Controller, type: ControllerType) {
+    init(controller: Controller, type: ControllerType, connectedOrder: Int) {
         self.id = UUID()
         self.controller = controller
         self.type = type
         self.batteryLevel = .unknown
+        self.connectedOrder = connectedOrder
     }
 }
 
@@ -23,7 +26,7 @@ class JoyConController {
 
     // MARK: - Callbacks (include controller ID and type for multi-controller support)
 
-    var onGyroUpdate: ((_ controllerId: UUID, _ gyro: GyroData) -> Void)?
+    var onGyroUpdate: ((_ controllerId: UUID, _ gyro: GyroData, _ timestamp: TimeInterval) -> Void)?
     var onButtonPress: ((_ controllerId: UUID, _ controllerType: ControllerType, _ button: JoyConButton) -> Void)?
     var onButtonRelease: ((_ controllerId: UUID, _ controllerType: ControllerType, _ button: JoyConButton) -> Void)?
     var onStickUpdate: ((_ controllerId: UUID, _ position: StickPosition) -> Void)?
@@ -34,13 +37,15 @@ class JoyConController {
 
     private var isScanning = false
     private let manager = JoyConManager()
+    private let hidQueue = DispatchQueue(label: "JoyConController.hidQueue", qos: .userInteractive)
+    private var connectOrder: Int = 0
 
     /// Thread-safe storage for connected controllers
     private let controllersLock = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ConnectedController]())
 
     /// Get all currently connected controllers (thread-safe)
     var controllers: [ConnectedController] {
-        controllersLock.withLock { Array($0.values) }
+        controllersLock.withLock { Array($0.values).sorted { $0.connectedOrder < $1.connectedOrder } }
     }
 
     /// Thread-safe access to get a controller by key
@@ -72,9 +77,9 @@ class JoyConController {
             self?.handleControllerDisconnected(controller)
         }
 
-        // Start scanning asynchronously
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = self?.manager.runAsync()
+        hidQueue.async { [weak self] in
+            guard let self else { return }
+            let result = self.manager.run()
             if result != kIOReturnSuccess {
                 print("[JoyConController] Failed to start scanning: \(String(describing: result))")
             } else {
@@ -108,7 +113,8 @@ class JoyConController {
         }
 
         // Create and store connected controller
-        var connectedController = ConnectedController(controller: controller, type: type)
+        connectOrder += 1
+        var connectedController = ConnectedController(controller: controller, type: type, connectedOrder: connectOrder)
         let key = ObjectIdentifier(controller)
 
         // Set input mode to full (required for IMU data)
@@ -182,7 +188,7 @@ class JoyConController {
                 y: Double(gyro.y),
                 z: Double(gyro.z)
             )
-            self?.onGyroUpdate?(controllerId, gyroData)
+            self?.onGyroUpdate?(controllerId, gyroData, CACurrentMediaTime())
         }
 
         // Button press

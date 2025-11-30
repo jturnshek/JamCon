@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import QuartzCore
 
 // MARK: - Gyro Bias Estimator
 
@@ -55,64 +56,70 @@ class GyroBiasEstimator {
         samples.removeAll()
         bias = (0, 0, 0)
     }
+
+    /// Force-set the bias (used when clutch captures a fresh neutral)
+    func forceBias(_ bias: (x: Double, y: Double, z: Double)) {
+        samples = Array(repeating: bias, count: maxSamples / 2)
+        self.bias = bias
+    }
 }
 
-// MARK: - Gyro Smoother
+// MARK: - One Euro Filter (adaptive smoothing)
 
-/// Applies threshold-based smoothing: slow movements are smoothed, fast movements pass through
-class GyroSmoother {
-    private var buffer: [(yaw: Double, pitch: Double)] = []
-    private let updateRate: Double = 66.0  // Hz
+/// Adaptive low-pass filter that increases smoothing for slow motion and removes it for fast motion.
+/// Based on "The One Euro Filter" (Casiez et al.).
+final class OneEuroFilter {
+    private var previousValue: Double?
+    private var previousDerivative: Double = 0
+    private var previousTime: TimeInterval?
 
-    /// Smoothing window size in seconds
-    var smoothTime: Double = 0.125
+    /// Base cutoff frequency (higher = less smoothing at low speeds)
+    var minCutoff: Double = 1.5
+    /// Speed influence on cutoff (higher = less smoothing when moving fast)
+    var beta: Double = 0.35
+    /// Cutoff for derivative smoothing
+    var derivativeCutoff: Double = 1.0
+    /// Fallback rate used when timestamps are missing or dt is tiny
+    var fallbackRate: Double = 120.0
 
-    /// Speed threshold below which smoothing is applied (°/s)
-    var smoothThreshold: Double = 20.0
-
-    private var bufferSize: Int {
-        return max(1, Int(smoothTime * updateRate))
+    private func alpha(cutoff: Double, dt: Double) -> Double {
+        let tau = 1.0 / (2.0 * Double.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
     }
 
-    func smooth(yaw: Double, pitch: Double) -> (yaw: Double, pitch: Double) {
-        // Add to buffer
-        buffer.append((yaw, pitch))
-        if buffer.count > bufferSize {
-            buffer.removeFirst()
-        }
-
-        // Calculate current angular speed
-        let speed = sqrt(yaw * yaw + pitch * pitch)
-
-        // Calculate smoothing factor (0 = no smoothing, 1 = full smoothing)
-        let smoothFactor: Double
-        if speed >= smoothThreshold {
-            smoothFactor = 0.0  // Fast movement - no smoothing (no lag!)
-        } else if speed <= 0 {
-            smoothFactor = 1.0  // Stationary - full smoothing
+    func filter(value: Double, timestamp: TimeInterval) -> Double {
+        let dt: Double
+        if let prevTime = previousTime {
+            dt = max(1.0 / fallbackRate, timestamp - prevTime)
         } else {
-            // Interpolate: slower = more smoothing
-            smoothFactor = 1.0 - (speed / smoothThreshold)
+            dt = 1.0 / fallbackRate
         }
 
-        // If no smoothing needed or buffer too small, return raw
-        if smoothFactor == 0 || buffer.count < 2 {
-            return (yaw, pitch)
+        let rawDerivative: Double
+        if let prev = previousValue {
+            rawDerivative = (value - prev) / dt
+        } else {
+            rawDerivative = 0
         }
 
-        // Calculate smoothed value (simple moving average)
-        let avgYaw = buffer.map { $0.yaw }.reduce(0, +) / Double(buffer.count)
-        let avgPitch = buffer.map { $0.pitch }.reduce(0, +) / Double(buffer.count)
+        let alphaDerivative = alpha(cutoff: derivativeCutoff, dt: dt)
+        let derivative = alphaDerivative * rawDerivative + (1 - alphaDerivative) * previousDerivative
 
-        // Blend between raw and smoothed based on speed
-        return (
-            yaw: yaw * (1 - smoothFactor) + avgYaw * smoothFactor,
-            pitch: pitch * (1 - smoothFactor) + avgPitch * smoothFactor
-        )
+        let cutoff = minCutoff + beta * abs(derivative)
+        let alphaValue = alpha(cutoff: cutoff, dt: dt)
+        let filteredValue = alphaValue * value + (1 - alphaValue) * (previousValue ?? value)
+
+        previousTime = timestamp
+        previousValue = filteredValue
+        previousDerivative = derivative
+
+        return filteredValue
     }
 
     func reset() {
-        buffer.removeAll()
+        previousValue = nil
+        previousDerivative = 0
+        previousTime = nil
     }
 }
 
@@ -128,14 +135,49 @@ class InputProcessor {
     var onScroll: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
     var onKeyDown: ((_ keyCombo: KeyCombo) -> Void)?
     var onKeyUp: ((_ keyCombo: KeyCombo) -> Void)?
+    var onCalibrationChange: ((_ isCalibrated: Bool) -> Void)?
 
     // MARK: - Stabilization
 
     let biasEstimator = GyroBiasEstimator()
-    let smoother = GyroSmoother()
+    private let yawFilter = OneEuroFilter()
+    private let pitchFilter = OneEuroFilter()
 
     /// Soft cutoff speed - below this, no movement (°/s)
     var cutoffSpeed: Double = 0.5
+
+    /// Tracks the last sample time to compute dt
+    private var lastTimestamp: TimeInterval?
+    private var lastReportedCalibration: Bool?
+    private var lastSmoothThreshold: Double?
+    private var lastFilterBeta: Double?
+
+    enum OverrideMode {
+        case none
+        case clutch
+        case scroll
+        case zoom
+    }
+    private var overrideMode: OverrideMode = .none
+    private var overrideCounts: [OverrideMode: Int] = [:]
+
+    // MARK: - Clutch State
+
+    private var clutchActive: Bool = false
+    private var clutchNeutralStart: TimeInterval?
+    private var clutchNeutralAccumulator: (x: Double, y: Double, z: Double) = (0, 0, 0)
+    private var clutchNeutralCount: Int = 0
+    private var clutchBiasUpdatedAt: TimeInterval?
+    private var clutchRollStart: Double?
+    private var rollCompensation: Double = 0  // Radians
+    private var currentRoll: Double = 0       // Radians
+    private var releaseRampStart: TimeInterval?
+    private let releaseRampDuration: TimeInterval = 0.08
+    private let clutchQuietThreshold: Double = 0.8
+    private let clutchQuietMinDuration: TimeInterval = 0.35
+
+    /// Queue for hold timers to avoid main-thread jitter
+    private let holdQueue = DispatchQueue(label: "InputProcessor.holdQueue", qos: .userInitiated)
 
     // MARK: - Gyro Processing
 
@@ -154,47 +196,126 @@ class InputProcessor {
         }
     }
 
+    private func accelerationGain(for speed: Double, maxExtraGain: Double) -> Double {
+        // Gentle acceleration: 1x near rest, up to (1 + maxExtraGain) for fast flicks
+        let normalized = max(0, speed / 150.0)
+        return 1.0 + min(maxExtraGain, pow(normalized, 1.2) * maxExtraGain)
+    }
+
+    private func updateFilters(for smoothThreshold: Double, beta: Double) {
+        guard lastSmoothThreshold != smoothThreshold || lastFilterBeta != beta else { return }
+        lastSmoothThreshold = smoothThreshold
+        lastFilterBeta = beta
+        // Map smoothing slider (0-50) to One Euro cutoff range (~0.1 - 4.5 Hz)
+        let cutoff = max(0.1, smoothThreshold / 12.0)
+        yawFilter.minCutoff = cutoff
+        pitchFilter.minCutoff = cutoff
+        // Keep derivative cutoff modest to avoid lag in fast motion
+        yawFilter.derivativeCutoff = 1.0
+        pitchFilter.derivativeCutoff = 1.0
+        yawFilter.beta = beta
+        pitchFilter.beta = beta
+    }
+
     /// Process gyroscope data and convert to mouse movement
     /// - Parameters:
     ///   - gyro: Gyroscope values (x, y, z) in degrees per second
+    ///   - timestamp: Monotonic timestamp for this sample
     ///   - sensitivity: Mouse movement multiplier
     ///   - deadzone: Recovery threshold for soft cutoff (°/s)
     ///   - smoothThreshold: Speed below which smoothing is applied (°/s)
-    func processGyro(_ gyro: GyroData, sensitivity: Double, deadzone: Double, smoothThreshold: Double? = nil) {
+    func processGyro(
+        _ gyro: GyroData,
+        timestamp: TimeInterval,
+        sensitivity: Double,
+        deadzone: Double,
+        smoothThreshold: Double? = nil,
+        filterBeta: Double = 0.35,
+        accelerationMaxExtra: Double = 2.0
+    ) {
+        let now = timestamp
+
+        // Update filter tuning if the user changed smoothing
+        if let threshold = smoothThreshold {
+            updateFilters(for: threshold, beta: filterBeta)
+        }
+
         // 1. Update bias estimator (runs continuously, learns when stationary)
         biasEstimator.update(gyro: gyro)
 
         // 2. Apply calibration to remove drift
         let calibrated = biasEstimator.calibratedGyro(gyro)
 
-        // 3. Extract axes for pointing-forward grip
+        // 3. Compute dt and keep roll integration for grip compensation
+        let dt: Double
+        if let last = lastTimestamp {
+            dt = max(1.0 / yawFilter.fallbackRate, now - last)
+        } else {
+            dt = 1.0 / yawFilter.fallbackRate
+        }
+        lastTimestamp = now
+
+        // Integrate roll (radians) so we can deskew axes when the controller is canted
+        currentRoll += calibrated.x * dt * (.pi / 180.0)
+
+        // While clutch is held, watch for quiet IMU to refresh neutral/bias
+        if clutchActive {
+            updateClutchNeutral(rawGyro: gyro, timestamp: now)
+        }
+
+        // 4. Extract axes for pointing-forward grip
         // - Z axis: wrist rotation left/right = horizontal mouse
         // - Y axis: tilting up/down = vertical mouse
         var yaw = calibrated.z
         var pitch = -calibrated.y  // Negated for natural direction
 
-        // 4. Apply soft cutoff (replaces hard deadzone)
+        // 5. Apply soft cutoff (replaces hard deadzone)
         yaw = applySoftCutoff(value: yaw, cutoffSpeed: cutoffSpeed, recoverySpeed: deadzone)
         pitch = applySoftCutoff(value: pitch, cutoffSpeed: cutoffSpeed, recoverySpeed: deadzone)
 
         // Skip if no movement after cutoff
         if yaw == 0 && pitch == 0 {
+            reportCalibrationIfNeeded()
             return
         }
 
-        // 5. Apply threshold-based smoothing (only smooths slow movements)
-        if let threshold = smoothThreshold {
-            smoother.smoothThreshold = threshold
+        // 6. Adaptive smoothing (minimal lag for fast motion)
+        let filteredYaw = yawFilter.filter(value: yaw, timestamp: now)
+        let filteredPitch = pitchFilter.filter(value: pitch, timestamp: now)
+
+        // 7. Deskew axes if the controller was re-gripped with roll (clutch)
+        let (compensatedYaw, compensatedPitch) = applyRollCompensation(yaw: filteredYaw, pitch: filteredPitch)
+
+        // 8. Apply gentle acceleration curve on angular speed
+        let speed = sqrt(compensatedYaw * compensatedYaw + compensatedPitch * compensatedPitch)
+        let accelGain = accelerationGain(for: speed, maxExtraGain: accelerationMaxExtra)
+
+        // Scale: sensitivity * 0.1 gives good range with slider
+        let baseScale = sensitivity * 0.1
+        let ramp = clutchRampFactor(now: now)
+        let dx = CGFloat(compensatedYaw * dt * baseScale * accelGain * ramp)
+        let dy = CGFloat(compensatedPitch * dt * baseScale * accelGain * ramp)
+
+        switch currentOverride() {
+        case .clutch:
+            reportCalibrationIfNeeded()
+            return
+        case .scroll:
+            onScroll?(dx, dy)
+        case .zoom:
+            onScroll?(0, dy)
+        case .none:
+            onMouseMove?(dx, dy)
         }
-        let (smoothedYaw, smoothedPitch) = smoother.smooth(yaw: yaw, pitch: pitch)
+        reportCalibrationIfNeeded()
+    }
 
-        // 6. Convert degrees/sec to mouse delta
-        // Scale: sensitivity * 0.1 gives good range with slider 1-50
-        let scale = sensitivity * 0.1
-        let dx = CGFloat(smoothedYaw * scale)
-        let dy = CGFloat(smoothedPitch * scale)
-
-        onMouseMove?(dx, dy)
+    private func reportCalibrationIfNeeded() {
+        let calibrated = biasEstimator.isCalibrated
+        if calibrated != lastReportedCalibration {
+            lastReportedCalibration = calibrated
+            onCalibrationChange?(calibrated)
+        }
     }
 
     // MARK: - Button Hold Detection
@@ -226,7 +347,7 @@ class InputProcessor {
         if actions.hold != .none {
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
-                // Mark hold as fired and execute hold action
+                // Mark hold as fired and execute hold down immediately
                 if var state = self.buttonState[button] {
                     state.holdFired = true
                     self.buttonState[button] = state
@@ -234,7 +355,7 @@ class InputProcessor {
                 }
             }
             holdTimers[button] = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + holdThreshold, execute: workItem)
+            holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: workItem)
         }
     }
 
@@ -249,8 +370,10 @@ class InputProcessor {
         buttonState[button] = nil
 
         if state.holdFired {
-            // Hold action was triggered - release the hold action
-            executeAction(state.actions.hold, isDown: false)
+            // Hold action was triggered - release it now
+            if state.actions.hold != .none {
+                executeAction(state.actions.hold, isDown: false)
+            }
         } else {
             // Released before hold threshold - fire press action (down + up)
             if state.actions.press != .none {
@@ -322,6 +445,145 @@ class InputProcessor {
         let scrollY = CGFloat(y * sensitivity)
 
         onScroll?(scrollX, scrollY)
+    }
+    /// Reset filters and calibration state
+    func resetFilters() {
+        biasEstimator.reset()
+        yawFilter.reset()
+        pitchFilter.reset()
+        lastTimestamp = nil
+        lastReportedCalibration = nil
+        lastFilterBeta = nil
+        lastSmoothThreshold = nil
+        overrideMode = .none
+        overrideCounts = [:]
+        clutchActive = false
+        clutchNeutralStart = nil
+        clutchNeutralAccumulator = (0, 0, 0)
+        clutchNeutralCount = 0
+        clutchBiasUpdatedAt = nil
+        clutchRollStart = nil
+        rollCompensation = 0
+        currentRoll = 0
+        releaseRampStart = nil
+    }
+
+    func beginOverride(_ mode: OverrideMode) {
+        let wasClutch = (overrideCounts[.clutch] ?? 0) > 0
+        overrideCounts[mode, default: 0] += 1
+        let isClutch = (overrideCounts[.clutch] ?? 0) > 0
+        if !wasClutch && isClutch {
+            handleClutchStarted()
+        }
+        overrideMode = currentOverride()
+    }
+
+    func endOverride(_ mode: OverrideMode) {
+        if let count = overrideCounts[mode], count > 1 {
+            overrideCounts[mode] = count - 1
+        } else {
+            overrideCounts.removeValue(forKey: mode)
+        }
+        let isClutch = (overrideCounts[.clutch] ?? 0) > 0
+        if clutchActive && !isClutch {
+            handleClutchEnded()
+        }
+        overrideMode = currentOverride()
+    }
+
+    private func currentOverride() -> OverrideMode {
+        if (overrideCounts[.clutch] ?? 0) > 0 { return .clutch }
+        if (overrideCounts[.zoom] ?? 0) > 0 { return .zoom }
+        if (overrideCounts[.scroll] ?? 0) > 0 { return .scroll }
+        return .none
+    }
+
+    private func handleClutchStarted() {
+        clutchActive = true
+        clutchNeutralStart = nil
+        clutchNeutralAccumulator = (0, 0, 0)
+        clutchNeutralCount = 0
+        clutchBiasUpdatedAt = nil
+        releaseRampStart = nil
+        clutchRollStart = currentRoll
+        yawFilter.reset()
+        pitchFilter.reset()
+        lastTimestamp = nil
+    }
+
+    private func handleClutchEnded() {
+        clutchActive = false
+        if let startRoll = clutchRollStart {
+            let delta = currentRoll - startRoll
+            let twoPi = Double.pi * 2.0
+            var normalized = delta.truncatingRemainder(dividingBy: twoPi)
+            if normalized > Double.pi { normalized -= twoPi }
+            if normalized < -Double.pi { normalized += twoPi }
+            rollCompensation = normalized
+        }
+        clutchRollStart = nil
+        clutchNeutralStart = nil
+        clutchNeutralAccumulator = (0, 0, 0)
+        clutchNeutralCount = 0
+        clutchBiasUpdatedAt = nil
+        releaseRampStart = CACurrentMediaTime()
+    }
+
+    private func clutchRampFactor(now: TimeInterval) -> Double {
+        guard let start = releaseRampStart else { return clutchActive ? 0.0 : 1.0 }
+        let progress = max(0, now - start) / releaseRampDuration
+        if progress >= 1.0 {
+            releaseRampStart = nil
+            return 1.0
+        }
+        return progress
+    }
+
+    private func updateClutchNeutral(rawGyro: GyroData, timestamp: TimeInterval) {
+        let magnitude = sqrt(rawGyro.x * rawGyro.x + rawGyro.y * rawGyro.y + rawGyro.z * rawGyro.z)
+
+        if magnitude < clutchQuietThreshold {
+            if clutchNeutralStart == nil {
+                clutchNeutralStart = timestamp
+                clutchNeutralAccumulator = (rawGyro.x, rawGyro.y, rawGyro.z)
+                clutchNeutralCount = 1
+            } else {
+                clutchNeutralAccumulator.x += rawGyro.x
+                clutchNeutralAccumulator.y += rawGyro.y
+                clutchNeutralAccumulator.z += rawGyro.z
+                clutchNeutralCount += 1
+            }
+
+            if let start = clutchNeutralStart,
+               timestamp - start >= clutchQuietMinDuration,
+               clutchNeutralCount >= 12,
+               (clutchBiasUpdatedAt == nil || timestamp - (clutchBiasUpdatedAt ?? 0) > 0.2) {
+                let invCount = 1.0 / Double(clutchNeutralCount)
+                let avg = (
+                    x: clutchNeutralAccumulator.x * invCount,
+                    y: clutchNeutralAccumulator.y * invCount,
+                    z: clutchNeutralAccumulator.z * invCount
+                )
+                biasEstimator.forceBias((avg.x, avg.y, avg.z))
+                clutchBiasUpdatedAt = timestamp
+                clutchNeutralStart = nil
+                clutchNeutralAccumulator = (0, 0, 0)
+                clutchNeutralCount = 0
+            }
+        } else {
+            clutchNeutralStart = nil
+            clutchNeutralAccumulator = (0, 0, 0)
+            clutchNeutralCount = 0
+        }
+    }
+
+    private func applyRollCompensation(yaw: Double, pitch: Double) -> (Double, Double) {
+        guard rollCompensation != 0 else { return (yaw, pitch) }
+        let cosR = cos(rollCompensation)
+        let sinR = sin(rollCompensation)
+        let compensatedYaw = yaw * cosR + pitch * sinR
+        let compensatedPitch = -yaw * sinR + pitch * cosR
+        return (compensatedYaw, compensatedPitch)
     }
 }
 

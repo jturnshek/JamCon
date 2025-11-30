@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @StateObject private var keyCaptureManager = KeyCaptureManager()
     @State private var showMouseSection = false
     @State private var showButtonsSection = false
+    @State private var showAdvancedMouse = false
     @State private var selectedMappingRole: MappingRole = .primary
 
     enum MappingRole: String, CaseIterable {
@@ -231,9 +232,9 @@ struct MenuBarView: View {
                             Text(String(format: "%.0f", appState.gyroSensitivity))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                                .frame(width: 30, alignment: .trailing)
+                                .frame(width: 36, alignment: .trailing)
                         }
-                        Slider(value: $appState.gyroSensitivity, in: 1...50, step: 1)
+                        Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
                     }
 
                     // Scroll sensitivity
@@ -245,9 +246,9 @@ struct MenuBarView: View {
                             Text(String(format: "%.0f", appState.scrollSensitivity))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                                .frame(width: 30, alignment: .trailing)
+                                .frame(width: 36, alignment: .trailing)
                         }
-                        Slider(value: $appState.scrollSensitivity, in: 1...20, step: 1)
+                        Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
                     }
                 }
 
@@ -262,7 +263,7 @@ struct MenuBarView: View {
                     // Smoothing threshold
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Smoothing")
+                            Text("Jitter Filter")
                                 .font(.caption)
                             Spacer()
                             Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
@@ -271,6 +272,9 @@ struct MenuBarView: View {
                                 .frame(width: 30, alignment: .trailing)
                         }
                         Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
+                        Text("Higher = smoother when moving slowly; too high can feel floaty.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
 
                     // Calibration status and button
@@ -298,6 +302,55 @@ struct MenuBarView: View {
                     Text("Hold controller still to calibrate")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+
+                    // Advanced mouse tuning
+                    Button(action: { withAnimation { showAdvancedMouse.toggle() } }) {
+                        HStack {
+                            Text("Advanced")
+                                .font(.caption)
+                            Spacer()
+                            Image(systemName: showAdvancedMouse ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    if showAdvancedMouse {
+                        VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Acceleration")
+                                        .font(.caption)
+                                    Spacer()
+                                    Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 52, alignment: .trailing)
+                                }
+                                Slider(value: $appState.accelerationGain, in: 0...100, step: 0.1)
+                                Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged; raise for more reach.")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("Filter Responsiveness")
+                                        .font(.caption)
+                                    Spacer()
+                                    Text(String(format: "%.2f", appState.filterBeta))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .frame(width: 40, alignment: .trailing)
+                                }
+                                Slider(value: $appState.filterBeta, in: 0...1.0, step: 0.01)
+                                Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -393,6 +446,18 @@ struct MenuBarView: View {
                 .font(.caption)
                 .fontWeight(.medium)
                 .frame(maxWidth: .infinity)
+            Text("Drag")
+                .font(.caption)
+                .fontWeight(.medium)
+                .frame(width: 40, alignment: .center)
+            Text("Scroll")
+                .font(.caption)
+                .fontWeight(.medium)
+                .frame(width: 40, alignment: .center)
+            Text("Zoom")
+                .font(.caption)
+                .fontWeight(.medium)
+                .frame(width: 40, alignment: .center)
         }
         .foregroundColor(.secondary)
         .padding(.bottom, 2)
@@ -417,7 +482,12 @@ struct MenuBarView: View {
                 .frame(width: 70, alignment: .leading)
 
             actionCell(for: button, actionType: .press)
+                .disabled(isOverrideButton(button))
             actionCell(for: button, actionType: .hold)
+                .disabled(isOverrideButton(button))
+            dragCell(for: button)
+            scrollCell(for: button)
+            zoomCell(for: button)
         }
     }
 
@@ -505,6 +575,42 @@ struct MenuBarView: View {
         }
     }
 
+    private func dragCell(for button: LogicalButton) -> some View {
+        Toggle(isOn: Binding(
+            get: { isDragButton(button) },
+            set: { newValue in setDragButton(newValue ? button : nil) }
+        )) {
+            EmptyView()
+        }
+        .toggleStyle(.checkbox)
+        .frame(width: 40, alignment: .center)
+        .help("Hold to freeze cursor and reposition controller; disables other actions for this button.")
+    }
+
+    private func scrollCell(for button: LogicalButton) -> some View {
+        Toggle(isOn: Binding(
+            get: { isScrollButton(button) },
+            set: { newValue in setScrollButton(newValue ? button : nil) }
+        )) {
+            EmptyView()
+        }
+        .toggleStyle(.checkbox)
+        .frame(width: 40, alignment: .center)
+        .help("Hold to turn motion into scroll (X/Y); cursor stays still.")
+    }
+
+    private func zoomCell(for button: LogicalButton) -> some View {
+        Toggle(isOn: Binding(
+            get: { isZoomButton(button) },
+            set: { newValue in setZoomButton(newValue ? button : nil) }
+        )) {
+            EmptyView()
+        }
+        .toggleStyle(.checkbox)
+        .frame(width: 40, alignment: .center)
+        .help("Hold to zoom (vertical motion -> scroll up/down); cursor stays still.")
+    }
+
     private var currentMapping: ButtonMappingProfile {
         switch selectedMappingRole {
         case .primary: return appState.primaryMapping
@@ -540,6 +646,58 @@ struct MenuBarView: View {
         case .secondary:
             appState.secondaryMapping = .defaultSecondary
         }
+    }
+
+    // MARK: - Override button helpers
+
+    private func isDragButton(_ button: LogicalButton) -> Bool {
+        appState.dragButtons.contains(button)
+    }
+
+    private func setDragButton(_ button: LogicalButton?) {
+        // Clear any in-progress captures when toggling drag state
+        keyCaptureManager.cancelCapture()
+        var buttons = appState.dragButtons
+        if let button {
+            buttons.insert(button)
+        } else {
+            buttons.removeAll()
+        }
+        appState.dragButtons = buttons
+    }
+
+    private func isScrollButton(_ button: LogicalButton) -> Bool {
+        appState.scrollButtons.contains(button)
+    }
+
+    private func setScrollButton(_ button: LogicalButton?) {
+        keyCaptureManager.cancelCapture()
+        var buttons = appState.scrollButtons
+        if let button {
+            buttons.insert(button)
+        } else {
+            buttons.removeAll()
+        }
+        appState.scrollButtons = buttons
+    }
+
+    private func isZoomButton(_ button: LogicalButton) -> Bool {
+        appState.zoomButtons.contains(button)
+    }
+
+    private func setZoomButton(_ button: LogicalButton?) {
+        keyCaptureManager.cancelCapture()
+        var buttons = appState.zoomButtons
+        if let button {
+            buttons.insert(button)
+        } else {
+            buttons.removeAll()
+        }
+        appState.zoomButtons = buttons
+    }
+
+    private func isOverrideButton(_ button: LogicalButton) -> Bool {
+        isDragButton(button) || isScrollButton(button) || isZoomButton(button)
     }
 
     // MARK: - Footer Section

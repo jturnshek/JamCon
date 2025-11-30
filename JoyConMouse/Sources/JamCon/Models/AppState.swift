@@ -20,6 +20,11 @@ final class InputSettings: @unchecked Sendable {
     private var _primaryControllerId: UUID? = nil
     private var _mirrorFaceButtons: Bool = true
     private var _holdThreshold: Double = 1.0
+    private var _filterBeta: Double = 0.35
+    private var _accelerationGain: Double = 2.0
+    private var _dragButtons: Set<LogicalButton> = []
+    private var _scrollButtons: Set<LogicalButton> = []
+    private var _zoomButtons: Set<LogicalButton> = []
 
     var isEnabled: Bool {
         get { lock.withLock { _isEnabled } }
@@ -79,6 +84,31 @@ final class InputSettings: @unchecked Sendable {
     var holdThreshold: Double {
         get { lock.withLock { _holdThreshold } }
         set { lock.withLock { _holdThreshold = newValue } }
+    }
+
+    var filterBeta: Double {
+        get { lock.withLock { _filterBeta } }
+        set { lock.withLock { _filterBeta = newValue } }
+    }
+
+    var accelerationGain: Double {
+        get { lock.withLock { _accelerationGain } }
+        set { lock.withLock { _accelerationGain = newValue } }
+    }
+
+    var dragButtons: Set<LogicalButton> {
+        get { lock.withLock { _dragButtons } }
+        set { lock.withLock { _dragButtons = newValue } }
+    }
+
+    var scrollButtons: Set<LogicalButton> {
+        get { lock.withLock { _scrollButtons } }
+        set { lock.withLock { _scrollButtons = newValue } }
+    }
+
+    var zoomButtons: Set<LogicalButton> {
+        get { lock.withLock { _zoomButtons } }
+        set { lock.withLock { _zoomButtons = newValue } }
     }
 }
 
@@ -150,6 +180,21 @@ class AppState: ObservableObject {
     @AppStorage("holdThreshold") var holdThreshold: Double = 1.0 {
         didSet { inputSettings.holdThreshold = holdThreshold }
     }
+    @AppStorage("filterBeta") var filterBeta: Double = 0.35 {
+        didSet { inputSettings.filterBeta = filterBeta }
+    }
+    @AppStorage("accelerationGain") var accelerationGain: Double = 2.0 {
+        didSet { inputSettings.accelerationGain = accelerationGain }
+    }
+    @AppStorage("dragButtons") private var dragButtonsRaw: String = "" {
+        didSet { inputSettings.dragButtons = parseButtons(from: dragButtonsRaw) }
+    }
+    @AppStorage("scrollButtons") private var scrollButtonsRaw: String = "" {
+        didSet { inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw) }
+    }
+    @AppStorage("zoomButtons") private var zoomButtonsRaw: String = "" {
+        didSet { inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw) }
+    }
 
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
@@ -208,6 +253,11 @@ class AppState: ObservableObject {
         inputSettings.primaryControllerId = nil  // Will be set when first controller connects
         inputSettings.mirrorFaceButtons = mirrorFaceButtons
         inputSettings.holdThreshold = holdThreshold
+        inputSettings.filterBeta = filterBeta
+        inputSettings.accelerationGain = accelerationGain
+        inputSettings.dragButtons = parseButtons(from: dragButtonsRaw)
+        inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw)
+        inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw)
 
         // Check Accessibility permission on startup
         checkAccessibilityPermission()
@@ -274,7 +324,7 @@ class AppState: ObservableObject {
 
         // Wire up Joy-Con events - NO main thread dispatch for input processing
         // Gyro: only process from primary controller
-        joyConController?.onGyroUpdate = { [weak self] controllerId, gyro in
+        joyConController?.onGyroUpdate = { [weak self] controllerId, gyro, timestamp in
             guard let self = self else { return }
             let settings = self.inputSettings
             let processor = self.inputProcessor
@@ -286,18 +336,18 @@ class AppState: ObservableObject {
 
             processor?.processGyro(
                 gyro,
+                timestamp: timestamp,
                 sensitivity: settings.gyroSensitivity,
                 deadzone: settings.gyroDeadzone,
-                smoothThreshold: settings.smoothThreshold
+                smoothThreshold: settings.smoothThreshold,
+                filterBeta: settings.filterBeta,
+                accelerationMaxExtra: settings.accelerationGain
             )
-
-            // Update calibration status on main thread (infrequently)
-            if let processor = processor {
-                let isCalibrated = processor.biasEstimator.isCalibrated
-                Task { @MainActor in
-                    if self.isGyroCalibrated != isCalibrated {
-                        self.isGyroCalibrated = isCalibrated
-                    }
+        }
+        processor?.onCalibrationChange = { [weak self] isCalibrated in
+            Task { @MainActor in
+                if self?.isGyroCalibrated != isCalibrated {
+                    self?.isGyroCalibrated = isCalibrated
                 }
             }
         }
@@ -307,13 +357,24 @@ class AppState: ObservableObject {
             guard let self = self else { return }
             let settings = self.inputSettings
             let processor = self.inputProcessor
-
             guard settings.isEnabled else { return }
             let isPrimary = settings.primaryControllerId == controllerId
             let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
 
             // Get logical button for hold detection
             guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
+            if settings.dragButtons.contains(logicalButton) {
+                processor?.beginOverride(.drag)
+                return
+            }
+            if settings.scrollButtons.contains(logicalButton) {
+                processor?.beginOverride(.scroll)
+                return
+            }
+            if settings.zoomButtons.contains(logicalButton) {
+                processor?.beginOverride(.zoom)
+                return
+            }
             let actions = mapping[logicalButton]
 
             processor?.handleButtonDown(logicalButton, actions: actions, holdThreshold: settings.holdThreshold)
@@ -328,6 +389,18 @@ class AppState: ObservableObject {
 
             // Get logical button for hold detection
             guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
+            if settings.dragButtons.contains(logicalButton) {
+                processor?.endOverride(.drag)
+                return
+            }
+            if settings.scrollButtons.contains(logicalButton) {
+                processor?.endOverride(.scroll)
+                return
+            }
+            if settings.zoomButtons.contains(logicalButton) {
+                processor?.endOverride(.zoom)
+                return
+            }
 
             processor?.handleButtonUp(logicalButton)
         }
@@ -367,6 +440,62 @@ class AppState: ObservableObject {
         joyConController?.startScanning()
     }
 
+    // MARK: - Drag Button Management
+
+    // MARK: - Override Button Management
+
+    private func parseButtons(from raw: String) -> Set<LogicalButton> {
+        let parts = raw.split(separator: ",").map { String($0) }
+        return Set(parts.compactMap { LogicalButton(rawValue: $0) })
+    }
+
+    private func storeButtons(_ buttons: Set<LogicalButton>) -> String {
+        buttons.map { $0.rawValue }.sorted().joined(separator: ",")
+    }
+
+    var dragButtons: Set<LogicalButton> {
+        get { parseButtons(from: dragButtonsRaw) }
+        set {
+            dragButtonsRaw = storeButtons(newValue)
+            inputSettings.dragButtons = newValue
+            newValue.forEach { button in
+                primaryMapping[button] = ButtonActions()
+                secondaryMapping[button] = ButtonActions()
+            }
+            // Remove from other modes
+            scrollButtons = scrollButtons.subtracting(newValue)
+            zoomButtons = zoomButtons.subtracting(newValue)
+        }
+    }
+
+    var scrollButtons: Set<LogicalButton> {
+        get { parseButtons(from: scrollButtonsRaw) }
+        set {
+            scrollButtonsRaw = storeButtons(newValue)
+            inputSettings.scrollButtons = newValue
+            newValue.forEach { button in
+                primaryMapping[button] = ButtonActions()
+                secondaryMapping[button] = ButtonActions()
+            }
+            dragButtons = dragButtons.subtracting(newValue)
+            zoomButtons = zoomButtons.subtracting(newValue)
+        }
+    }
+
+    var zoomButtons: Set<LogicalButton> {
+        get { parseButtons(from: zoomButtonsRaw) }
+        set {
+            zoomButtonsRaw = storeButtons(newValue)
+            inputSettings.zoomButtons = newValue
+            newValue.forEach { button in
+                primaryMapping[button] = ButtonActions()
+                secondaryMapping[button] = ButtonActions()
+            }
+            dragButtons = dragButtons.subtracting(newValue)
+            scrollButtons = scrollButtons.subtracting(newValue)
+        }
+    }
+
     func openAccessibilitySettings() {
         // Try to trigger the system Accessibility permission prompt
         // Note: This only works for truly first-time requests; otherwise user must add manually
@@ -385,8 +514,7 @@ class AppState: ObservableObject {
 
     /// Reset gyro calibration - controller will recalibrate when held still
     func resetGyroCalibration() {
-        inputProcessor?.biasEstimator.reset()
-        inputProcessor?.smoother.reset()
+        inputProcessor?.resetFilters()
         isGyroCalibrated = false
     }
 

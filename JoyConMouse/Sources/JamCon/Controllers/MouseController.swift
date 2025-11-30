@@ -20,12 +20,28 @@ class MouseController {
     }
 
     private var screenBounds: CGRect {
-        // Get the main screen bounds
-        // Note: NSScreen coordinates have origin at bottom-left, CGEvent uses top-left
-        guard let screen = NSScreen.main else {
+        // Union of all screens to support multi-display setups (coordinates are bottom-left origin)
+        let screens = NSScreen.screens
+        guard var union = screens.first?.frame else {
             return CGRect(x: 0, y: 0, width: 1920, height: 1080)
         }
-        return screen.frame
+        for screen in screens.dropFirst() {
+            union = union.union(screen.frame)
+        }
+        return union
+    }
+
+    private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
+        let x = min(max(point.x, bounds.minX), bounds.maxX)
+        let y = min(max(point.y, bounds.minY), bounds.maxY)
+        return CGPoint(x: x, y: y)
+    }
+
+    /// Convert from Cocoa (bottom-left origin) to Quartz (top-left origin) within union bounds
+    private func toQuartzSpace(point: CGPoint, in bounds: CGRect) -> CGPoint {
+        let relativeY = point.y - bounds.minY
+        let quartzY = bounds.maxY - relativeY
+        return CGPoint(x: point.x, y: quartzY)
     }
 
     // MARK: - Error Handling
@@ -49,26 +65,19 @@ class MouseController {
     /// Move the mouse by a relative amount, clamped to screen bounds
     func moveRelative(dx: CGFloat, dy: CGFloat) {
         let current = currentPosition
+        let bounds = screenBounds
 
-        // NSEvent.mouseLocation uses bottom-left origin, we need to flip for CGEvent
-        let screenHeight = screenBounds.height
-        let currentY = screenHeight - current.y  // Flip Y coordinate
-
-        // Calculate new position
-        var newX = current.x + dx
-        var newY = currentY + dy  // dy positive = move down in screen coords
-
-        // Clamp to screen bounds
-        newX = max(0, min(newX, screenBounds.width - 1))
-        newY = max(0, min(newY, screenHeight - 1))
-
-        let newPoint = CGPoint(x: newX, y: newY)
+        // Calculate new position in Cocoa coords (origin bottom-left)
+        // dy from input is "screen down"; Cocoa Y increases upward, so subtract
+        let proposed = CGPoint(x: current.x + dx, y: current.y - dy)
+        let clamped = clamp(proposed, to: bounds)
+        let quartzPoint = toQuartzSpace(point: clamped, in: bounds)
 
         // Create and post mouse move event
         guard let event = CGEvent(
             mouseEventSource: nil,
             mouseType: .mouseMoved,
-            mouseCursorPosition: newPoint,
+            mouseCursorPosition: quartzPoint,
             mouseButton: .left
         ) else {
             handleEventCreationFailure()
@@ -81,7 +90,9 @@ class MouseController {
 
     /// Move the mouse to an absolute position
     func moveTo(x: CGFloat, y: CGFloat) {
-        let point = CGPoint(x: x, y: y)
+        let bounds = screenBounds
+        let clamped = clamp(CGPoint(x: x, y: y), to: bounds)
+        let point = toQuartzSpace(point: clamped, in: bounds)
 
         guard let event = CGEvent(
             mouseEventSource: nil,
@@ -102,8 +113,8 @@ class MouseController {
     /// Press mouse button down
     func mouseDown(button: MouseButton) {
         let currentPos = currentPosition
-        let screenHeight = screenBounds.height
-        let point = CGPoint(x: currentPos.x, y: screenHeight - currentPos.y)
+        let bounds = screenBounds
+        let point = toQuartzSpace(point: currentPos, in: bounds)
 
         let eventType: CGEventType
         let cgButton: CGMouseButton
@@ -137,8 +148,8 @@ class MouseController {
     /// Release mouse button
     func mouseUp(button: MouseButton) {
         let currentPos = currentPosition
-        let screenHeight = screenBounds.height
-        let point = CGPoint(x: currentPos.x, y: screenHeight - currentPos.y)
+        let bounds = screenBounds
+        let point = toQuartzSpace(point: currentPos, in: bounds)
 
         let eventType: CGEventType
         let cgButton: CGMouseButton
