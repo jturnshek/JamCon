@@ -1,0 +1,61 @@
+name: JoyConMouse
+options:
+  bundleIdPrefix: com.joyconmouse
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    PRODUCT_NAME: JoyConMouse
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  JoyConMouse:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/JoyConMouse
+        type: group
+    resources:
+      - path: Resources
+        type: group
+    dependencies:
+      - package: JoyConSwift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joyconmouse.app
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/JoyConMouse.entitlements
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+        COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Menu bar app settings
+        LSUIElement: YES
+    entitlements:
+      path: Resources/JoyConMouse.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.usb: true
+        com.apple.security.device.bluetooth: true
+
+packages:
+  JoyConSwift:
+    path: Packages/JoyConSwift
+
+schemes:
+  JoyConMouse:
+    build:
+      targets:
+        JoyConMouse: all
+    run:
+      config: Debug
+    archive:
+      config: Release

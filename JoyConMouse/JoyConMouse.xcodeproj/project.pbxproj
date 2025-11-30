@@ -1,0 +1,388 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 63;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0DC0480364F7D3CA984A37BA /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF746270BB9B7F96969B386 /* MouseController.swift */; };
+		334F591CE7411910BC2FCF40 /* JoyConMouseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3347912A7C750D6315355E9C /* JoyConMouseApp.swift */; };
+		7B689F0881B3B9C138C16C42 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5A7D2D5E2BBB4388C70D9F /* MenuBarView.swift */; };
+		9FE1BAFEF0B3B3B23AF0CBC3 /* InputProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55BFAA03706093565B31149E /* InputProcessor.swift */; };
+		BC1B7FF2E20A6C8516D7FB00 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE88217CB6D4B3122AC22781 /* AppState.swift */; };
+		D9D4BC044FE54171BDCDB314 /* JoyConSwift in Frameworks */ = {isa = PBXBuildFile; productRef = AF62AA9A4730A5F1E65C23C1 /* JoyConSwift */; };
+		F5664BCA0418C0F527C6647B /* JoyConController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ABDE8B0B052DEC532094F3E /* JoyConController.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0C5A7D2D5E2BBB4388C70D9F /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		3347912A7C750D6315355E9C /* JoyConMouseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConMouseApp.swift; sourceTree = "<group>"; };
+		3C40DD95CD4753E79EB49F29 /* JoyConSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JoyConSwift; path = Packages/JoyConSwift; sourceTree = SOURCE_ROOT; };
+		55BFAA03706093565B31149E /* InputProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputProcessor.swift; sourceTree = "<group>"; };
+		7BF746270BB9B7F96969B386 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
+		9ABDE8B0B052DEC532094F3E /* JoyConController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConController.swift; sourceTree = "<group>"; };
+		E506C4C253CB053F51ADCCF9 /* JoyConMouse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JoyConMouse.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE88217CB6D4B3122AC22781 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6D54FFA193E3280484103C87 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D9D4BC044FE54171BDCDB314 /* JoyConSwift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		6DC036843E535D0731AFCFC0 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				FE88217CB6D4B3122AC22781 /* AppState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		87337839FA34038483105F20 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E506C4C253CB053F51ADCCF9 /* JoyConMouse.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B89594400CE2621DAC38B6FC /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				3C40DD95CD4753E79EB49F29 /* JoyConSwift */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		BF80AB82872332086EC34839 /* Controllers */ = {
+			isa = PBXGroup;
+			children = (
+				55BFAA03706093565B31149E /* InputProcessor.swift */,
+				9ABDE8B0B052DEC532094F3E /* JoyConController.swift */,
+				7BF746270BB9B7F96969B386 /* MouseController.swift */,
+			);
+			path = Controllers;
+			sourceTree = "<group>";
+		};
+		F19E66F11D9A736CCBA5DC37 = {
+			isa = PBXGroup;
+			children = (
+				F4DC8E637B6E66E8FE0DED6A /* JoyConMouse */,
+				B89594400CE2621DAC38B6FC /* Packages */,
+				87337839FA34038483105F20 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		F4DC8E637B6E66E8FE0DED6A /* JoyConMouse */ = {
+			isa = PBXGroup;
+			children = (
+				BF80AB82872332086EC34839 /* Controllers */,
+				6DC036843E535D0731AFCFC0 /* Models */,
+				3347912A7C750D6315355E9C /* JoyConMouseApp.swift */,
+				0C5A7D2D5E2BBB4388C70D9F /* MenuBarView.swift */,
+			);
+			name = JoyConMouse;
+			path = Sources/JoyConMouse;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		719678B21E5C3907484E1B88 /* JoyConMouse */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 110391A26B4430420EEF229A /* Build configuration list for PBXNativeTarget "JoyConMouse" */;
+			buildPhases = (
+				20C68B57B90B550679989C36 /* Sources */,
+				6D54FFA193E3280484103C87 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = JoyConMouse;
+			packageProductDependencies = (
+				AF62AA9A4730A5F1E65C23C1 /* JoyConSwift */,
+			);
+			productName = JoyConMouse;
+			productReference = E506C4C253CB053F51ADCCF9 /* JoyConMouse.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		BACA8FC65A6C5960A73BA3D9 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2610;
+				TargetAttributes = {
+					719678B21E5C3907484E1B88 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 71B432C3A76D6BE3BDC24CC2 /* Build configuration list for PBXProject "JoyConMouse" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = F19E66F11D9A736CCBA5DC37;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				11FE5DD889AAF9CC9DE988E4 /* XCLocalSwiftPackageReference "Packages/JoyConSwift" */,
+			);
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				719678B21E5C3907484E1B88 /* JoyConMouse */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		20C68B57B90B550679989C36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BC1B7FF2E20A6C8516D7FB00 /* AppState.swift in Sources */,
+				9FE1BAFEF0B3B3B23AF0CBC3 /* InputProcessor.swift in Sources */,
+				F5664BCA0418C0F527C6647B /* JoyConController.swift in Sources */,
+				334F591CE7411910BC2FCF40 /* JoyConMouseApp.swift in Sources */,
+				7B689F0881B3B9C138C16C42 /* MenuBarView.swift in Sources */,
+				0DC0480364F7D3CA984A37BA /* MouseController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		07F84EF0969655D1E4170E97 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3EZHX57W9Y;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = JoyConMouse;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		3EF0E9863380AE18F6BBFCF0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3EZHX57W9Y;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = JoyConMouse;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		52679857B725494746C1A0F2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Resources/JoyConMouse.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = YES;
+				ENABLE_RESOURCE_ACCESS_USB = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.joyconmouse.app;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		918CE903BD9739965C9E93CD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Resources/JoyConMouse.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = YES;
+				ENABLE_RESOURCE_ACCESS_USB = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.joyconmouse.app;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		110391A26B4430420EEF229A /* Build configuration list for PBXNativeTarget "JoyConMouse" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				918CE903BD9739965C9E93CD /* Debug */,
+				52679857B725494746C1A0F2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		71B432C3A76D6BE3BDC24CC2 /* Build configuration list for PBXProject "JoyConMouse" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3EF0E9863380AE18F6BBFCF0 /* Debug */,
+				07F84EF0969655D1E4170E97 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		11FE5DD889AAF9CC9DE988E4 /* XCLocalSwiftPackageReference "Packages/JoyConSwift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/JoyConSwift;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AF62AA9A4730A5F1E65C23C1 /* JoyConSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = JoyConSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = BACA8FC65A6C5960A73BA3D9 /* Project object */;
+}
