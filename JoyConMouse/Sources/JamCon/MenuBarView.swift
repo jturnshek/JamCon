@@ -446,7 +446,7 @@ struct MenuBarView: View {
                 .font(.caption)
                 .fontWeight(.medium)
                 .frame(maxWidth: .infinity)
-            Text("Drag")
+                        Text("Clutch")
                 .font(.caption)
                 .fontWeight(.medium)
                 .frame(width: 40, alignment: .center)
@@ -485,7 +485,7 @@ struct MenuBarView: View {
                 .disabled(isOverrideButton(button))
             actionCell(for: button, actionType: .hold)
                 .disabled(isOverrideButton(button))
-            dragCell(for: button)
+            clutchCell(for: button)
             scrollCell(for: button)
             zoomCell(for: button)
         }
@@ -575,16 +575,16 @@ struct MenuBarView: View {
         }
     }
 
-    private func dragCell(for button: LogicalButton) -> some View {
+    private func clutchCell(for button: LogicalButton) -> some View {
         Toggle(isOn: Binding(
-            get: { isDragButton(button) },
-            set: { newValue in setDragButton(newValue ? button : nil) }
+            get: { isClutchButton(button) },
+            set: { newValue in setClutchButton(newValue ? button : nil) }
         )) {
             EmptyView()
         }
         .toggleStyle(.checkbox)
         .frame(width: 40, alignment: .center)
-        .help("Hold to freeze cursor and reposition controller; disables other actions for this button.")
+        .help("Hold to clutch (freeze cursor) so you can reposition the controller; disables other actions for this button.")
     }
 
     private func scrollCell(for button: LogicalButton) -> some View {
@@ -650,20 +650,20 @@ struct MenuBarView: View {
 
     // MARK: - Override button helpers
 
-    private func isDragButton(_ button: LogicalButton) -> Bool {
-        appState.dragButtons.contains(button)
+    private func isClutchButton(_ button: LogicalButton) -> Bool {
+        appState.clutchButtons.contains(button)
     }
 
-    private func setDragButton(_ button: LogicalButton?) {
-        // Clear any in-progress captures when toggling drag state
+    private func setClutchButton(_ button: LogicalButton?) {
+        // Clear any in-progress captures when toggling clutch state
         keyCaptureManager.cancelCapture()
-        var buttons = appState.dragButtons
+        var buttons = appState.clutchButtons
         if let button {
             buttons.insert(button)
         } else {
             buttons.removeAll()
         }
-        appState.dragButtons = buttons
+        appState.clutchButtons = buttons
     }
 
     private func isScrollButton(_ button: LogicalButton) -> Bool {
@@ -697,7 +697,7 @@ struct MenuBarView: View {
     }
 
     private func isOverrideButton(_ button: LogicalButton) -> Bool {
-        isDragButton(button) || isScrollButton(button) || isZoomButton(button)
+        isClutchButton(button) || isScrollButton(button) || isZoomButton(button)
     }
 
     // MARK: - Footer Section

@@ -9,7 +9,7 @@ final class InputSettings: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
 
     private var _isEnabled: Bool = true
-    private var _gyroSensitivity: Double = 5.0
+    private var _gyroSensitivity: Double = 30.0
     private var _scrollSensitivity: Double = 10.0
     private var _gyroDeadzone: Double = 1.0
     private var _stickDeadzone: Double = 0.15
@@ -19,10 +19,10 @@ final class InputSettings: @unchecked Sendable {
     private var _secondaryMapping: ButtonMappingProfile = .defaultSecondary
     private var _primaryControllerId: UUID? = nil
     private var _mirrorFaceButtons: Bool = true
-    private var _holdThreshold: Double = 1.0
-    private var _filterBeta: Double = 0.35
-    private var _accelerationGain: Double = 2.0
-    private var _dragButtons: Set<LogicalButton> = []
+    private var _holdThreshold: Double = 0.6
+    private var _filterBeta: Double = 0.5
+    private var _accelerationGain: Double = 80.0
+    private var _clutchButtons: Set<LogicalButton> = []
     private var _scrollButtons: Set<LogicalButton> = []
     private var _zoomButtons: Set<LogicalButton> = []
 
@@ -96,9 +96,9 @@ final class InputSettings: @unchecked Sendable {
         set { lock.withLock { _accelerationGain = newValue } }
     }
 
-    var dragButtons: Set<LogicalButton> {
-        get { lock.withLock { _dragButtons } }
-        set { lock.withLock { _dragButtons = newValue } }
+    var clutchButtons: Set<LogicalButton> {
+        get { lock.withLock { _clutchButtons } }
+        set { lock.withLock { _clutchButtons = newValue } }
     }
 
     var scrollButtons: Set<LogicalButton> {
@@ -159,7 +159,7 @@ class AppState: ObservableObject {
     @AppStorage("isEnabled") var isEnabled: Bool = true {
         didSet { inputSettings.isEnabled = isEnabled }
     }
-    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 5.0 {
+    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 30.0 {
         didSet { inputSettings.gyroSensitivity = gyroSensitivity }
     }
     @AppStorage("scrollSensitivity") var scrollSensitivity: Double = 10.0 {
@@ -177,17 +177,17 @@ class AppState: ObservableObject {
     @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = true {
         didSet { inputSettings.mirrorFaceButtons = mirrorFaceButtons }
     }
-    @AppStorage("holdThreshold") var holdThreshold: Double = 1.0 {
+    @AppStorage("holdThreshold") var holdThreshold: Double = 0.6 {
         didSet { inputSettings.holdThreshold = holdThreshold }
     }
-    @AppStorage("filterBeta") var filterBeta: Double = 0.35 {
+    @AppStorage("filterBeta") var filterBeta: Double = 0.5 {
         didSet { inputSettings.filterBeta = filterBeta }
     }
-    @AppStorage("accelerationGain") var accelerationGain: Double = 2.0 {
+    @AppStorage("accelerationGain") var accelerationGain: Double = 80.0 {
         didSet { inputSettings.accelerationGain = accelerationGain }
     }
-    @AppStorage("dragButtons") private var dragButtonsRaw: String = "" {
-        didSet { inputSettings.dragButtons = parseButtons(from: dragButtonsRaw) }
+    @AppStorage("dragButtons") private var clutchButtonsRaw: String = "" {
+        didSet { inputSettings.clutchButtons = parseButtons(from: clutchButtonsRaw) }
     }
     @AppStorage("scrollButtons") private var scrollButtonsRaw: String = "" {
         didSet { inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw) }
@@ -226,6 +226,9 @@ class AppState: ObservableObject {
     private var mouseController: MouseController?
     private(set) var inputProcessor: InputProcessor?
 
+    /// Prevents recursive updates when keeping override button sets mutually exclusive
+    private var overrideUpdateInProgress = false
+
     // Thread-safe settings cache for input callbacks
     private let inputSettings = InputSettings()
 
@@ -255,7 +258,7 @@ class AppState: ObservableObject {
         inputSettings.holdThreshold = holdThreshold
         inputSettings.filterBeta = filterBeta
         inputSettings.accelerationGain = accelerationGain
-        inputSettings.dragButtons = parseButtons(from: dragButtonsRaw)
+        inputSettings.clutchButtons = parseButtons(from: clutchButtonsRaw)
         inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw)
         inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw)
 
@@ -363,8 +366,8 @@ class AppState: ObservableObject {
 
             // Get logical button for hold detection
             guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
-            if settings.dragButtons.contains(logicalButton) {
-                processor?.beginOverride(.drag)
+            if settings.clutchButtons.contains(logicalButton) {
+                processor?.beginOverride(.clutch)
                 return
             }
             if settings.scrollButtons.contains(logicalButton) {
@@ -389,8 +392,8 @@ class AppState: ObservableObject {
 
             // Get logical button for hold detection
             guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
-            if settings.dragButtons.contains(logicalButton) {
-                processor?.endOverride(.drag)
+            if settings.clutchButtons.contains(logicalButton) {
+                processor?.endOverride(.clutch)
                 return
             }
             if settings.scrollButtons.contains(logicalButton) {
@@ -440,9 +443,7 @@ class AppState: ObservableObject {
         joyConController?.startScanning()
     }
 
-    // MARK: - Drag Button Management
-
-    // MARK: - Override Button Management
+    // MARK: - Override Button Management (Clutch/Scroll/Zoom)
 
     private func parseButtons(from raw: String) -> Set<LogicalButton> {
         let parts = raw.split(separator: ",").map { String($0) }
@@ -453,11 +454,17 @@ class AppState: ObservableObject {
         buttons.map { $0.rawValue }.sorted().joined(separator: ",")
     }
 
-    var dragButtons: Set<LogicalButton> {
-        get { parseButtons(from: dragButtonsRaw) }
+    var clutchButtons: Set<LogicalButton> {
+        get { parseButtons(from: clutchButtonsRaw) }
         set {
-            dragButtonsRaw = storeButtons(newValue)
-            inputSettings.dragButtons = newValue
+            if overrideUpdateInProgress {
+                clutchButtonsRaw = storeButtons(newValue)
+                inputSettings.clutchButtons = newValue
+                return
+            }
+            overrideUpdateInProgress = true
+            clutchButtonsRaw = storeButtons(newValue)
+            inputSettings.clutchButtons = newValue
             newValue.forEach { button in
                 primaryMapping[button] = ButtonActions()
                 secondaryMapping[button] = ButtonActions()
@@ -465,34 +472,49 @@ class AppState: ObservableObject {
             // Remove from other modes
             scrollButtons = scrollButtons.subtracting(newValue)
             zoomButtons = zoomButtons.subtracting(newValue)
+            overrideUpdateInProgress = false
         }
     }
 
     var scrollButtons: Set<LogicalButton> {
         get { parseButtons(from: scrollButtonsRaw) }
         set {
+            if overrideUpdateInProgress {
+                scrollButtonsRaw = storeButtons(newValue)
+                inputSettings.scrollButtons = newValue
+                return
+            }
+            overrideUpdateInProgress = true
             scrollButtonsRaw = storeButtons(newValue)
             inputSettings.scrollButtons = newValue
             newValue.forEach { button in
                 primaryMapping[button] = ButtonActions()
                 secondaryMapping[button] = ButtonActions()
             }
-            dragButtons = dragButtons.subtracting(newValue)
+            clutchButtons = clutchButtons.subtracting(newValue)
             zoomButtons = zoomButtons.subtracting(newValue)
+            overrideUpdateInProgress = false
         }
     }
 
     var zoomButtons: Set<LogicalButton> {
         get { parseButtons(from: zoomButtonsRaw) }
         set {
+            if overrideUpdateInProgress {
+                zoomButtonsRaw = storeButtons(newValue)
+                inputSettings.zoomButtons = newValue
+                return
+            }
+            overrideUpdateInProgress = true
             zoomButtonsRaw = storeButtons(newValue)
             inputSettings.zoomButtons = newValue
             newValue.forEach { button in
                 primaryMapping[button] = ButtonActions()
                 secondaryMapping[button] = ButtonActions()
             }
-            dragButtons = dragButtons.subtracting(newValue)
+            clutchButtons = clutchButtons.subtracting(newValue)
             scrollButtons = scrollButtons.subtracting(newValue)
+            overrideUpdateInProgress = false
         }
     }
 
