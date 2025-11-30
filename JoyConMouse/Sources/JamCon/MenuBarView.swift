@@ -437,33 +437,15 @@ struct MenuBarView: View {
     // MARK: - Footer Section
 
     private var footerSection: some View {
-        VStack(spacing: 8) {
-            // Accessibility settings button
-            Button(action: appState.openAccessibilitySettings) {
-                HStack {
-                    Image(systemName: "hand.raised")
-                    Text("Accessibility Settings")
-                    Spacer()
-                    Image(systemName: "arrow.up.forward.square")
-                        .font(.caption)
-                }
+        Button(action: appState.quit) {
+            HStack {
+                Image(systemName: "power")
+                Text("Quit JamCon")
+                Spacer()
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.primary)
-
-            Divider()
-
-            // Quit button
-            Button(action: appState.quit) {
-                HStack {
-                    Image(systemName: "power")
-                    Text("Quit JamCon")
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(.red)
         }
+        .buttonStyle(.plain)
+        .foregroundColor(.red)
     }
 }
 

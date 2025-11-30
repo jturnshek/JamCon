@@ -27,6 +27,8 @@ targets:
     resources:
       - path: Resources
         type: group
+      - path: Sources/JamCon/Resources
+        type: group
     dependencies:
       - package: JoyConSwift
     settings:

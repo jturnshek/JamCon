@@ -74,8 +74,17 @@ class MenuBarIconCache {
     }
 
     private static func loadImage(_ name: String) -> NSImage? {
-        guard let url = Bundle.module.url(forResource: name, withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
+        // Try SPM bundle first, fall back to main bundle for Xcode builds
+        #if SWIFT_PACKAGE
+        if let url = Bundle.module.url(forResource: name, withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        #endif
+        // For Xcode builds, resources are in the main bundle
+        if let url = Bundle.main.url(forResource: name, withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        return nil
     }
 
     private static func createCombined(leftImage: NSImage?, rightImage: NSImage?,
