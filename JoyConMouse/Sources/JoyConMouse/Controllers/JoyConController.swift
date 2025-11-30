@@ -2,24 +2,43 @@ import Foundation
 import CoreGraphics
 import JoyConSwift
 
+/// Represents a connected controller with its metadata
+struct ConnectedController: Identifiable {
+    let id: UUID
+    let type: ControllerType
+    let controller: Controller
+    var batteryLevel: BatteryLevel
+
+    init(controller: Controller, type: ControllerType) {
+        self.id = UUID()
+        self.controller = controller
+        self.type = type
+        self.batteryLevel = .unknown
+    }
+}
+
 /// Manages Joy-Con connections and forwards input events
 class JoyConController {
 
-    // MARK: - Callbacks
+    // MARK: - Callbacks (include controller ID for multi-controller support)
 
-    var onGyroUpdate: ((_ gyro: GyroData) -> Void)?
-    var onButtonPress: ((_ button: JoyConButton) -> Void)?
-    var onButtonRelease: ((_ button: JoyConButton) -> Void)?
-    var onStickUpdate: ((_ position: StickPosition) -> Void)?
-    var onConnectionChange: ((_ connected: Bool, _ type: ControllerType) -> Void)?
-    var onBatteryUpdate: ((_ level: BatteryLevel) -> Void)?
+    var onGyroUpdate: ((_ controllerId: UUID, _ gyro: GyroData) -> Void)?
+    var onButtonPress: ((_ controllerId: UUID, _ button: JoyConButton) -> Void)?
+    var onButtonRelease: ((_ controllerId: UUID, _ button: JoyConButton) -> Void)?
+    var onStickUpdate: ((_ controllerId: UUID, _ position: StickPosition) -> Void)?
+    var onConnectionChange: ((_ controllers: [ConnectedController]) -> Void)?
+    var onBatteryUpdate: ((_ controllerId: UUID, _ level: BatteryLevel) -> Void)?
 
     // MARK: - State
 
     private var isScanning = false
     private let manager = JoyConManager()
-    private var connectedController: Controller?
-    private var currentControllerType: ControllerType = .none
+    private var connectedControllers: [ObjectIdentifier: ConnectedController] = [:]
+
+    /// Get all currently connected controllers
+    var controllers: [ConnectedController] {
+        Array(connectedControllers.values)
+    }
 
     // MARK: - Public Methods
 
@@ -57,8 +76,6 @@ class JoyConController {
     private func handleControllerConnected(_ controller: Controller) {
         print("[JoyConController] Controller connected: \(controller.type)")
 
-        connectedController = controller
-
         // Determine controller type
         let type: ControllerType
         switch controller.type {
@@ -71,11 +88,16 @@ class JoyConController {
         default:
             type = .none
         }
-        currentControllerType = type
 
-        // Notify connection
+        // Create and store connected controller
+        let connectedController = ConnectedController(controller: controller, type: type)
+        let key = ObjectIdentifier(controller)
+        connectedControllers[key] = connectedController
+
+        // Notify connection change
         DispatchQueue.main.async { [weak self] in
-            self?.onConnectionChange?(true, type)
+            guard let self else { return }
+            self.onConnectionChange?(self.controllers)
         }
 
         // Set input mode to full (required for IMU data)
@@ -85,29 +107,34 @@ class JoyConController {
         controller.enableIMU(enable: true)
 
         // Set up input handlers
-        setupControllerHandlers(controller, type: type)
+        setupControllerHandlers(controller, connectedController: connectedController)
 
         // Send initial battery status
         let batteryLevel = mapBatteryStatus(controller.battery)
+        connectedControllers[key]?.batteryLevel = batteryLevel
         DispatchQueue.main.async { [weak self] in
-            self?.onBatteryUpdate?(batteryLevel)
+            self?.onBatteryUpdate?(connectedController.id, batteryLevel)
         }
     }
 
     private func handleControllerDisconnected(_ controller: Controller) {
         print("[JoyConController] Controller disconnected")
 
-        connectedController = nil
-        currentControllerType = .none
+        let key = ObjectIdentifier(controller)
+        connectedControllers.removeValue(forKey: key)
 
         DispatchQueue.main.async { [weak self] in
-            self?.onConnectionChange?(false, .none)
+            guard let self else { return }
+            self.onConnectionChange?(self.controllers)
         }
     }
 
     // MARK: - Input Handler Setup
 
-    private func setupControllerHandlers(_ controller: Controller, type: ControllerType) {
+    private func setupControllerHandlers(_ controller: Controller, connectedController: ConnectedController) {
+        let controllerId = connectedController.id
+        let type = connectedController.type
+
         // Sensor (gyro/accelerometer) updates
         controller.sensorHandler = { [weak self, weak controller] in
             guard let controller else { return }
@@ -119,20 +146,20 @@ class JoyConController {
                 y: Double(gyro.y),
                 z: Double(gyro.z)
             )
-            self?.onGyroUpdate?(gyroData)
+            self?.onGyroUpdate?(controllerId, gyroData)
         }
 
         // Button press
         controller.buttonPressHandler = { [weak self] button in
             if let joyConButton = self?.mapJoyConSwiftButton(button) {
-                self?.onButtonPress?(joyConButton)
+                self?.onButtonPress?(controllerId, joyConButton)
             }
         }
 
         // Button release
         controller.buttonReleaseHandler = { [weak self] button in
             if let joyConButton = self?.mapJoyConSwiftButton(button) {
-                self?.onButtonRelease?(joyConButton)
+                self?.onButtonRelease?(controllerId, joyConButton)
             }
         }
 
@@ -141,18 +168,18 @@ class JoyConController {
         if type == .rightJoyCon {
             controller.rightStickPosHandler = { [weak self] pos in
                 let position = StickPosition(x: Double(pos.x), y: Double(pos.y))
-                self?.onStickUpdate?(position)
+                self?.onStickUpdate?(controllerId, position)
             }
         } else if type == .leftJoyCon {
             controller.leftStickPosHandler = { [weak self] pos in
                 let position = StickPosition(x: Double(pos.x), y: Double(pos.y))
-                self?.onStickUpdate?(position)
+                self?.onStickUpdate?(controllerId, position)
             }
         } else if type == .proController {
             // Pro Controller has both sticks - use right stick for scrolling
             controller.rightStickPosHandler = { [weak self] pos in
                 let position = StickPosition(x: Double(pos.x), y: Double(pos.y))
-                self?.onStickUpdate?(position)
+                self?.onStickUpdate?(controllerId, position)
             }
         }
 
@@ -160,7 +187,7 @@ class JoyConController {
         controller.batteryChangeHandler = { [weak self] newLevel, _ in
             let level = self?.mapBatteryStatus(newLevel) ?? .unknown
             DispatchQueue.main.async {
-                self?.onBatteryUpdate?(level)
+                self?.onBatteryUpdate?(controllerId, level)
             }
         }
     }

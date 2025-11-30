@@ -14,6 +14,12 @@ struct JoyConMouseApp: App {
             Label("JoyConMouse", systemImage: appState.isConnected ? "gamecontroller.fill" : "gamecontroller")
         }
         .menuBarExtraStyle(.window)
+
+        Window("Button Mapping", id: "button-mapping") {
+            ButtonMappingView()
+                .environmentObject(appState)
+        }
+        .windowResizability(.contentSize)
     }
 }
 

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,6 +26,11 @@ struct MenuBarView: View {
 
             Divider()
 
+            // Button mapping
+            buttonMappingSection
+
+            Divider()
+
             // Footer with accessibility and quit
             footerSection
         }
@@ -35,42 +41,83 @@ struct MenuBarView: View {
     // MARK: - Header Section
 
     private var headerSection: some View {
-        HStack {
-            Image(systemName: appState.isConnected ? "gamecontroller.fill" : "gamecontroller")
-                .font(.title2)
-                .foregroundColor(appState.isConnected ? .green : .secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            if appState.connectedControllers.isEmpty {
+                // No controllers connected
+                HStack {
+                    Image(systemName: "gamecontroller")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(appState.isConnected ? appState.controllerType.rawValue : "No Controller")
-                    .font(.headline)
-
-                if appState.isConnected {
-                    HStack(spacing: 4) {
-                        batteryIcon
-                        Text(appState.batteryLevel.rawValue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No Controller")
+                            .font(.headline)
+                        Text("Pair via Bluetooth Settings")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                } else {
-                    Text("Pair via Bluetooth Settings")
+
+                    Spacer()
+                }
+            } else {
+                // Show all connected controllers
+                ForEach(appState.connectedControllers) { controller in
+                    controllerRow(controller)
+                }
+            }
+        }
+    }
+
+    private func controllerRow(_ controller: ConnectedController) -> some View {
+        let isPrimary = controller.id == appState.primaryController?.id
+        let (batteryImage, batteryColor) = batteryIconInfo(for: controller.batteryLevel)
+
+        return HStack {
+            Image(systemName: isPrimary ? "gamecontroller.fill" : "gamecontroller")
+                .font(.title2)
+                .foregroundColor(isPrimary ? .green : .secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(controller.type.rawValue)
+                        .font(.headline)
+                    if isPrimary {
+                        Text("Primary")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundColor(.green)
+                            .cornerRadius(3)
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: batteryImage)
+                        .font(.caption)
+                        .foregroundColor(batteryColor)
+                    Text(controller.batteryLevel.rawValue)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
 
             Spacer()
+
+            // Set as primary button (only show if not already primary and multiple controllers)
+            if !isPrimary && appState.connectedControllers.count > 1 {
+                Button(action: { appState.setPrimaryController(controller) }) {
+                    Text("Set Primary")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 
-    private var batteryIcon: some View {
-        let (imageName, color) = batteryIconInfo
-        return Image(systemName: imageName)
-            .font(.caption)
-            .foregroundColor(color)
-    }
-
-    private var batteryIconInfo: (String, Color) {
-        switch appState.batteryLevel {
+    private func batteryIconInfo(for level: BatteryLevel) -> (String, Color) {
+        switch level {
         case .full:
             return ("battery.100", .green)
         case .medium:
@@ -185,6 +232,20 @@ struct MenuBarView: View {
                 .font(.caption2)
                 .foregroundColor(.secondary)
         }
+    }
+
+    // MARK: - Button Mapping Section
+
+    private var buttonMappingSection: some View {
+        Button(action: { openWindow(id: "button-mapping") }) {
+            HStack {
+                Image(systemName: "keyboard")
+                Text("Configure Buttons...")
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.primary)
     }
 
     // MARK: - Footer Section

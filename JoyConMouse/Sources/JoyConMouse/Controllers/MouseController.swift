@@ -1,8 +1,9 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import Carbon.HIToolbox
 
-/// Controls the system mouse using CGEvent APIs
+/// Controls the system mouse and keyboard using CGEvent APIs
 class MouseController {
 
     // MARK: - Properties
@@ -83,6 +84,9 @@ class MouseController {
         case .right:
             eventType = .rightMouseDown
             cgButton = .right
+        case .middle:
+            eventType = .otherMouseDown
+            cgButton = .center
         }
 
         guard let event = CGEvent(
@@ -111,6 +115,9 @@ class MouseController {
         case .right:
             eventType = .rightMouseUp
             cgButton = .right
+        case .middle:
+            eventType = .otherMouseUp
+            cgButton = .center
         }
 
         guard let event = CGEvent(
@@ -151,11 +158,66 @@ class MouseController {
 
         event.post(tap: .cghidEventTap)
     }
+
+    // MARK: - Keyboard Events
+
+    /// Press a key combination down
+    func keyDown(_ keyCombo: KeyCombo) {
+        // Set modifier flags
+        var flags: CGEventFlags = []
+        if keyCombo.modifiers.contains(.shift) {
+            flags.insert(.maskShift)
+        }
+        if keyCombo.modifiers.contains(.control) {
+            flags.insert(.maskControl)
+        }
+        if keyCombo.modifiers.contains(.option) {
+            flags.insert(.maskAlternate)
+        }
+        if keyCombo.modifiers.contains(.command) {
+            flags.insert(.maskCommand)
+        }
+
+        // Create and post key down event
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: true) else { return }
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
+    }
+
+    /// Release a key combination
+    func keyUp(_ keyCombo: KeyCombo) {
+        // Set modifier flags (same as key down)
+        var flags: CGEventFlags = []
+        if keyCombo.modifiers.contains(.shift) {
+            flags.insert(.maskShift)
+        }
+        if keyCombo.modifiers.contains(.control) {
+            flags.insert(.maskControl)
+        }
+        if keyCombo.modifiers.contains(.option) {
+            flags.insert(.maskAlternate)
+        }
+        if keyCombo.modifiers.contains(.command) {
+            flags.insert(.maskCommand)
+        }
+
+        // Create and post key up event
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: false) else { return }
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
+    }
+
+    /// Press and release a key combination
+    func keyPress(_ keyCombo: KeyCombo) {
+        keyDown(keyCombo)
+        keyUp(keyCombo)
+    }
 }
 
 // MARK: - Supporting Types
 
-enum MouseButton {
+enum MouseButton: Codable, Hashable, Sendable {
     case left
     case right
+    case middle
 }

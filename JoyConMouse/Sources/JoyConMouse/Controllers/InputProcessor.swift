@@ -126,6 +126,8 @@ class InputProcessor {
     var onMouseMove: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
     var onMouseClick: ((_ button: MouseButton, _ isDown: Bool) -> Void)?
     var onScroll: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
+    var onKeyDown: ((_ keyCombo: KeyCombo) -> Void)?
+    var onKeyUp: ((_ keyCombo: KeyCombo) -> Void)?
 
     // MARK: - Stabilization
 
@@ -197,49 +199,31 @@ class InputProcessor {
 
     // MARK: - Button Processing
 
-    /// Process button press event
-    func processButtonPress(_ button: JoyConButton, controllerType: ControllerType) {
-        let mouseButton = mapButtonToMouse(button, controllerType: controllerType)
-        if let mouseButton {
-            onMouseClick?(mouseButton, true)
-        }
+    /// Process button press event with mapping profile
+    func processButtonPress(_ button: JoyConButton, mapping: ButtonMappingProfile) {
+        let action = mapping[button]
+        executeAction(action, isDown: true)
     }
 
-    /// Process button release event
-    func processButtonRelease(_ button: JoyConButton, controllerType: ControllerType) {
-        let mouseButton = mapButtonToMouse(button, controllerType: controllerType)
-        if let mouseButton {
-            onMouseClick?(mouseButton, false)
-        }
+    /// Process button release event with mapping profile
+    func processButtonRelease(_ button: JoyConButton, mapping: ButtonMappingProfile) {
+        let action = mapping[button]
+        executeAction(action, isDown: false)
     }
 
-    /// Map Joy-Con button to mouse button based on controller type
-    private func mapButtonToMouse(_ button: JoyConButton, controllerType: ControllerType) -> MouseButton? {
-        switch controllerType {
-        case .rightJoyCon, .proController:
-            // Right Joy-Con: ZR = left click, R = right click
-            switch button {
-            case .zr:
-                return .left
-            case .r:
-                return .right
-            default:
-                return nil
-            }
-
-        case .leftJoyCon:
-            // Left Joy-Con: ZL = left click, L = right click
-            switch button {
-            case .zl:
-                return .left
-            case .l:
-                return .right
-            default:
-                return nil
-            }
-
+    /// Execute a button action
+    private func executeAction(_ action: ButtonAction, isDown: Bool) {
+        switch action {
         case .none:
-            return nil
+            break
+        case .mouseClick(let mouseButton):
+            onMouseClick?(mouseButton, isDown)
+        case .keyPress(let keyCombo):
+            if isDown {
+                onKeyDown?(keyCombo)
+            } else {
+                onKeyUp?(keyCombo)
+            }
         }
     }
 
