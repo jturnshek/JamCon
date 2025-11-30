@@ -225,7 +225,7 @@ class AppState: ObservableObject {
     @AppStorage("isEnabled") var isEnabled: Bool = true {
         didSet { inputSettings.isEnabled = isEnabled }
     }
-    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 30.0 {
+    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 20.0 {
         didSet { inputSettings.gyroSensitivity = gyroSensitivity }
     }
     @AppStorage("scrollSensitivity") var scrollSensitivity: Double = 10.0 {
@@ -237,7 +237,7 @@ class AppState: ObservableObject {
     @AppStorage("stickDeadzone") var stickDeadzone: Double = 0.15 {
         didSet { inputSettings.stickDeadzone = stickDeadzone }
     }
-    @AppStorage("smoothThreshold") var smoothThreshold: Double = 20.0 {
+    @AppStorage("smoothThreshold") var smoothThreshold: Double = 0.0 {
         didSet { inputSettings.smoothThreshold = smoothThreshold }
     }
     @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = true {
@@ -246,16 +246,16 @@ class AppState: ObservableObject {
     @AppStorage("holdThreshold") var holdThreshold: Double = 0.6 {
         didSet { inputSettings.holdThreshold = holdThreshold }
     }
-    @AppStorage("filterBeta") var filterBeta: Double = 0.5 {
+    @AppStorage("filterBeta") var filterBeta: Double = 0.0 {
         didSet { inputSettings.filterBeta = filterBeta }
     }
-    @AppStorage("accelerationGain") var accelerationGain: Double = 80.0 {
+    @AppStorage("accelerationGain") var accelerationGain: Double = 100.0 {
         didSet { inputSettings.accelerationGain = accelerationGain }
     }
-    @AppStorage("precisionZoneEnabled") var precisionZoneEnabled: Bool = false {
+    @AppStorage("precisionZoneEnabled") var precisionZoneEnabled: Bool = true {
         didSet { inputSettings.precisionZoneEnabled = precisionZoneEnabled }
     }
-    @AppStorage("earlyRampEnabled") var earlyRampEnabled: Bool = false {
+    @AppStorage("earlyRampEnabled") var earlyRampEnabled: Bool = true {
         didSet { inputSettings.earlyRampEnabled = earlyRampEnabled }
     }
     @AppStorage("accelerationMode") var accelerationMode: AccelerationMode = .legacy {
@@ -276,7 +276,7 @@ class AppState: ObservableObject {
     @AppStorage("zoomButtons") private var zoomButtonsRaw: String = "" {
         didSet { inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw) }
     }
-    @AppStorage("idleTimeoutMinutes") var idleTimeoutMinutes: Double = 15.0 {
+    @AppStorage("idleTimeoutMinutes") var idleTimeoutMinutes: Double = 10.0 {
         didSet { inputSettings.idleTimeoutMinutes = idleTimeoutMinutes }
     }
     @AppStorage("autoPowerOffEnabled") var autoPowerOffEnabled: Bool = true {

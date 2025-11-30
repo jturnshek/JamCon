@@ -3,9 +3,8 @@ import SwiftUI
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var keyCaptureManager = KeyCaptureManager()
-    @State private var showMouseSection = false
-    @State private var showButtonsSection = false
-    @State private var showAdvancedMouse = false
+    @State private var showPointerSection = false
+    @State private var showButtonMappingsSection = false
     @State private var selectedMappingRole: MappingRole = .primary
 
     enum MappingRole: String, CaseIterable {
@@ -25,18 +24,18 @@ struct MenuBarView: View {
 
             Divider()
 
-            // Enable/Disable toggle
-            toggleSection
+            // Top-level controls (always visible)
+            topLevelControls
 
             Divider()
 
-            // Collapsible Mouse section
-            mouseSection
+            // Collapsible Pointer Controls section
+            pointerSection
 
             Divider()
 
-            // Collapsible Buttons section
-            buttonsSection
+            // Collapsible Button Mappings section
+            buttonMappingsSection
 
             Divider()
 
@@ -56,7 +55,7 @@ struct MenuBarView: View {
         .onChange(of: selectedMappingRole) { _, _ in
             keyCaptureManager.cancelCapture()
         }
-        .onChange(of: showButtonsSection) { _, newValue in
+        .onChange(of: showButtonMappingsSection) { _, newValue in
             if !newValue {
                 keyCaptureManager.cancelCapture()
             }
@@ -184,225 +183,252 @@ struct MenuBarView: View {
         }
     }
 
-    // MARK: - Toggle Section
+    // MARK: - Top Level Controls
 
-    private var toggleSection: some View {
-        Toggle(isOn: $appState.isEnabled) {
+    private var topLevelControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Mouse Control toggle
+            Toggle(isOn: $appState.isEnabled) {
+                HStack {
+                    Image(systemName: appState.isEnabled ? "cursorarrow.motionlines" : "cursorarrow")
+                    Text("Mouse Control")
+                }
+            }
+            .toggleStyle(.switch)
+            .disabled(!appState.isConnected)
+
+            // Calibration status
             HStack {
-                Image(systemName: appState.isEnabled ? "cursorarrow.motionlines" : "cursorarrow")
-                Text("Mouse Control")
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(appState.isGyroCalibrated ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(appState.isGyroCalibrated ? "Calibrated" : "Calibrating...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Button(action: appState.resetGyroCalibration) {
+                    Text("Recalibrate")
+                        .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!appState.isConnected)
+            }
+
+            Text("Hold controller still to calibrate")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            Divider()
+
+            // Auto power-off
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $appState.autoPowerOffEnabled) {
+                    Text("Auto power-off")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                if appState.autoPowerOffEnabled {
+                    HStack {
+                        Text("Idle timeout")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.0f min", appState.idleTimeoutMinutes))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 50, alignment: .trailing)
+                    }
+                    Slider(value: $appState.idleTimeoutMinutes, in: 1...120, step: 1)
+                }
+
+                Text("Turns controllers off after inactivity")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
         }
-        .toggleStyle(.switch)
-        .disabled(!appState.isConnected)
     }
 
-    // MARK: - Mouse Section (Collapsible)
+    // MARK: - Pointer Controls Section (Collapsible)
 
-    private var mouseSection: some View {
+    private var pointerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Expandable header
-            Button(action: { withAnimation { showMouseSection.toggle() } }) {
+            Button(action: { withAnimation { showPointerSection.toggle() } }) {
                 HStack {
                     Image(systemName: "cursorarrow.motionlines")
-                    Text("Mouse")
+                    Text("Pointer Controls")
                         .font(.subheadline)
                     Spacer()
-                    Image(systemName: showMouseSection ? "chevron.up" : "chevron.down")
+                    Image(systemName: showPointerSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             .buttonStyle(.plain)
+            .contentShape(Rectangle())
             .foregroundColor(.secondary)
 
-            if showMouseSection {
-                // Sensitivity subsection
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Sensitivity")
-                        .font(.caption)
+            if showPointerSection {
+                // Speed (gyro sensitivity)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Speed")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.0f", appState.gyroSensitivity))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 36, alignment: .trailing)
+                    }
+                    Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
+                }
+
+                // Scroll sensitivity
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Scroll")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.0f", appState.scrollSensitivity))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 36, alignment: .trailing)
+                    }
+                    Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
+                }
+
+                // Jitter Filter
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Jitter Filter")
+                            .font(.caption)
+                        Spacer()
+                        Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 30, alignment: .trailing)
+                    }
+                    Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
+                    Text("Higher = smoother when moving slowly; too high can feel floaty.")
+                        .font(.caption2)
                         .foregroundColor(.secondary)
-
-                    // Mouse sensitivity
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Speed")
-                                .font(.caption)
-                            Spacer()
-                            Text(String(format: "%.0f", appState.gyroSensitivity))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 36, alignment: .trailing)
-                        }
-                        Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
-                    }
-
-                    // Scroll sensitivity
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Scroll")
-                                .font(.caption)
-                            Spacer()
-                            Text(String(format: "%.0f", appState.scrollSensitivity))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 36, alignment: .trailing)
-                        }
-                        Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
-                    }
                 }
 
                 Divider()
 
-                // Stabilization subsection
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Stabilization")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    // Smoothing threshold
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Jitter Filter")
-                                .font(.caption)
-                            Spacer()
-                            Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 30, alignment: .trailing)
-                        }
-                        Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
-                        Text("Higher = smoother when moving slowly; too high can feel floaty.")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-
-                    // Calibration status and button
+                // Acceleration
+                VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(appState.isGyroCalibrated ? Color.green : Color.orange)
-                                .frame(width: 8, height: 8)
-                            Text(appState.isGyroCalibrated ? "Calibrated" : "Calibrating...")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
+                        Text("Acceleration")
+                            .font(.caption)
                         Spacer()
-
-                        Button(action: appState.resetGyroCalibration) {
-                            Text("Recalibrate")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(!appState.isConnected)
+                        Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 52, alignment: .trailing)
                     }
-
-                    Text("Hold controller still to calibrate")
+                    Slider(value: $appState.accelerationGain, in: 0...100, step: 0.1)
+                    Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                }
 
-                    // Advanced mouse tuning
-                    Button(action: { withAnimation { showAdvancedMouse.toggle() } }) {
-                        HStack {
-                            Text("Advanced")
-                                .font(.caption)
-                            Spacer()
-                            Image(systemName: showAdvancedMouse ? "chevron.up" : "chevron.down")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                // Precision Zone toggle
+                Toggle(isOn: $appState.precisionZoneEnabled) {
+                    Text("Precision Zone")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text("Slows cursor at low speeds for fine aiming")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
+                // Early Ramp toggle
+                Toggle(isOn: $appState.earlyRampEnabled) {
+                    Text("Early Ramp")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text("Reaches top acceleration gain sooner")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
+                // Filter Responsiveness
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Filter Responsiveness")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.2f", appState.filterBeta))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                    Slider(value: $appState.filterBeta, in: 0...1.0, step: 0.01)
+                    Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // Adaptive Smoothing
+                HStack {
+                    Text("Adaptive Smoothing")
+                        .font(.caption)
+                    Spacer()
+                    Picker("", selection: $appState.adaptiveSmoothingMode) {
+                        ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
                         }
                     }
-                    .buttonStyle(.plain)
-
-                    if showAdvancedMouse {
-                        VStack(alignment: .leading, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("Acceleration")
-                                        .font(.caption)
-                                    Spacer()
-                                    Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .frame(width: 52, alignment: .trailing)
-                                }
-                                Slider(value: $appState.accelerationGain, in: 0...100, step: 0.1)
-                                Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged; raise for more reach.")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Toggle(isOn: $appState.precisionZoneEnabled) {
-                                Text("Precision Zone (low speed)")
-                                    .font(.caption)
-                            }
-                            .toggleStyle(.switch)
-
-                            Toggle(isOn: $appState.earlyRampEnabled) {
-                                Text("Early Ramp (reach top gain sooner)")
-                                    .font(.caption)
-                            }
-                            .toggleStyle(.switch)
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("Filter Responsiveness")
-                                        .font(.caption)
-                                    Spacer()
-                                    Text(String(format: "%.2f", appState.filterBeta))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .frame(width: 40, alignment: .trailing)
-                                }
-                                Slider(value: $appState.filterBeta, in: 0...1.0, step: 0.01)
-                                Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("Adaptive Smoothing")
-                                        .font(.caption)
-                                    Spacer()
-                                    Picker("", selection: $appState.adaptiveSmoothingMode) {
-                                        ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
-                                            Text(mode.displayName).tag(mode)
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    .pickerStyle(.menu)
-                                }
-                            }
-                        }
-                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
             }
         }
     }
 
-    // MARK: - Buttons Section (Collapsible)
+    // MARK: - Button Mappings Section (Collapsible)
 
-    private var buttonsSection: some View {
+    private var buttonMappingsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Expandable header
-            Button(action: { withAnimation { showButtonsSection.toggle() } }) {
+            Button(action: { withAnimation { showButtonMappingsSection.toggle() } }) {
                 HStack {
                     Image(systemName: "keyboard")
-                    Text("Buttons")
+                    Text("Button Mappings")
                         .font(.subheadline)
                     Spacer()
-                    Image(systemName: showButtonsSection ? "chevron.up" : "chevron.down")
+                    Image(systemName: showButtonMappingsSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             .buttonStyle(.plain)
+            .contentShape(Rectangle())
             .foregroundColor(.secondary)
 
-            if showButtonsSection {
+            if showButtonMappingsSection {
+                // Role picker
+                Picker("Role", selection: $selectedMappingRole) {
+                    ForEach(MappingRole.allCases, id: \.self) { role in
+                        Text(role.rawValue).tag(role)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.vertical, 4)
+
                 // Hold delay slider
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -412,12 +438,13 @@ struct MenuBarView: View {
                         Text(String(format: "%.1fs", appState.holdThreshold))
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .frame(width: 30, alignment: .trailing)
+                            .frame(width: 36, alignment: .trailing)
                     }
                     Slider(value: $appState.holdThreshold, in: 0.2...2.0, step: 0.1)
+                    Text("Time before a press becomes a hold action")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
-
-                Divider()
 
                 // Mirror toggle
                 Toggle(isOn: $appState.mirrorFaceButtons) {
@@ -431,40 +458,7 @@ struct MenuBarView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
 
-                // Role picker
-                Picker("Role", selection: $selectedMappingRole) {
-                    ForEach(MappingRole.allCases, id: \.self) { role in
-                        Text(role.rawValue).tag(role)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.vertical, 4)
-
-                // Auto power-off
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle(isOn: $appState.autoPowerOffEnabled) {
-                        Text("Auto power-off")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-
-                    if appState.autoPowerOffEnabled {
-                        HStack {
-                            Text("Idle (min)")
-                                .font(.caption)
-                            Spacer()
-                            Text(String(format: "%.0f", appState.idleTimeoutMinutes))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 36, alignment: .trailing)
-                        }
-                        Slider(value: $appState.idleTimeoutMinutes, in: 1...120, step: 1)
-                    }
-                    Text("Turns controllers off after inactivity; press any button to wake and reconnect.")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
+                Divider()
 
                 // Column headers
                 buttonMappingHeader
