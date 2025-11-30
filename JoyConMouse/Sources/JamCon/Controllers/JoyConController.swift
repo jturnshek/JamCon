@@ -20,11 +20,11 @@ struct ConnectedController: Identifiable {
 /// Manages Joy-Con connections and forwards input events
 class JoyConController {
 
-    // MARK: - Callbacks (include controller ID for multi-controller support)
+    // MARK: - Callbacks (include controller ID and type for multi-controller support)
 
     var onGyroUpdate: ((_ controllerId: UUID, _ gyro: GyroData) -> Void)?
-    var onButtonPress: ((_ controllerId: UUID, _ button: JoyConButton) -> Void)?
-    var onButtonRelease: ((_ controllerId: UUID, _ button: JoyConButton) -> Void)?
+    var onButtonPress: ((_ controllerId: UUID, _ controllerType: ControllerType, _ button: JoyConButton) -> Void)?
+    var onButtonRelease: ((_ controllerId: UUID, _ controllerType: ControllerType, _ button: JoyConButton) -> Void)?
     var onStickUpdate: ((_ controllerId: UUID, _ position: StickPosition) -> Void)?
     var onConnectionChange: ((_ controllers: [ConnectedController]) -> Void)?
     var onBatteryUpdate: ((_ controllerId: UUID, _ level: BatteryLevel) -> Void)?
@@ -152,14 +152,14 @@ class JoyConController {
         // Button press
         controller.buttonPressHandler = { [weak self] button in
             if let joyConButton = self?.mapJoyConSwiftButton(button) {
-                self?.onButtonPress?(controllerId, joyConButton)
+                self?.onButtonPress?(controllerId, type, joyConButton)
             }
         }
 
         // Button release
         controller.buttonReleaseHandler = { [weak self] button in
             if let joyConButton = self?.mapJoyConSwiftButton(button) {
-                self?.onButtonRelease?(controllerId, joyConButton)
+                self?.onButtonRelease?(controllerId, type, joyConButton)
             }
         }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import os.lock
+import ApplicationServices  // For AXIsProcessTrusted
 
 /// Thread-safe settings cache for input processing
 /// Avoids main thread dispatch for high-frequency gyro updates
@@ -17,6 +18,7 @@ final class InputSettings: @unchecked Sendable {
     private var _primaryMapping: ButtonMappingProfile = .defaultPrimary
     private var _secondaryMapping: ButtonMappingProfile = .defaultSecondary
     private var _primaryControllerId: UUID? = nil
+    private var _mirrorFaceButtons: Bool = true
 
     var isEnabled: Bool {
         get { lock.withLock { _isEnabled } }
@@ -67,6 +69,11 @@ final class InputSettings: @unchecked Sendable {
         get { lock.withLock { _primaryControllerId } }
         set { lock.withLock { _primaryControllerId = newValue } }
     }
+
+    var mirrorFaceButtons: Bool {
+        get { lock.withLock { _mirrorFaceButtons } }
+        set { lock.withLock { _mirrorFaceButtons = newValue } }
+    }
 }
 
 /// Shared application state
@@ -74,16 +81,18 @@ final class InputSettings: @unchecked Sendable {
 class AppState: ObservableObject {
     // MARK: - Connection State
     @Published var connectedControllers: [ConnectedController] = []
-    @Published var preferredPrimaryId: UUID? = nil {
-        didSet { inputSettings.primaryControllerId = preferredPrimaryId ?? primaryController?.id }
-    }
+
+    /// Primary controller preference stored by type ("left", "right", or "" for auto)
+    @AppStorage("preferredPrimaryType") var preferredPrimaryType: String = ""
 
     /// The primary controller (controls mouse + uses primary mapping)
     var primaryController: ConnectedController? {
-        // If user has a preference and that controller is connected, use it
-        if let preferredId = preferredPrimaryId,
-           let controller = connectedControllers.first(where: { $0.id == preferredId }) {
-            return controller
+        // If user has a type preference and that type is connected, use it
+        if !preferredPrimaryType.isEmpty {
+            let targetType: ControllerType = preferredPrimaryType == "left" ? .leftJoyCon : .rightJoyCon
+            if let controller = connectedControllers.first(where: { $0.type == targetType }) {
+                return controller
+            }
         }
         // Otherwise use the first connected controller
         return connectedControllers.first
@@ -129,9 +138,20 @@ class AppState: ObservableObject {
     @AppStorage("smoothThreshold") var smoothThreshold: Double = 20.0 {
         didSet { inputSettings.smoothThreshold = smoothThreshold }
     }
+    @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = true {
+        didSet { inputSettings.mirrorFaceButtons = mirrorFaceButtons }
+    }
 
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
+
+    // MARK: - Accessibility Permission
+    @Published var hasAccessibilityPermission: Bool = false
+
+    /// Check if the app has Accessibility permission
+    func checkAccessibilityPermission() {
+        hasAccessibilityPermission = AXIsProcessTrusted()
+    }
 
     // MARK: - Button Mappings (persisted)
     @Published var primaryMapping: ButtonMappingProfile {
@@ -174,6 +194,10 @@ class AppState: ObservableObject {
         inputSettings.primaryMapping = loadedPrimary
         inputSettings.secondaryMapping = loadedSecondary
         inputSettings.primaryControllerId = nil  // Will be set when first controller connects
+        inputSettings.mirrorFaceButtons = mirrorFaceButtons
+
+        // Check Accessibility permission on startup
+        checkAccessibilityPermission()
 
         setupControllers()
     }
@@ -216,6 +240,7 @@ class AppState: ObservableObject {
         // Gyro: only process from primary controller
         joyConController?.onGyroUpdate = { [weak self, settings, processor] controllerId, gyro in
             guard settings.isEnabled else { return }
+
             // Only process gyro from primary controller
             guard settings.primaryControllerId == controllerId else { return }
 
@@ -238,18 +263,20 @@ class AppState: ObservableObject {
         }
 
         // Buttons: use primary or secondary mapping based on controller
-        joyConController?.onButtonPress = { [settings, processor] controllerId, button in
+        joyConController?.onButtonPress = { [settings, processor] controllerId, controllerType, button in
             guard settings.isEnabled else { return }
             let isPrimary = settings.primaryControllerId == controllerId
             let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
-            processor?.processButtonPress(button, mapping: mapping)
+            let action = mapping.action(for: button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons)
+            processor?.processAction(action, isDown: true)
         }
 
-        joyConController?.onButtonRelease = { [settings, processor] controllerId, button in
+        joyConController?.onButtonRelease = { [settings, processor] controllerId, controllerType, button in
             guard settings.isEnabled else { return }
             let isPrimary = settings.primaryControllerId == controllerId
             let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
-            processor?.processButtonRelease(button, mapping: mapping)
+            let action = mapping.action(for: button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons)
+            processor?.processAction(action, isDown: false)
         }
 
         // Stick: only process from primary controller
@@ -261,15 +288,13 @@ class AppState: ObservableObject {
         }
 
         // Connection state updates still need main thread (for UI)
-        joyConController?.onConnectionChange = { [weak self, settings] controllers in
+        joyConController?.onConnectionChange = { [weak self] controllers in
             Task { @MainActor in
                 self?.connectedControllers = controllers
-
-                // Auto-set primary if not set or if preferred is disconnected
-                if settings.primaryControllerId == nil ||
-                   !controllers.contains(where: { $0.id == settings.primaryControllerId }) {
-                    settings.primaryControllerId = controllers.first?.id
-                }
+                // Update primary controller ID based on type preference
+                self?.inputSettings.primaryControllerId = self?.primaryController?.id
+                // Recheck Accessibility permission when controllers connect
+                self?.checkAccessibilityPermission()
             }
         }
 
@@ -286,8 +311,18 @@ class AppState: ObservableObject {
     }
 
     func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+        // Try to trigger the system Accessibility permission prompt
+        // Note: This only works for truly first-time requests; otherwise user must add manually
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        let options = [promptKey: true] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(options)
+
+        hasAccessibilityPermission = trusted
+
+        if !trusted {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                NSWorkspace.shared.open(url)
+            }
         }
     }
 
@@ -298,10 +333,18 @@ class AppState: ObservableObject {
         isGyroCalibrated = false
     }
 
-    /// Set a controller as the primary controller
-    func setPrimaryController(_ controller: ConnectedController) {
-        preferredPrimaryId = controller.id
-        inputSettings.primaryControllerId = controller.id
+    /// Set a controller type as the primary controller
+    func setPrimaryControllerType(_ type: ControllerType) {
+        switch type {
+        case .leftJoyCon:
+            preferredPrimaryType = "left"
+        case .rightJoyCon, .proController:
+            preferredPrimaryType = "right"
+        case .none:
+            preferredPrimaryType = ""
+        }
+        // Update inputSettings with current primary's ID
+        inputSettings.primaryControllerId = primaryController?.id
         // Reset gyro calibration when switching primary
         resetGyroCalibration()
     }

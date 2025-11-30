@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		0DC0480364F7D3CA984A37BA /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF746270BB9B7F96969B386 /* MouseController.swift */; };
 		334F591CE7411910BC2FCF40 /* JoyConMouseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3347912A7C750D6315355E9C /* JoyConMouseApp.swift */; };
-		7725064123B13D330BB3C4E8 /* ButtonMappingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66361DB7CB5A010D7EDEE46C /* ButtonMappingView.swift */; };
 		7B689F0881B3B9C138C16C42 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5A7D2D5E2BBB4388C70D9F /* MenuBarView.swift */; };
 		9FE1BAFEF0B3B3B23AF0CBC3 /* InputProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55BFAA03706093565B31149E /* InputProcessor.swift */; };
 		BC1B7FF2E20A6C8516D7FB00 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE88217CB6D4B3122AC22781 /* AppState.swift */; };
@@ -23,7 +22,6 @@
 		3347912A7C750D6315355E9C /* JoyConMouseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConMouseApp.swift; sourceTree = "<group>"; };
 		3C40DD95CD4753E79EB49F29 /* JoyConSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JoyConSwift; path = Packages/JoyConSwift; sourceTree = SOURCE_ROOT; };
 		55BFAA03706093565B31149E /* InputProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputProcessor.swift; sourceTree = "<group>"; };
-		66361DB7CB5A010D7EDEE46C /* ButtonMappingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMappingView.swift; sourceTree = "<group>"; };
 		7BF746270BB9B7F96969B386 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
 		9ABDE8B0B052DEC532094F3E /* JoyConController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConController.swift; sourceTree = "<group>"; };
 		E506C4C253CB053F51ADCCF9 /* JoyConMouse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JoyConMouse.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -92,7 +90,6 @@
 			children = (
 				BF80AB82872332086EC34839 /* Controllers */,
 				6DC036843E535D0731AFCFC0 /* Models */,
-				66361DB7CB5A010D7EDEE46C /* ButtonMappingView.swift */,
 				3347912A7C750D6315355E9C /* JoyConMouseApp.swift */,
 				0C5A7D2D5E2BBB4388C70D9F /* MenuBarView.swift */,
 			);
@@ -165,7 +162,6 @@
 			files = (
 				BC1B7FF2E20A6C8516D7FB00 /* AppState.swift in Sources */,
 				DB36BC6920C4D147ED33F888 /* ButtonMapping.swift in Sources */,
-				7725064123B13D330BB3C4E8 /* ButtonMappingView.swift in Sources */,
 				9FE1BAFEF0B3B3B23AF0CBC3 /* InputProcessor.swift in Sources */,
 				F5664BCA0418C0F527C6647B /* JoyConController.swift in Sources */,
 				334F591CE7411910BC2FCF40 /* JoyConMouseApp.swift in Sources */,

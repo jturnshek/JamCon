@@ -199,20 +199,8 @@ class InputProcessor {
 
     // MARK: - Button Processing
 
-    /// Process button press event with mapping profile
-    func processButtonPress(_ button: JoyConButton, mapping: ButtonMappingProfile) {
-        let action = mapping[button]
-        executeAction(action, isDown: true)
-    }
-
-    /// Process button release event with mapping profile
-    func processButtonRelease(_ button: JoyConButton, mapping: ButtonMappingProfile) {
-        let action = mapping[button]
-        executeAction(action, isDown: false)
-    }
-
-    /// Execute a button action
-    private func executeAction(_ action: ButtonAction, isDown: Bool) {
+    /// Process a button action (called after translating physical button to action)
+    func processAction(_ action: ButtonAction, isDown: Bool) {
         switch action {
         case .none:
             break

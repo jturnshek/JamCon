@@ -2,21 +2,26 @@
 import PackageDescription
 
 let package = Package(
-    name: "JoyConMouse",
+    name: "JamCon",
     platforms: [
         .macOS(.v14)  // macOS 14 Sonoma minimum (update to v15/v26 when available)
     ],
     products: [
-        .executable(name: "JoyConMouse", targets: ["JoyConMouse"])
+        .executable(name: "JamCon", targets: ["JamCon"])
     ],
     dependencies: [
         .package(path: "Packages/JoyConSwift")
     ],
     targets: [
         .executableTarget(
-            name: "JoyConMouse",
+            name: "JamCon",
             dependencies: ["JoyConSwift"],
-            path: "Sources/JoyConMouse"
+            path: "Sources/JamCon",
+            resources: [
+                .copy("Resources/joyconL.png"),
+                .copy("Resources/joyconR.png"),
+                .copy("Resources/joycon.png")
+            ]
         )
     ]
 )

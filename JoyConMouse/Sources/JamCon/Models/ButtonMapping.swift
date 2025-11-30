@@ -134,6 +134,105 @@ struct KeyCombo: Codable, Equatable, Hashable, Sendable {
     static let selectAll = KeyCombo(keyCode: UInt16(kVK_ANSI_A), modifiers: .command)
 }
 
+// MARK: - Logical Button
+
+/// Unified button abstraction that works for both left and right Joy-Cons
+/// When mirror mode is on, physical positions are unified (X=Up, A=Right, B=Down, Y=Left)
+enum LogicalButton: String, CaseIterable, Codable, Hashable, Sendable {
+    // Triggers (same position on both controllers)
+    case trigger        // ZR on right, ZL on left
+    case shoulder       // R on right, L on left
+
+    // Face buttons (position-based when mirrored)
+    case faceTop        // X on right, Up on left
+    case faceBottom     // B on right, Down on left
+    case faceLeft       // Y on right, Left on left
+    case faceRight      // A on right, Right on left
+
+    // Other buttons
+    case menu           // + on right, - on left
+    case system         // Home on right, Capture on left
+    case stick          // Right stick on right, Left stick on left
+    case sl             // SL on both
+    case sr             // SR on both
+
+    var displayName: String {
+        switch self {
+        case .trigger: return "Trigger"
+        case .shoulder: return "Shoulder"
+        case .faceTop: return "Top"
+        case .faceBottom: return "Bottom"
+        case .faceLeft: return "Left"
+        case .faceRight: return "Right"
+        case .menu: return "Menu (+/-)"
+        case .system: return "System"
+        case .stick: return "Stick Click"
+        case .sl: return "SL"
+        case .sr: return "SR"
+        }
+    }
+
+    /// Convert a physical JoyConButton to a LogicalButton
+    /// - Parameters:
+    ///   - button: The physical button pressed
+    ///   - controllerType: The type of controller
+    ///   - mirrorFaceButtons: Whether to treat face buttons as position-equivalent to D-pad
+    /// - Returns: The logical button, or nil if the button doesn't map
+    static func from(
+        _ button: JoyConButton,
+        controllerType: ControllerType,
+        mirrorFaceButtons: Bool
+    ) -> LogicalButton? {
+        switch controllerType {
+        case .rightJoyCon, .proController:
+            switch button {
+            case .zr: return .trigger
+            case .r: return .shoulder
+            case .x: return .faceTop
+            case .b: return .faceBottom
+            case .y: return .faceLeft
+            case .a: return .faceRight
+            case .plus: return .menu
+            case .home: return .system
+            case .rightStick: return .stick
+            case .sl_r: return .sl
+            case .sr_r: return .sr
+            default: return nil
+            }
+
+        case .leftJoyCon:
+            switch button {
+            case .zl: return .trigger
+            case .l: return .shoulder
+            // Mirror OFF: same position = same action (Up→Top, Left→Left)
+            // Mirror ON: flipped like a mirror (Up→Bottom, Left→Right)
+            case .up: return mirrorFaceButtons ? .faceBottom : .faceTop
+            case .down: return mirrorFaceButtons ? .faceTop : .faceBottom
+            case .left: return mirrorFaceButtons ? .faceRight : .faceLeft
+            case .right: return mirrorFaceButtons ? .faceLeft : .faceRight
+            case .minus: return .menu
+            case .capture: return .system
+            case .leftStick: return .stick
+            case .sl_l: return .sl
+            case .sr_l: return .sr
+            default: return nil
+            }
+
+        case .none:
+            return nil
+        }
+    }
+
+    /// Grouped buttons for UI display
+    static var buttonGroups: [(name: String, buttons: [LogicalButton])] {
+        [
+            ("Triggers", [.trigger, .shoulder]),
+            ("Face Buttons", [.faceTop, .faceBottom, .faceLeft, .faceRight]),
+            ("Other", [.menu, .stick, .sl, .sr]),
+        ]
+    }
+}
+
 // MARK: - Button Action
 
 enum ButtonAction: Codable, Equatable, Hashable, Sendable {
@@ -160,62 +259,43 @@ enum ButtonAction: Codable, Equatable, Hashable, Sendable {
 // MARK: - Button Mapping Profile
 
 struct ButtonMappingProfile: Codable, Equatable {
-    var mappings: [String: ButtonAction]  // JoyConButton.rawValue -> ButtonAction
+    var mappings: [String: ButtonAction]  // LogicalButton.rawValue -> ButtonAction
 
-    init(mappings: [JoyConButton: ButtonAction] = [:]) {
+    init(mappings: [LogicalButton: ButtonAction] = [:]) {
         self.mappings = Dictionary(uniqueKeysWithValues: mappings.map { ($0.key.rawValue, $0.value) })
     }
 
-    subscript(button: JoyConButton) -> ButtonAction {
+    subscript(button: LogicalButton) -> ButtonAction {
         get { mappings[button.rawValue] ?? .none }
         set { mappings[button.rawValue] = newValue }
+    }
+
+    /// Look up action for a physical button by translating to logical button first
+    func action(
+        for button: JoyConButton,
+        controllerType: ControllerType,
+        mirrorFaceButtons: Bool
+    ) -> ButtonAction {
+        guard let logical = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: mirrorFaceButtons) else {
+            return .none
+        }
+        return self[logical]
     }
 
     // Default profile for primary controller
     static var defaultPrimary: ButtonMappingProfile {
         ButtonMappingProfile(mappings: [
-            .zr: .mouseClick(.left),
-            .r: .mouseClick(.right),
-            .zl: .mouseClick(.left),
-            .l: .mouseClick(.right),
+            .trigger: .mouseClick(.left),
+            .shoulder: .mouseClick(.right),
         ])
     }
 
     // Default profile for secondary controller
     static var defaultSecondary: ButtonMappingProfile {
         ButtonMappingProfile(mappings: [
-            .zr: .mouseClick(.left),
-            .r: .mouseClick(.right),
-            .zl: .mouseClick(.left),
-            .l: .mouseClick(.right),
+            .trigger: .mouseClick(.left),
+            .shoulder: .mouseClick(.right),
         ])
-    }
-
-    // All buttons that can be mapped
-    static var allButtons: [JoyConButton] {
-        [
-            // Triggers
-            .zr, .r, .zl, .l,
-            // Face buttons
-            .a, .b, .x, .y,
-            // D-pad
-            .up, .down, .left, .right,
-            // Other
-            .plus, .minus, .home, .capture,
-            .rightStick, .leftStick,
-            // Side buttons (when held sideways)
-            .sr_r, .sl_r, .sr_l, .sl_l,
-        ]
-    }
-
-    // Grouped buttons for UI
-    static var buttonGroups: [(name: String, buttons: [JoyConButton])] {
-        [
-            ("Triggers", [.zr, .r, .zl, .l]),
-            ("Face Buttons", [.a, .b, .x, .y]),
-            ("D-Pad", [.up, .down, .left, .right]),
-            ("Other", [.plus, .minus, .rightStick, .leftStick]),
-        ]
     }
 }
 
