@@ -177,6 +177,9 @@ class AppState: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
+    /// Timer for periodic accessibility permission checks
+    private var accessibilityCheckTimer: Timer?
+
     init() {
         // Load saved mappings or use defaults
         let loadedPrimary = ButtonMappingProfile.load(from: "primaryButtonMapping") ?? .defaultPrimary
@@ -200,6 +203,23 @@ class AppState: ObservableObject {
         checkAccessibilityPermission()
 
         setupControllers()
+
+        // Start periodic accessibility permission check
+        startAccessibilityMonitoring()
+    }
+
+    deinit {
+        accessibilityCheckTimer?.invalidate()
+        joyConController?.stopScanning()
+    }
+
+    /// Start periodic accessibility permission monitoring
+    private func startAccessibilityMonitoring() {
+        accessibilityCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.hasAccessibilityPermission = AXIsProcessTrusted()
+            }
+        }
     }
 
     private func setupControllers() {
@@ -207,9 +227,15 @@ class AppState: ObservableObject {
         inputProcessor = InputProcessor()
         joyConController = JoyConController()
 
-        let settings = inputSettings
         let processor = inputProcessor
         let mouse = mouseController
+
+        // Wire up mouse controller error handling
+        mouseController?.onAccessibilityError = { [weak self] in
+            Task { @MainActor in
+                self?.hasAccessibilityPermission = AXIsProcessTrusted()
+            }
+        }
 
         // Wire up input processor to mouse controller (no main thread needed)
         processor?.onMouseMove = { dx, dy in
@@ -238,7 +264,11 @@ class AppState: ObservableObject {
 
         // Wire up Joy-Con events - NO main thread dispatch for input processing
         // Gyro: only process from primary controller
-        joyConController?.onGyroUpdate = { [weak self, settings, processor] controllerId, gyro in
+        joyConController?.onGyroUpdate = { [weak self] controllerId, gyro in
+            guard let self = self else { return }
+            let settings = self.inputSettings
+            let processor = self.inputProcessor
+
             guard settings.isEnabled else { return }
 
             // Only process gyro from primary controller
@@ -255,15 +285,19 @@ class AppState: ObservableObject {
             if let processor = processor {
                 let isCalibrated = processor.biasEstimator.isCalibrated
                 Task { @MainActor in
-                    if self?.isGyroCalibrated != isCalibrated {
-                        self?.isGyroCalibrated = isCalibrated
+                    if self.isGyroCalibrated != isCalibrated {
+                        self.isGyroCalibrated = isCalibrated
                     }
                 }
             }
         }
 
         // Buttons: use primary or secondary mapping based on controller
-        joyConController?.onButtonPress = { [settings, processor] controllerId, controllerType, button in
+        joyConController?.onButtonPress = { [weak self] controllerId, controllerType, button in
+            guard let self = self else { return }
+            let settings = self.inputSettings
+            let processor = self.inputProcessor
+
             guard settings.isEnabled else { return }
             let isPrimary = settings.primaryControllerId == controllerId
             let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
@@ -271,7 +305,11 @@ class AppState: ObservableObject {
             processor?.processAction(action, isDown: true)
         }
 
-        joyConController?.onButtonRelease = { [settings, processor] controllerId, controllerType, button in
+        joyConController?.onButtonRelease = { [weak self] controllerId, controllerType, button in
+            guard let self = self else { return }
+            let settings = self.inputSettings
+            let processor = self.inputProcessor
+
             guard settings.isEnabled else { return }
             let isPrimary = settings.primaryControllerId == controllerId
             let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
@@ -280,7 +318,11 @@ class AppState: ObservableObject {
         }
 
         // Stick: only process from primary controller
-        joyConController?.onStickUpdate = { [settings, processor] controllerId, position in
+        joyConController?.onStickUpdate = { [weak self] controllerId, position in
+            guard let self = self else { return }
+            let settings = self.inputSettings
+            let processor = self.inputProcessor
+
             guard settings.isEnabled else { return }
             // Only process stick from primary controller
             guard settings.primaryControllerId == controllerId else { return }

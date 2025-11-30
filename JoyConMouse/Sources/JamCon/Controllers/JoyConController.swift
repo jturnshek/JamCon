@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import JoyConSwift
+import os.lock
 
 /// Represents a connected controller with its metadata
 struct ConnectedController: Identifiable {
@@ -33,11 +34,28 @@ class JoyConController {
 
     private var isScanning = false
     private let manager = JoyConManager()
-    private var connectedControllers: [ObjectIdentifier: ConnectedController] = [:]
 
-    /// Get all currently connected controllers
+    /// Thread-safe storage for connected controllers
+    private let controllersLock = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ConnectedController]())
+
+    /// Get all currently connected controllers (thread-safe)
     var controllers: [ConnectedController] {
-        Array(connectedControllers.values)
+        controllersLock.withLock { Array($0.values) }
+    }
+
+    /// Thread-safe access to get a controller by key
+    private func getController(for key: ObjectIdentifier) -> ConnectedController? {
+        controllersLock.withLock { $0[key] }
+    }
+
+    /// Thread-safe update of a controller
+    private func setController(_ controller: ConnectedController?, for key: ObjectIdentifier) {
+        controllersLock.withLock { $0[key] = controller }
+    }
+
+    /// Thread-safe removal of a controller
+    private func removeController(for key: ObjectIdentifier) {
+        controllersLock.withLock { _ = $0.removeValue(forKey: key) }
     }
 
     // MARK: - Public Methods
@@ -90,15 +108,8 @@ class JoyConController {
         }
 
         // Create and store connected controller
-        let connectedController = ConnectedController(controller: controller, type: type)
+        var connectedController = ConnectedController(controller: controller, type: type)
         let key = ObjectIdentifier(controller)
-        connectedControllers[key] = connectedController
-
-        // Notify connection change
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.onConnectionChange?(self.controllers)
-        }
 
         // Set input mode to full (required for IMU data)
         controller.setInputMode(mode: .standardFull)
@@ -111,7 +122,16 @@ class JoyConController {
 
         // Send initial battery status
         let batteryLevel = mapBatteryStatus(controller.battery)
-        connectedControllers[key]?.batteryLevel = batteryLevel
+        connectedController.batteryLevel = batteryLevel
+
+        // Store controller (thread-safe)
+        setController(connectedController, for: key)
+
+        // Notify connection change
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.onConnectionChange?(self.controllers)
+        }
         DispatchQueue.main.async { [weak self] in
             self?.onBatteryUpdate?(connectedController.id, batteryLevel)
         }
@@ -121,7 +141,7 @@ class JoyConController {
         print("[JoyConController] Controller disconnected")
 
         let key = ObjectIdentifier(controller)
-        connectedControllers.removeValue(forKey: key)
+        removeController(for: key)
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

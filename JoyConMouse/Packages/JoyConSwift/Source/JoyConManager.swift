@@ -38,6 +38,9 @@ public class JoyConManager {
     private var matchingControllers: [IOHIDDevice] = []
     private var controllers: [IOHIDDevice: Controller] = [:]
     private var runLoop: RunLoop? = nil
+
+    /// Retained reference to self for IOKit callbacks (prevents use-after-free)
+    private var retainedSelf: Unmanaged<JoyConManager>?
         
     /// Handler for a controller connection event
     public var connectHandler: ((_ controller: Controller) -> Void)? = nil
@@ -48,17 +51,20 @@ public class JoyConManager {
     public init() {}
     
     let handleMatchCallback: IOHIDDeviceCallback = { (context, result, sender, device) in
-        let manager: JoyConManager = unsafeBitCast(context, to: JoyConManager.self)
+        guard let context = context else { return }
+        let manager = Unmanaged<JoyConManager>.fromOpaque(context).takeUnretainedValue()
         manager.handleMatch(result: result, sender: sender, device: device)
     }
-    
+
     let handleInputCallback: IOHIDValueCallback = { (context, result, sender, value) in
-        let manager: JoyConManager = unsafeBitCast(context, to: JoyConManager.self)
+        guard let context = context else { return }
+        let manager = Unmanaged<JoyConManager>.fromOpaque(context).takeUnretainedValue()
         manager.handleInput(result: result, sender: sender, value: value)
     }
-    
+
     let handleRemoveCallback: IOHIDDeviceCallback = { (context, result, sender, device) in
-        let manager: JoyConManager = unsafeBitCast(context, to: JoyConManager.self)
+        guard let context = context else { return }
+        let manager = Unmanaged<JoyConManager>.fromOpaque(context).takeUnretainedValue()
         manager.handleRemove(result: result, sender: sender, device: device)
     }
     
@@ -145,15 +151,23 @@ public class JoyConManager {
     }
     
     private func registerDeviceCallback() {
-        IOHIDManagerRegisterDeviceMatchingCallback(self.manager, self.handleMatchCallback, unsafeBitCast(self, to: UnsafeMutableRawPointer.self))
-        IOHIDManagerRegisterDeviceRemovalCallback(self.manager, self.handleRemoveCallback, unsafeBitCast(self, to: UnsafeMutableRawPointer.self))
-        IOHIDManagerRegisterInputValueCallback(self.manager, self.handleInputCallback, unsafeBitCast(self, to: UnsafeMutableRawPointer.self))
+        // Retain self for the duration of callback registration
+        retainedSelf = Unmanaged.passRetained(self)
+        let context = retainedSelf!.toOpaque()
+
+        IOHIDManagerRegisterDeviceMatchingCallback(self.manager, self.handleMatchCallback, context)
+        IOHIDManagerRegisterDeviceRemovalCallback(self.manager, self.handleRemoveCallback, context)
+        IOHIDManagerRegisterInputValueCallback(self.manager, self.handleInputCallback, context)
     }
     
     private func unregisterDeviceCallback() {
         IOHIDManagerRegisterDeviceMatchingCallback(self.manager, nil, nil)
         IOHIDManagerRegisterDeviceRemovalCallback(self.manager, nil, nil)
         IOHIDManagerRegisterInputValueCallback(self.manager, nil, nil)
+
+        // Release the retained reference now that callbacks are unregistered
+        retainedSelf?.release()
+        retainedSelf = nil
     }
     
     private func cleanUp() {
@@ -232,5 +246,12 @@ public class JoyConManager {
 
         self.unregisterDeviceCallback()
         self.cleanUp()
+    }
+
+    deinit {
+        // Ensure callbacks are unregistered and retained reference is released
+        unregisterDeviceCallback()
+        cleanUp()
+        // IOHIDManager is a Core Foundation type - ARC handles release in Swift
     }
 }

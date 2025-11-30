@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Carbon.HIToolbox
+import CoreGraphics
 
 /// Tracks which button is currently being configured for key capture
 enum KeyCaptureState: Equatable {
@@ -9,13 +10,14 @@ enum KeyCaptureState: Equatable {
 }
 
 /// Manages keyboard event capture for button mapping configuration
+/// Uses CGEventTap to intercept system shortcuts like Cmd+Space
 @MainActor
 class KeyCaptureManager: ObservableObject {
     @Published var captureState: KeyCaptureState = .idle
     @Published var currentModifiers: KeyModifiers = []
 
-    private var localMonitor: Any?
-    private var globalMonitor: Any?  // For capturing system shortcuts like Cmd+Space
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
 
     /// Callback when a key combo is captured - provides the button and combo
     var onCapture: ((LogicalButton, KeyCombo) -> Void)?
@@ -24,12 +26,12 @@ class KeyCaptureManager: ObservableObject {
     func startCapture(for button: LogicalButton) {
         captureState = .capturing(button: button)
         currentModifiers = []
-        installMonitor()
+        installEventTap()
     }
 
     /// Cancel the current capture session
     func cancelCapture() {
-        removeMonitor()
+        removeEventTap()
         captureState = .idle
         currentModifiers = []
     }
@@ -42,66 +44,98 @@ class KeyCaptureManager: ObservableObject {
         return false
     }
 
-    private func installMonitor() {
-        removeMonitor()
+    private func installEventTap() {
+        removeEventTap()
 
-        // Local monitor for app-focused events (can consume events)
-        localMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.keyDown, .flagsChanged]
-        ) { [weak self] event in
-            guard let self = self else { return event }
-            return self.handleKeyEvent(event)
+        // Event mask for key down and modifier changes
+        let eventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
+
+        // Create event tap at session level to intercept system shortcuts
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(eventMask),
+            callback: { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
+                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+                let manager = Unmanaged<KeyCaptureManager>.fromOpaque(refcon).takeUnretainedValue()
+                return manager.handleCGEvent(proxy: proxy, type: type, event: event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            print("[KeyCaptureManager] Failed to create event tap - check Accessibility permissions")
+            return
         }
 
-        // Global monitor for system-wide events (captures system shortcuts like Cmd+Space)
-        // Note: Global monitor callback returns Void, can't consume events
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.keyDown, .flagsChanged]
-        ) { [weak self] event in
-            _ = self?.handleKeyEvent(event)
+        eventTap = tap
+        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+
+        if let source = runLoopSource {
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         }
+
+        CGEvent.tapEnable(tap: tap, enable: true)
     }
 
-    private func removeMonitor() {
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMonitor = nil
+    private func removeEventTap() {
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
         }
-        if let monitor = globalMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalMonitor = nil
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
+        eventTap = nil
+        runLoopSource = nil
     }
 
-    private func handleKeyEvent(_ event: NSEvent) -> NSEvent? {
+    private func handleCGEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Handle tap disabled (system may disable if callback takes too long)
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return Unmanaged.passRetained(event)
+        }
+
         guard case .capturing(let button) = captureState else {
-            return event  // Pass through if not capturing
+            return Unmanaged.passRetained(event)  // Pass through if not capturing
         }
 
-        // Update current modifiers for display
-        currentModifiers = KeyModifiers.from(event.modifierFlags)
+        // Extract modifiers from event flags
+        let flags = event.flags
+        var modifiers: KeyModifiers = []
+        if flags.contains(.maskShift) { modifiers.insert(.shift) }
+        if flags.contains(.maskControl) { modifiers.insert(.control) }
+        if flags.contains(.maskAlternate) { modifiers.insert(.option) }
+        if flags.contains(.maskCommand) { modifiers.insert(.command) }
 
-        if event.type == .keyDown {
+        // Update modifiers display (needs main thread)
+        Task { @MainActor in
+            self.currentModifiers = modifiers
+        }
+
+        if type == .keyDown {
+            let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+
             // Escape with no modifiers cancels capture
-            if event.keyCode == UInt16(kVK_Escape) && currentModifiers.isEmpty {
-                cancelCapture()
+            if keyCode == UInt16(kVK_Escape) && modifiers.isEmpty {
+                Task { @MainActor in
+                    self.cancelCapture()
+                }
                 return nil  // Consume the event
             }
 
             // Capture the key combo
-            let combo = KeyCombo(
-                keyCode: event.keyCode,
-                modifiers: currentModifiers
-            )
+            let combo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
 
-            onCapture?(button, combo)
+            Task { @MainActor in
+                self.onCapture?(button, combo)
+                self.removeEventTap()
+                self.captureState = .idle
+                self.currentModifiers = []
+            }
 
-            // Clean up
-            removeMonitor()
-            captureState = .idle
-            currentModifiers = []
-
-            return nil  // Consume the event
+            return nil  // Consume the event (prevents Spotlight from opening)
         }
 
         // For flagsChanged, just update display (don't complete capture)
@@ -109,11 +143,12 @@ class KeyCaptureManager: ObservableObject {
     }
 
     deinit {
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
+        // Inline cleanup since deinit is nonisolated and can't call @MainActor methods
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
         }
-        if let monitor = globalMonitor {
-            NSEvent.removeMonitor(monitor)
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
     }
 }

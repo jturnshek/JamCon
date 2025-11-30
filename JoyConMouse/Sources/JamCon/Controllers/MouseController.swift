@@ -8,6 +8,13 @@ class MouseController {
 
     // MARK: - Properties
 
+    /// Callback when accessibility permission appears to be missing (after consecutive failures)
+    var onAccessibilityError: (() -> Void)?
+
+    /// Number of consecutive event creation failures before triggering error callback
+    private let failureThreshold = 5
+    private var consecutiveFailures = 0
+
     private var currentPosition: CGPoint {
         NSEvent.mouseLocation
     }
@@ -19,6 +26,22 @@ class MouseController {
             return CGRect(x: 0, y: 0, width: 1920, height: 1080)
         }
         return screen.frame
+    }
+
+    // MARK: - Error Handling
+
+    /// Track event creation failure and notify if threshold exceeded
+    private func handleEventCreationFailure() {
+        consecutiveFailures += 1
+        if consecutiveFailures >= failureThreshold {
+            print("[MouseController] CGEvent creation failed \(consecutiveFailures) times - accessibility permission may be revoked")
+            onAccessibilityError?()
+        }
+    }
+
+    /// Reset failure counter on successful event creation
+    private func handleEventSuccess() {
+        consecutiveFailures = 0
     }
 
     // MARK: - Mouse Movement
@@ -47,8 +70,12 @@ class MouseController {
             mouseType: .mouseMoved,
             mouseCursorPosition: newPoint,
             mouseButton: .left
-        ) else { return }
+        ) else {
+            handleEventCreationFailure()
+            return
+        }
 
+        handleEventSuccess()
         event.post(tap: .cghidEventTap)
     }
 
@@ -61,8 +88,12 @@ class MouseController {
             mouseType: .mouseMoved,
             mouseCursorPosition: point,
             mouseButton: .left
-        ) else { return }
+        ) else {
+            handleEventCreationFailure()
+            return
+        }
 
+        handleEventSuccess()
         event.post(tap: .cghidEventTap)
     }
 
@@ -94,8 +125,12 @@ class MouseController {
             mouseType: eventType,
             mouseCursorPosition: point,
             mouseButton: cgButton
-        ) else { return }
+        ) else {
+            handleEventCreationFailure()
+            return
+        }
 
+        handleEventSuccess()
         event.post(tap: .cghidEventTap)
     }
 
@@ -125,8 +160,12 @@ class MouseController {
             mouseType: eventType,
             mouseCursorPosition: point,
             mouseButton: cgButton
-        ) else { return }
+        ) else {
+            handleEventCreationFailure()
+            return
+        }
 
+        handleEventSuccess()
         event.post(tap: .cghidEventTap)
     }
 
@@ -154,8 +193,12 @@ class MouseController {
             wheel1: verticalDelta,
             wheel2: horizontalDelta,
             wheel3: 0
-        ) else { return }
+        ) else {
+            handleEventCreationFailure()
+            return
+        }
 
+        handleEventSuccess()
         event.post(tap: .cghidEventTap)
     }
 
@@ -179,7 +222,11 @@ class MouseController {
         }
 
         // Create and post key down event
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: true) else { return }
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: true) else {
+            handleEventCreationFailure()
+            return
+        }
+        handleEventSuccess()
         event.flags = flags
         event.post(tap: .cghidEventTap)
     }
@@ -202,7 +249,11 @@ class MouseController {
         }
 
         // Create and post key up event
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: false) else { return }
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: false) else {
+            handleEventCreationFailure()
+            return
+        }
+        handleEventSuccess()
         event.flags = flags
         event.post(tap: .cghidEventTap)
     }

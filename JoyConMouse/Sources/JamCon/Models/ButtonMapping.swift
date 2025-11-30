@@ -329,12 +329,20 @@ struct ButtonMappingProfile: Codable, Equatable {
 extension ButtonMappingProfile {
     static func load(from key: String) -> ButtonMappingProfile? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(ButtonMappingProfile.self, from: data)
+        do {
+            return try JSONDecoder().decode(ButtonMappingProfile.self, from: data)
+        } catch {
+            print("[ButtonMappingProfile] Failed to decode from '\(key)': \(error)")
+            return nil
+        }
     }
 
     func save(to key: String) {
-        if let data = try? JSONEncoder().encode(self) {
+        do {
+            let data = try JSONEncoder().encode(self)
             UserDefaults.standard.set(data, forKey: key)
+        } catch {
+            print("[ButtonMappingProfile] Failed to encode to '\(key)': \(error)")
         }
     }
 }
