@@ -314,7 +314,10 @@ class AppState: ObservableObject {
     @Published var isGyroCalibrated: Bool = false
     @Published var debugIMUEnabled: Bool = false
     @Published var imuDtSamples: [Double] = []
+    @Published var imuMotionSamples: [Double] = []
+    @Published var imuGapFlags: [Bool] = []
     @Published var imuGapCount: Int = 0
+    @Published var imuLastHz: Double = 0
 
     // MARK: - Accessibility Permission
     @Published var hasAccessibilityPermission: Bool = AXIsProcessTrusted()
@@ -475,7 +478,7 @@ class AppState: ObservableObject {
             // Only process gyro from primary controller
             guard settings.primaryControllerId == controllerId else { return }
 
-            self.recordGyroDiagnostics(timestamp: timestamp)
+            self.recordGyroDiagnostics(timestamp: timestamp, gyro: gyro)
             processor?.processGyro(
                 gyro,
                 timestamp: timestamp,
@@ -688,12 +691,14 @@ class AppState: ObservableObject {
     }
     
     /// Capture gyro timing diagnostics for UI debugging
-    func recordGyroDiagnostics(timestamp: TimeInterval) {
+    func recordGyroDiagnostics(timestamp: TimeInterval, gyro: GyroData) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             defer { self.lastGyroTimestamp = timestamp }
             guard self.debugIMUEnabled else {
                 self.imuDtSamples.removeAll()
+                self.imuMotionSamples.removeAll()
+                self.imuGapFlags.removeAll()
                 self.imuGapCount = 0
                 self.imuDtSum = 0
                 return
@@ -704,16 +709,21 @@ class AppState: ObservableObject {
 
             // Maintain ~imuWindowDuration seconds of dt samples
             self.imuDtSamples.append(dt)
+            let mag = sqrt(gyro.x * gyro.x + gyro.y * gyro.y + gyro.z * gyro.z)
+            self.imuMotionSamples.append(mag)
             self.imuDtSum += dt
-            if dt > 0.020 {
-                self.imuGapCount += 1
-            }
+            let isGap = dt > 0.020
+            self.imuGapFlags.append(isGap)
+            if isGap { self.imuGapCount += 1 }
+            self.imuLastHz = 1.0 / dt
             while self.imuDtSum > self.imuWindowDuration, let first = self.imuDtSamples.first {
                 self.imuDtSum -= first
-                if first > 0.020 {
+                if let firstGap = self.imuGapFlags.first, firstGap {
                     self.imuGapCount = max(0, self.imuGapCount - 1)
                 }
                 self.imuDtSamples.removeFirst()
+                if !self.imuMotionSamples.isEmpty { self.imuMotionSamples.removeFirst() }
+                if !self.imuGapFlags.isEmpty { self.imuGapFlags.removeFirst() }
             }
         }
     }

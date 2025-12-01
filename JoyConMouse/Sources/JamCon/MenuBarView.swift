@@ -565,7 +565,7 @@ struct MenuBarView: View {
                         Text("IMU Timing")
                             .font(.caption)
                         Spacer()
-                        Text(String(format: "%.0f Hz avg", avgHz))
+                        Text(String(format: "%.0f Hz avg (%.0f inst)", avgHz, appState.imuLastHz))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -574,6 +574,19 @@ struct MenuBarView: View {
                         .frame(height: 32)
                         .background(Color.secondary.opacity(0.08))
                         .cornerRadius(6)
+
+                    SparklineView(values: appState.imuGapFlags.map { $0 ? 1.0 : 0.0 }, maxValue: 1.0, color: .red.opacity(0.8))
+                        .frame(height: 12)
+                        .background(Color.secondary.opacity(0.08))
+                        .cornerRadius(6)
+
+                    SparklineView(values: appState.imuMotionSamples, maxValue: max(appState.imuMotionSamples.max() ?? 1, 500), color: .purple.opacity(0.8))
+                        .frame(height: 32)
+                        .background(Color.secondary.opacity(0.08))
+                        .cornerRadius(6)
+
+                    HistogramView(values: samples, bins: [0.012, 0.016, 0.020, 0.024, 0.030])
+                        .frame(height: 40)
 
                     HStack(spacing: 12) {
                         Text(String(format: "Max dt: %.3f s", maxDt))
@@ -883,6 +896,7 @@ struct MenuBarView: View {
 private struct SparklineView: View {
     let values: [Double]
     let maxValue: Double
+    var color: Color = .blue
 
     var body: some View {
         GeometryReader { geometry in
@@ -904,7 +918,42 @@ private struct SparklineView: View {
                     }
                 }
             }
-            .stroke(Color.blue, lineWidth: 1)
+            .stroke(color, lineWidth: 1)
         }
+    }
+}
+
+private struct HistogramView: View {
+    let values: [Double]
+    let bins: [Double]  // ascending edges
+
+    var body: some View {
+        let counts = histogramCounts(values: values, bins: bins)
+        let maxCount = counts.max() ?? 1
+        return HStack(alignment: .bottom, spacing: 4) {
+            ForEach(0..<counts.count, id: \.self) { idx in
+                let heightRatio = maxCount > 0 ? Double(counts[idx]) / Double(maxCount) : 0
+                Rectangle()
+                    .fill(Color.green.opacity(0.7))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: CGFloat(heightRatio) * 36)
+            }
+        }
+    }
+
+    private func histogramCounts(values: [Double], bins: [Double]) -> [Int] {
+        var counts = Array(repeating: 0, count: bins.count + 1)
+        for v in values {
+            var placed = false
+            for (i, edge) in bins.enumerated() {
+                if v <= edge {
+                    counts[i] += 1
+                    placed = true
+                    break
+                }
+            }
+            if !placed { counts[counts.count - 1] += 1 }
+        }
+        return counts
     }
 }
