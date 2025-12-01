@@ -61,6 +61,7 @@ final class InputSettings: @unchecked Sendable {
     private var _autoNeutralRefresh: Bool = true
     private var _idleTimeoutMinutes: Double = 15.0
     private var _autoPowerOffEnabled: Bool = true
+    private var _stickMode: StickMode = .scroll
 
     var isEnabled: Bool {
         get { lock.withLock { _isEnabled } }
@@ -193,6 +194,11 @@ final class InputSettings: @unchecked Sendable {
     var autoPowerOffEnabled: Bool {
         get { lock.withLock { _autoPowerOffEnabled } }
         set { lock.withLock { _autoPowerOffEnabled = newValue } }
+    }
+
+    var stickMode: StickMode {
+        get { lock.withLock { _stickMode } }
+        set { lock.withLock { _stickMode = newValue } }
     }
 
     /// Atomically capture all settings needed for button press handling
@@ -338,6 +344,18 @@ class AppState: ObservableObject {
     @AppStorage("autoPowerOffEnabled") var autoPowerOffEnabled: Bool = true {
         didSet { inputSettings.autoPowerOffEnabled = autoPowerOffEnabled }
     }
+    @AppStorage("stickMode") var stickMode: StickMode = .scroll {
+        didSet {
+            inputSettings.stickMode = stickMode
+            // Reset radial menu when mode changes
+            radialMenuController?.reset()
+        }
+    }
+
+    // MARK: - Radial Menu
+    @Published var radialMenuState = RadialMenuState()
+    private(set) var radialMenuController: RadialMenuController?
+    private var radialMenuWindowController: RadialMenuWindowController?
 
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
@@ -428,6 +446,7 @@ class AppState: ObservableObject {
         inputSettings.secondaryZoomButtons = parseButtons(from: secondaryZoomButtonsRaw)
         inputSettings.idleTimeoutMinutes = idleTimeoutMinutes
         inputSettings.autoPowerOffEnabled = autoPowerOffEnabled
+        inputSettings.stickMode = stickMode
 
         // Check Accessibility permission on startup
         checkAccessibilityPermission()
@@ -502,6 +521,9 @@ class AppState: ObservableObject {
             mouse?.performSystemAction(action)
         }
 
+        // Set up radial menu
+        setupRadialMenu()
+
         // Wire up Joy-Con events - NO main thread dispatch for input processing
         // Gyro: only process from primary controller
         joyConController?.onGyroUpdate = { [weak self] controllerId, gyro, timestamp in
@@ -550,6 +572,16 @@ class AppState: ObservableObject {
 
             // Get logical button for hold detection
             guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: snapshot.mirrorFaceButtons) else { return }
+
+            // Check for radial menu confirmation (left click while menu is visible)
+            if self.radialMenuController?.isActive == true {
+                let actions = snapshot.mapping[logicalButton]
+                if case .mouseClick(.left) = actions.press {
+                    self.confirmRadialMenuSelection()
+                    return
+                }
+            }
+
             if snapshot.clutchButtons.contains(logicalButton) {
                 processor?.beginOverride(.clutch)
                 return
@@ -598,12 +630,19 @@ class AppState: ObservableObject {
         joyConController?.onStickUpdate = { [weak self] controllerId, position in
             guard let self = self else { return }
             let settings = self.inputSettings
-            let processor = self.inputProcessor
 
             guard settings.isEnabled else { return }
             // Only process stick from primary controller
             guard settings.primaryControllerId == controllerId else { return }
-            processor?.processStick(position, sensitivity: settings.scrollSensitivity, deadzone: settings.stickDeadzone)
+
+            switch settings.stickMode {
+            case .scroll:
+                let processor = self.inputProcessor
+                processor?.processStick(position, sensitivity: settings.scrollSensitivity, deadzone: settings.stickDeadzone)
+            case .radialMenu:
+                let radialMenu = self.radialMenuController
+                radialMenu?.processStick(x: position.x, y: position.y, deadzone: settings.stickDeadzone)
+            }
         }
 
         // Connection state updates still need main thread (for UI)
@@ -787,7 +826,68 @@ class AppState: ObservableObject {
         inputProcessor?.resetFilters()
         isGyroCalibrated = false
     }
-    
+
+    // MARK: - Radial Menu Setup
+
+    private func setupRadialMenu() {
+        radialMenuController = RadialMenuController()
+        radialMenuWindowController = RadialMenuWindowController(state: radialMenuState)
+
+        let state = radialMenuState
+        let windowController = radialMenuWindowController
+
+        radialMenuController?.onShowMenu = { [weak state, weak windowController] position in
+            Task { @MainActor in
+                state?.show(at: position)
+                windowController?.show(at: position)
+            }
+        }
+
+        radialMenuController?.onHideMenu = { [weak state, weak windowController] in
+            Task { @MainActor in
+                state?.hide()
+                windowController?.hide()
+            }
+        }
+
+        radialMenuController?.onJoystickUpdate = { [weak state] angle, magnitude in
+            Task { @MainActor in
+                state?.updateJoystick(angle: angle, magnitude: magnitude)
+            }
+        }
+    }
+
+    private func confirmRadialMenuSelection() {
+        Task { @MainActor in
+            guard let item = radialMenuState.highlightedItem() else {
+                // No item highlighted, just hide
+                radialMenuState.hide()
+                radialMenuWindowController?.hide()
+                radialMenuController?.reset()
+                return
+            }
+
+            // Execute the action
+            switch item.action {
+            case .none:
+                break
+            case .keyPress(let combo):
+                mouseController?.keyDown(combo)
+                mouseController?.keyUp(combo)
+            case .mouseClick(let button):
+                mouseController?.mouseDown(button: button)
+                mouseController?.mouseUp(button: button)
+            case .systemAction(let action):
+                mouseController?.performSystemAction(action)
+            }
+
+            // Hide after selection
+            radialMenuState.hide()
+            radialMenuWindowController?.hide()
+            radialMenuController?.reset()
+        }
+    }
+
     /// Capture gyro timing diagnostics for UI debugging
     func recordGyroDiagnostics(timestamp: TimeInterval, gyro: GyroData) {
         DispatchQueue.main.async { [weak self] in

@@ -338,18 +338,42 @@ struct MenuBarView: View {
                     Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
                 }
 
-                // Scroll sensitivity
+                // Stick Mode picker
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Scroll")
+                        Text("Stick Mode")
                             .font(.caption)
                         Spacer()
-                        Text(String(format: "%.0f", appState.scrollSensitivity))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 36, alignment: .trailing)
+                        Picker("", selection: $appState.stickMode) {
+                            ForEach(StickMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 150)
                     }
-                    Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
+                    Text(appState.stickMode == .scroll
+                         ? "Joystick scrolls content"
+                         : "Joystick shows radial menu for arrow keys")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // Scroll sensitivity (only show when in scroll mode)
+                if appState.stickMode == .scroll {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Scroll")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.0f", appState.scrollSensitivity))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 36, alignment: .trailing)
+                        }
+                        Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
+                    }
                 }
 
                 // Jitter Filter

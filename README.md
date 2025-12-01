@@ -7,6 +7,7 @@ A macOS menu bar app that turns Nintendo Switch Joy-Con controllers into a wirel
 - **Gyro Mouse Control** - Move the cursor by tilting the Joy-Con like an LG Magic Remote
 - **Button Mapping** - Map Joy-Con buttons to mouse clicks or any keyboard shortcut
 - **Joystick Scrolling** - Use the analog stick for smooth scrolling
+- **Radial Menu** - Toggle joystick to show a pie-menu for quick arrow key input
 - **Dual Controller Support** - Use two Joy-Cons simultaneously with independent button mappings
 - **Override Button Modes** - Assign buttons as Clutch (drag), Scroll, or Zoom modifiers
 - **Pinch-to-Zoom** - Zoom mode sends real trackpad-style magnification gestures
@@ -28,13 +29,10 @@ git clone <repository-url>
 cd JamCon
 brew install xcodegen  # if not already installed
 xcodegen generate
-xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Debug build
+./dev.sh
 ```
 
-The built app will be at:
-```
-~/Library/Developer/Xcode/DerivedData/JamCon-*/Build/Products/Debug/JamCon.app
-```
+This builds, signs, and installs the app to `/Applications/JamCon.app`.
 
 ### 2. Pair Your Joy-Con
 
@@ -99,9 +97,52 @@ When two Joy-Cons are connected:
 
 - Xcode 16+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- Apple Developer account (for code signing)
 
 ```bash
 brew install xcodegen
+```
+
+### Development Workflow
+
+We use a script-based workflow instead of running from Xcode. This is because:
+- macOS accessibility permissions are tied to code signatures
+- Running from Xcode produces unstable debug signatures that break permissions on every rebuild
+- A properly signed app in `/Applications` maintains permissions across rebuilds
+
+**Scripts:**
+
+| Script | Purpose |
+|--------|---------|
+| `./dev.sh` | Build, sign, install to `/Applications`, and launch |
+| `./relaunch.sh` | Just kill and relaunch (no rebuild) |
+
+**Typical workflow:**
+
+```bash
+# First time setup
+xcodegen generate
+
+# After making code changes
+./dev.sh
+
+# To restart the app without rebuilding
+./relaunch.sh
+```
+
+The first time you run `./dev.sh`, you'll need to grant Accessibility permission to `/Applications/JamCon.app`. After that, permissions persist across rebuilds.
+
+### Code Signing
+
+Edit `dev.sh` to set your signing identity:
+
+```bash
+SIGNING_IDENTITY="Apple Development: Your Name (XXXXXXXXXX)"
+```
+
+Find your identity with:
+```bash
+security find-identity -v -p codesigning
 ```
 
 ### Project Structure
@@ -113,40 +154,41 @@ JamCon/
 │   ├── MenuBarView.swift        # Settings UI
 │   ├── Models/
 │   │   ├── AppState.swift       # Central state management
-│   │   └── ButtonMapping.swift  # Button-to-action mapping system
-│   └── Controllers/
-│       ├── JoyConController.swift   # Joy-Con Bluetooth communication
-│       ├── InputProcessor.swift     # Gyro/button processing, calibration
-│       ├── MouseController.swift    # CGEvent-based mouse/keyboard control
-│       └── KeyCaptureManager.swift  # Keyboard shortcut capture for mapping
+│   │   ├── ButtonMapping.swift  # Button-to-action mapping system
+│   │   ├── RadialMenu.swift     # Radial menu data models
+│   │   └── RadialMenuState.swift # Radial menu runtime state
+│   ├── Controllers/
+│   │   ├── JoyConController.swift    # Joy-Con Bluetooth communication
+│   │   ├── InputProcessor.swift      # Gyro/button processing, calibration
+│   │   ├── MouseController.swift     # CGEvent-based mouse/keyboard control
+│   │   ├── RadialMenuController.swift # Radial menu input handling
+│   │   └── KeyCaptureManager.swift   # Keyboard shortcut capture for mapping
+│   └── Views/
+│       └── RadialMenuView.swift  # Radial menu overlay UI
 ├── Resources/
 │   ├── Info.plist
+│   ├── JamCon.entitlements
 │   ├── AppIcon.icns
 │   └── *.png                    # Menu bar icons
 ├── Packages/JoyConSwift/        # Joy-Con communication library
 ├── project.yml                  # XcodeGen project definition
-└── Package.swift                # Swift Package Manager manifest
+├── Package.swift                # Swift Package Manager manifest
+├── dev.sh                       # Build and install script
+└── relaunch.sh                  # Quick relaunch script
 ```
 
-### Building
+### Building Manually
 
 ```bash
 # Generate Xcode project (after modifying project.yml)
 xcodegen generate
 
-# Debug build
-xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Debug build
-
 # Release build
-xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Release build
+xcodebuild -scheme JamCon -configuration Release -derivedDataPath build
 
-# Or open in Xcode
+# Or open in Xcode (for editing, not recommended for running)
 open JamCon.xcodeproj
 ```
-
-### Code Signing
-
-For development, the app builds with ad-hoc signing. For distribution, configure your signing identity in `project.yml` under `settings.base.CODE_SIGN_IDENTITY`.
 
 ## Troubleshooting
 

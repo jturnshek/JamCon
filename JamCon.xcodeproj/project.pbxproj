@@ -9,9 +9,13 @@
 /* Begin PBXBuildFile section */
 		01772595B7A51F43AEBAEB6B /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */; };
 		25171E973A34CC561937923B /* joyconL.png in Resources */ = {isa = PBXBuildFile; fileRef = 391708AC5481DFB95E4CC4C8 /* joyconL.png */; };
+		26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */; };
+		277864CFE0BF467326E29A46 /* RadialMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139A6679A627B6E119D10C91 /* RadialMenuController.swift */; };
+		2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */; };
 		5E10AAA3C81E7349594194C6 /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */; };
 		6528D1E9766F9570BA9F1152 /* joyconR.png in Resources */ = {isa = PBXBuildFile; fileRef = FA22C0E6FE919EDD6C5C8172 /* joyconR.png */; };
 		7FE6BFA1769DEF13826F26BF /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971C84A4E5D508FE84285CBD /* MouseController.swift */; };
+		86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */; };
 		8DA3E24EAA19B6C6140EA663 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFCA51E71DA6009CBB5085D /* AppState.swift */; };
 		AE47964B8D2980AB99868160 /* InputProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89741C3C0925900809304917 /* InputProcessor.swift */; };
 		BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103F11341851C9371929B73 /* JamConApp.swift */; };
@@ -22,6 +26,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
+		139A6679A627B6E119D10C91 /* RadialMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuController.swift; sourceTree = "<group>"; };
 		391708AC5481DFB95E4CC4C8 /* joyconL.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = joyconL.png; sourceTree = "<group>"; };
 		61579A3B51A4968E3BA62CA2 /* JoyConSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JoyConSwift; path = Packages/JoyConSwift; sourceTree = SOURCE_ROOT; };
 		66C80626B3F0074ADCC12723 /* JoyConController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConController.swift; sourceTree = "<group>"; };
@@ -30,8 +36,10 @@
 		8103F11341851C9371929B73 /* JamConApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamConApp.swift; sourceTree = "<group>"; };
 		89741C3C0925900809304917 /* InputProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputProcessor.swift; sourceTree = "<group>"; };
 		8A018018F04F12A98D20A52F /* JamCon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JamCon.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuView.swift; sourceTree = "<group>"; };
 		971C84A4E5D508FE84285CBD /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
 		C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaptureManager.swift; sourceTree = "<group>"; };
+		CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		DAFCA51E71DA6009CBB5085D /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		FA22C0E6FE919EDD6C5C8172 /* joyconR.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = joyconR.png; sourceTree = "<group>"; };
 		FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
@@ -54,6 +62,8 @@
 			children = (
 				DAFCA51E71DA6009CBB5085D /* AppState.swift */,
 				79B65A92666C303BBB87EE37 /* ButtonMapping.swift */,
+				0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */,
+				CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -100,6 +110,7 @@
 				66C80626B3F0074ADCC12723 /* JoyConController.swift */,
 				C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */,
 				971C84A4E5D508FE84285CBD /* MouseController.swift */,
+				139A6679A627B6E119D10C91 /* RadialMenuController.swift */,
 			);
 			path = Controllers;
 			sourceTree = "<group>";
@@ -110,11 +121,20 @@
 				69279B652572AF860D792437 /* Controllers */,
 				0D8E39DFC253166116995708 /* Models */,
 				43931D87C47743A64A3B317E /* Resources */,
+				B220C732347A376ED8BDE358 /* Views */,
 				8103F11341851C9371929B73 /* JamConApp.swift */,
 				FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */,
 			);
 			name = JamCon;
 			path = Sources/JamCon;
+			sourceTree = "<group>";
+		};
+		B220C732347A376ED8BDE358 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -224,6 +244,10 @@
 				5E10AAA3C81E7349594194C6 /* KeyCaptureManager.swift in Sources */,
 				01772595B7A51F43AEBAEB6B /* MenuBarView.swift in Sources */,
 				7FE6BFA1769DEF13826F26BF /* MouseController.swift in Sources */,
+				86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */,
+				277864CFE0BF467326E29A46 /* RadialMenuController.swift in Sources */,
+				2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */,
+				26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
