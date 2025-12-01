@@ -266,12 +266,31 @@ enum ActionType: String, Codable, Hashable, Sendable {
     case hold
 }
 
+// MARK: - System Action
+
+enum SystemAction: String, Codable, Hashable, Sendable, CaseIterable {
+    case missionControl
+    case launchpad
+    case showDesktop
+    case appSwitcher
+
+    var displayName: String {
+        switch self {
+        case .missionControl: return "Mission Control"
+        case .launchpad: return "Launchpad"
+        case .showDesktop: return "Show Desktop"
+        case .appSwitcher: return "App Switcher"
+        }
+    }
+}
+
 // MARK: - Button Action
 
 enum ButtonAction: Codable, Equatable, Hashable, Sendable {
     case none
     case mouseClick(MouseButton)
     case keyPress(KeyCombo)
+    case systemAction(SystemAction)
 
     var displayName: String {
         switch self {
@@ -285,6 +304,8 @@ enum ButtonAction: Codable, Equatable, Hashable, Sendable {
             }
         case .keyPress(let combo):
             return combo.displayName
+        case .systemAction(let action):
+            return action.displayName
         }
     }
 }

@@ -215,6 +215,9 @@ class MouseController {
 
     // MARK: - Keyboard Events
 
+    /// Shared event source for keyboard events - maintains modifier state across events
+    private static let keyboardEventSource: CGEventSource? = CGEventSource(stateID: .hidSystemState)
+
     /// Press a key combination down
     func keyDown(_ keyCombo: KeyCombo) {
         // Set modifier flags
@@ -232,19 +235,25 @@ class MouseController {
             flags.insert(.maskCommand)
         }
 
-        // Create and post key down event
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: true) else {
+        // Arrow keys and other navigation keys need the numeric pad flag
+        if [kVK_UpArrow, kVK_DownArrow, kVK_LeftArrow, kVK_RightArrow,
+            kVK_Home, kVK_End, kVK_PageUp, kVK_PageDown, kVK_ForwardDelete].contains(Int(keyCombo.keyCode)) {
+            flags.insert(.maskNumericPad)
+        }
+
+        // Create and post key down event using shared event source
+        guard let event = CGEvent(keyboardEventSource: Self.keyboardEventSource, virtualKey: keyCombo.keyCode, keyDown: true) else {
             handleEventCreationFailure()
             return
         }
         handleEventSuccess()
         event.flags = flags
-        event.post(tap: .cghidEventTap)
+        event.post(tap: .cgSessionEventTap)
     }
 
     /// Release a key combination
     func keyUp(_ keyCombo: KeyCombo) {
-        // Set modifier flags (same as key down)
+        // Set modifier flags (same as key down - modifiers still held during key up)
         var flags: CGEventFlags = []
         if keyCombo.modifiers.contains(.shift) {
             flags.insert(.maskShift)
@@ -259,20 +268,63 @@ class MouseController {
             flags.insert(.maskCommand)
         }
 
-        // Create and post key up event
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: keyCombo.keyCode, keyDown: false) else {
+        // Arrow keys and other navigation keys need the numeric pad flag
+        if [kVK_UpArrow, kVK_DownArrow, kVK_LeftArrow, kVK_RightArrow,
+            kVK_Home, kVK_End, kVK_PageUp, kVK_PageDown, kVK_ForwardDelete].contains(Int(keyCombo.keyCode)) {
+            flags.insert(.maskNumericPad)
+        }
+
+        // Create and post key up event using shared event source
+        guard let event = CGEvent(keyboardEventSource: Self.keyboardEventSource, virtualKey: keyCombo.keyCode, keyDown: false) else {
             handleEventCreationFailure()
             return
         }
         handleEventSuccess()
         event.flags = flags
-        event.post(tap: .cghidEventTap)
+        event.post(tap: .cgSessionEventTap)
     }
 
     /// Press and release a key combination
     func keyPress(_ keyCombo: KeyCombo) {
         keyDown(keyCombo)
         keyUp(keyCombo)
+    }
+
+    // MARK: - System Actions
+
+    /// Execute a system action (Mission Control, Launchpad, etc.)
+    func performSystemAction(_ action: SystemAction) {
+        switch action {
+        case .missionControl:
+            launchApp("Mission Control")
+        case .launchpad:
+            launchApp("Launchpad")
+        case .showDesktop:
+            // Use Finder's "show desktop" via AppleScript
+            runAppleScript("tell application \"System Events\" to key code 103 using {command down, fn down}")
+        case .appSwitcher:
+            // Simulate Cmd+Tab
+            let cmdTab = KeyCombo(keyCode: UInt16(kVK_Tab), modifiers: .command)
+            keyPress(cmdTab)
+        }
+    }
+
+    private func launchApp(_ appName: String) {
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["-a", appName]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try? task.run()
+    }
+
+    private func runAppleScript(_ script: String) {
+        let task = Process()
+        task.launchPath = "/usr/bin/osascript"
+        task.arguments = ["-e", script]
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try? task.run()
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
@@ -43,7 +44,7 @@ struct MenuBarView: View {
             footerSection
         }
         .padding()
-        .frame(width: 420)
+        .frame(width: 480)
         .onAppear {
             keyCaptureManager.onCapture = { button, actionType, combo in
                 setAction(.keyPress(combo), for: button, actionType: actionType)
@@ -93,31 +94,46 @@ struct MenuBarView: View {
     // MARK: - Header Section
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if appState.connectedControllers.isEmpty {
-                // No controllers connected
-                HStack {
-                    Image(systemName: "gamecontroller")
-                        .font(.title2)
-                        .foregroundColor(.secondary)
+        let leftController = appState.connectedControllers.first { $0.type == .leftJoyCon }
+        let rightController = appState.connectedControllers.first { $0.type == .rightJoyCon || $0.type == .proController }
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("No Controller")
-                            .font(.headline)
-                        Text("Pair via Bluetooth Settings")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-                }
-            } else {
-                // Show all connected controllers
-                ForEach(appState.connectedControllers) { controller in
-                    controllerRow(controller)
-                }
-            }
+        return VStack(spacing: 4) {
+            // Left Joy-Con row
+            controllerRow(type: .leftJoyCon, controller: leftController)
+            // Right Joy-Con row
+            controllerRow(type: .rightJoyCon, controller: rightController)
         }
+    }
+
+    private func controllerRow(type: ControllerType, controller: ConnectedController?) -> some View {
+        let isConnected = controller != nil
+        let isPrimary = controller?.id == appState.primaryController?.id
+        let deviceName = controller?.name ?? type.rawValue
+
+        return HStack {
+            joyConIcon(type: type, isConnected: isConnected)
+                .padding(.trailing, 4)
+            Text(deviceName)
+
+            if let controller = controller {
+                let (batteryImage, batteryColor) = batteryIconInfo(for: controller.batteryLevel)
+                Image(systemName: batteryImage)
+                    .foregroundColor(batteryColor)
+            }
+
+            if isPrimary {
+                Text("Primary")
+                    .font(.caption2)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.green.opacity(0.2))
+                    .foregroundColor(.green)
+                    .cornerRadius(3)
+            }
+
+            Spacer()
+        }
+        .foregroundColor(isConnected ? .primary : .secondary)
     }
 
     private func controllerRow(_ controller: ConnectedController) -> some View {
@@ -125,9 +141,7 @@ struct MenuBarView: View {
         let (batteryImage, batteryColor) = batteryIconInfo(for: controller.batteryLevel)
 
         return HStack {
-            Image(systemName: isPrimary ? "gamecontroller.fill" : "gamecontroller")
-                .font(.title2)
-                .foregroundColor(isPrimary ? .green : .secondary)
+            joyConIcon(type: controller.type, isConnected: true, isPrimary: isPrimary)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -181,6 +195,35 @@ struct MenuBarView: View {
         case .unknown:
             return ("battery.0", .secondary)
         }
+    }
+
+    @ViewBuilder
+    private func joyConIcon(type: ControllerType, isConnected: Bool, isPrimary: Bool = false) -> some View {
+        let imageName = type == .leftJoyCon ? "joyconR" : "joyconL"
+
+        if let nsImage = loadJoyConImage(imageName) {
+            Image(nsImage: nsImage)
+                .renderingMode(.template)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(height: 17)
+                .rotationEffect(.degrees(-90))  // 90° clockwise for both
+                .foregroundColor(isConnected ? .green : .secondary)
+                .opacity(isConnected ? 1.0 : 0.25)
+        } else {
+            // Fallback to SF Symbol if image not found
+            Image(systemName: "gamecontroller")
+                .font(.largeTitle)
+                .foregroundColor(isConnected ? .green : .secondary)
+                .opacity(isConnected ? 1.0 : 0.25)
+        }
+    }
+
+    private func loadJoyConImage(_ name: String) -> NSImage? {
+        if let url = Bundle.main.url(forResource: name, withExtension: "png") {
+            return NSImage(contentsOf: url)
+        }
+        return nil
     }
 
     // MARK: - Top Level Controls
@@ -577,7 +620,7 @@ struct MenuBarView: View {
         let actions = currentMapping[button]
         let action = actionType == .press ? actions.press : actions.hold
 
-        return HStack(spacing: 2) {
+        return HStack(spacing: 4) {
             // Click to capture keyboard shortcut
             Button(action: {
                 keyCaptureManager.startCapture(for: button, actionType: actionType)
@@ -607,18 +650,27 @@ struct MenuBarView: View {
                 .buttonStyle(.plain)
             }
 
-            // Mouse click dropdown
+            // Actions dropdown (mouse clicks + system actions)
             Menu {
-                Button("Left Click") { setAction(.mouseClick(.left), for: button, actionType: actionType) }
-                Button("Right Click") { setAction(.mouseClick(.right), for: button, actionType: actionType) }
-                Button("Middle Click") { setAction(.mouseClick(.middle), for: button, actionType: actionType) }
+                Section("Mouse") {
+                    Button("Left Click") { setAction(.mouseClick(.left), for: button, actionType: actionType) }
+                    Button("Right Click") { setAction(.mouseClick(.right), for: button, actionType: actionType) }
+                    Button("Middle Click") { setAction(.mouseClick(.middle), for: button, actionType: actionType) }
+                }
+                Section("System") {
+                    Button("Mission Control") { setAction(.systemAction(.missionControl), for: button, actionType: actionType) }
+                    Button("Launchpad") { setAction(.systemAction(.launchpad), for: button, actionType: actionType) }
+                    Button("Show Desktop") { setAction(.systemAction(.showDesktop), for: button, actionType: actionType) }
+                    Button("App Switcher") { setAction(.systemAction(.appSwitcher), for: button, actionType: actionType) }
+                }
             } label: {
-                Image(systemName: "computermouse")
-                    .font(.caption2)
+                Image(systemName: "plus.circle")
+                    .font(.caption)
                     .foregroundColor(.secondary)
             }
-            .menuStyle(.borderlessButton)
-            .frame(width: 16)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .fixedSize()
         }
     }
 

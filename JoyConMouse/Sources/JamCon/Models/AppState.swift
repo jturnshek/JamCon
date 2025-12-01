@@ -425,6 +425,10 @@ class AppState: ObservableObject {
             mouse?.keyUp(keyCombo)
         }
 
+        processor?.onSystemAction = { action in
+            mouse?.performSystemAction(action)
+        }
+
         // Wire up Joy-Con events - NO main thread dispatch for input processing
         // Gyro: only process from primary controller
         joyConController?.onGyroUpdate = { [weak self] controllerId, gyro, timestamp in

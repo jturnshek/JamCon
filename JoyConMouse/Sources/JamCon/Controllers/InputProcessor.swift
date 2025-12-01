@@ -135,6 +135,7 @@ class InputProcessor {
     var onScroll: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
     var onKeyDown: ((_ keyCombo: KeyCombo) -> Void)?
     var onKeyUp: ((_ keyCombo: KeyCombo) -> Void)?
+    var onSystemAction: ((_ action: SystemAction) -> Void)?
     var onCalibrationChange: ((_ isCalibrated: Bool) -> Void)?
 
     // MARK: - Stabilization
@@ -461,6 +462,11 @@ class InputProcessor {
                 onKeyDown?(keyCombo)
             } else {
                 onKeyUp?(keyCombo)
+            }
+        case .systemAction(let systemAction):
+            // System actions only trigger on button down (not release)
+            if isDown {
+                onSystemAction?(systemAction)
             }
         }
     }

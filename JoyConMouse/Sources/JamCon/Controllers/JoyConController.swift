@@ -13,6 +13,11 @@ struct ConnectedController: Identifiable {
     let connectedOrder: Int
     var lastActivity: TimeInterval
 
+    /// The display name for this controller (matches Bluetooth device name)
+    var name: String {
+        type.rawValue
+    }
+
     init(controller: Controller, type: ControllerType, connectedOrder: Int, lastActivity: TimeInterval = CACurrentMediaTime()) {
         self.id = UUID()
         self.controller = controller
