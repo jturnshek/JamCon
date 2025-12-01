@@ -548,6 +548,13 @@ struct MenuBarView: View {
             .foregroundColor(.secondary)
 
             if showDebugSection {
+                Toggle(isOn: $appState.debugIMUEnabled) {
+                    Text("Collect IMU timing data")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
                 let samples = appState.imuDtSamples
                 let maxDt = samples.max() ?? 0
                 let avgDt = samples.isEmpty ? 0 : samples.reduce(0, +) / Double(samples.count)

@@ -312,6 +312,7 @@ class AppState: ObservableObject {
 
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
+    @Published var debugIMUEnabled: Bool = false
     @Published var imuDtSamples: [Double] = []
     @Published var imuGapCount: Int = 0
 
@@ -691,6 +692,12 @@ class AppState: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             defer { self.lastGyroTimestamp = timestamp }
+            guard self.debugIMUEnabled else {
+                self.imuDtSamples.removeAll()
+                self.imuGapCount = 0
+                self.imuDtSum = 0
+                return
+            }
             guard let last = self.lastGyroTimestamp else { return }
             let dt = timestamp - last
             guard dt > 0 else { return }
