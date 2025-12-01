@@ -382,7 +382,7 @@ struct MenuBarView: View {
                             .foregroundColor(.secondary)
                             .frame(width: 52, alignment: .trailing)
                     }
-                    Slider(value: $appState.accelerationGain, in: 0...200, step: 0.1)
+                    Slider(value: $appState.accelerationGain, in: 0...500, step: 0.1)
                     Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
