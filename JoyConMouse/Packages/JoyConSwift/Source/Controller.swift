@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import SceneKit
+import simd
 import Darwin
 
 let stickDirections: [JoyCon.StickDirection] = [
@@ -73,7 +73,10 @@ public class Controller {
     private var packetCounter: UInt8
     private var rumbleData: [UInt8]
     private var lastSensorTimestamp: UInt64?
+    private var lastSampleSpacing: TimeInterval?
     private let defaultSensorSampleSpacing: TimeInterval = 1.0 / 800.0
+    private let minSensorSampleSpacing: TimeInterval = 1.0 / 2000.0
+    private let maxSensorSampleSpacing: TimeInterval = 1.0 / 200.0
     
     private var subcommandQueue: [Subcommand]
     private var processingSubcommand: Subcommand?
@@ -141,8 +144,8 @@ public class Controller {
     public internal(set) var lStickPos: CGPoint
     public internal(set) var rStickRawPos: CGPoint
     public internal(set) var rStickPos: CGPoint
-    public internal(set) var acceleration: SCNVector3
-    public internal(set) var gyro: SCNVector3
+    public internal(set) var acceleration: simd_float3
+    public internal(set) var gyro: simd_float3
     public internal(set) var bodyColor: CGColor
     public internal(set) var buttonColor: CGColor
     public internal(set) var leftGripColor: CGColor?
@@ -178,8 +181,8 @@ public class Controller {
         self.lStickPos = CGPoint(x: 0, y: 0)
         self.rStickRawPos = CGPoint(x: 0, y: 0)
         self.rStickPos = CGPoint(x: 0, y: 0)
-        self.acceleration = SCNVector3(x: 0, y: 0, z: 0)
-        self.gyro = SCNVector3(x: 0, y: 0, z: 0)
+        self.acceleration = simd_float3(repeating: 0)
+        self.gyro = simd_float3(repeating: 0)
         self.bodyColor = CGColor(red: 0.333, green: 0.333, blue: 0.333, alpha: 0.333)
         self.buttonColor = CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
     }
@@ -248,11 +251,13 @@ public class Controller {
         
         let packetTicks = IOHIDValueGetTimeStamp(value)
         let packetTime = MachTicksToSeconds(packetTicks)
-        var sampleSpacing = self.defaultSensorSampleSpacing
+        var sampleSpacing = self.lastSampleSpacing ?? self.defaultSensorSampleSpacing
         if let lastTicks = self.lastSensorTimestamp, packetTicks > lastTicks {
             let deltaTicks = packetTicks - lastTicks
-            let spacingTicks = max<UInt64>(1, deltaTicks / 3)
-            sampleSpacing = MachTicksToSeconds(spacingTicks)
+            let spacingSeconds = MachTicksToSeconds(deltaTicks) / 3.0
+            let clamped = min(max(spacingSeconds, self.minSensorSampleSpacing), self.maxSensorSampleSpacing)
+            sampleSpacing = clamped
+            self.lastSampleSpacing = clamped
         }
         let timestamps: [TimeInterval] = [
             packetTime - sampleSpacing * 2,
@@ -323,13 +328,13 @@ public class Controller {
         let azInt = ReadInt16(from: ptr + 4)
         
         if let cal = self.accCalibration {
-            self.acceleration.x = (CGFloat(axInt) - cal.xOffset) * cal.xCoeff
-            self.acceleration.y = (CGFloat(ayInt) - cal.yOffset) * cal.yCoeff
-            self.acceleration.z = (CGFloat(azInt) - cal.zOffset) * cal.zCoeff + 1.0
+            self.acceleration.x = Float((CGFloat(axInt) - cal.xOffset) * cal.xCoeff)
+            self.acceleration.y = Float((CGFloat(ayInt) - cal.yOffset) * cal.yCoeff)
+            self.acceleration.z = Float((CGFloat(azInt) - cal.zOffset) * cal.zCoeff + 1.0)
         } else {
-            self.acceleration.x = CGFloat(axInt) * 0.000244
-            self.acceleration.y = CGFloat(ayInt) * 0.000244
-            self.acceleration.z = CGFloat(azInt) * 0.000244
+            self.acceleration.x = Float(CGFloat(axInt) * 0.000244)
+            self.acceleration.y = Float(CGFloat(ayInt) * 0.000244)
+            self.acceleration.z = Float(CGFloat(azInt) * 0.000244)
         }
         
         let rxInt = ReadInt16(from: ptr + 6)
@@ -337,13 +342,13 @@ public class Controller {
         let rzInt = ReadInt16(from: ptr + 10)
         
         if let cal = self.gyroCalibration {
-            self.gyro.x = (CGFloat(rxInt) - cal.xOffset) * cal.xCoeff
-            self.gyro.y = (CGFloat(ryInt) - cal.yOffset) * cal.yCoeff
-            self.gyro.z = (CGFloat(rzInt) - cal.zOffset) * cal.zCoeff
+            self.gyro.x = Float((CGFloat(rxInt) - cal.xOffset) * cal.xCoeff)
+            self.gyro.y = Float((CGFloat(ryInt) - cal.yOffset) * cal.yCoeff)
+            self.gyro.z = Float((CGFloat(rzInt) - cal.zOffset) * cal.zCoeff)
         } else {
-            self.gyro.x = CGFloat(rxInt) * 0.06103
-            self.gyro.y = CGFloat(ryInt) * 0.06103
-            self.gyro.z = CGFloat(rzInt) * 0.06103
+            self.gyro.x = Float(CGFloat(rxInt) * 0.06103)
+            self.gyro.y = Float(CGFloat(ryInt) * 0.06103)
+            self.gyro.z = Float(CGFloat(rzInt) * 0.06103)
         }
 
         if let timestamp = timestamp ?? (self.sensorHandler != nil ? MachTicksToSeconds(mach_absolute_time()) : nil) {

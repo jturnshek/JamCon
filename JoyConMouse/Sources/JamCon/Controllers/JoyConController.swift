@@ -189,7 +189,7 @@ class JoyConController {
         controller.sensorHandler = { [weak self, weak controller] timestamp in
             guard let controller else { return }
 
-            // JoyConSwift provides gyro as SCNVector3 in degrees per second
+            // JoyConSwift provides gyro as simd_float3 in degrees per second
             let gyro = controller.gyro
             let gyroData = GyroData(
                 x: Double(gyro.x),
