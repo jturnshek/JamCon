@@ -7,57 +7,82 @@ A macOS menu bar app that turns Nintendo Switch Joy-Con controllers into a wirel
 - **Gyro Mouse Control** - Move the cursor by tilting the Joy-Con like an LG Magic Remote
 - **Button Mapping** - Map Joy-Con buttons to mouse clicks or any keyboard shortcut
 - **Joystick Scrolling** - Use the analog stick for smooth scrolling
-- **Dual Controller Support** - Use two Joy-Cons simultaneously with separate mappings
+- **Dual Controller Support** - Use two Joy-Cons simultaneously with independent button mappings
+- **Override Button Modes** - Assign buttons as Clutch (drag), Scroll, or Zoom modifiers
+- **Pinch-to-Zoom** - Zoom mode sends real trackpad-style magnification gestures
 - **Auto-Calibration** - Gyro drift is automatically corrected when the controller is held still
 - **Low Latency** - Direct input processing without main thread overhead
 
 ## Requirements
 
-- macOS 15.0 (Sequoia) or later
+- macOS 14.0 (Sonoma) or later
 - Nintendo Switch Joy-Con controller(s)
 - Bluetooth
 
-## Installation
+## Quick Start
 
-### From Source
+### 1. Clone and Build
 
-1. Clone the repository
-2. Open `JamCon.xcodeproj` in Xcode
-3. Build and run (Cmd+R)
-
-Or using the command line:
 ```bash
-xcodegen generate  # If project.yml was modified
-xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Release build
+git clone <repository-url>
+cd JamCon
+brew install xcodegen  # if not already installed
+xcodegen generate
+xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Debug build
 ```
 
-### Pairing Joy-Cons
+The built app will be at:
+```
+~/Library/Developer/Xcode/DerivedData/JamCon-*/Build/Products/Debug/JamCon.app
+```
+
+### 2. Pair Your Joy-Con
 
 1. Open **System Settings → Bluetooth**
-2. Hold the sync button on the Joy-Con (small button on the rail) until the lights start flashing
+2. Hold the sync button on the Joy-Con (small button on the rail) until the lights flash
 3. Select the Joy-Con from the Bluetooth devices list
+
+### 3. Launch and Grant Permissions
+
+1. Launch JamCon (double-click the .app or run from Xcode)
+2. Grant **Accessibility permission** when prompted
+   - If the prompt doesn't appear: **System Settings → Privacy & Security → Accessibility → Add JamCon**
+3. The app appears as a controller icon in the menu bar
 
 ## Usage
 
-### First Launch
-
-1. Launch JamCon from Applications or the build output
-2. Grant **Accessibility permission** when prompted (required for mouse/keyboard control)
-   - If the prompt doesn't appear, manually add JamCon in **System Settings → Privacy & Security → Accessibility**
-3. The app appears as a controller icon in the menu bar
-
-### Controls
+### Default Controls
 
 | Control | Action |
 |---------|--------|
 | Tilt Joy-Con | Move mouse cursor |
 | Analog stick | Scroll (velocity-based) |
-| ZR / ZL (default) | Left click |
-| R / L (default) | Right click |
+| ZR / ZL | Left click |
+| R / L | Right click |
+
+### Button Mapping
+
+Click the menu bar icon → expand **Button Mappings**:
+
+- **Press** - Action when button is tapped
+- **Hold** - Action when button is held (configurable delay)
+- **Clutch** - Hold to drag (mouse down while held, mouse up on release)
+- **Scroll** - Hold to convert gyro tilt into scrolling
+- **Zoom** - Hold to convert gyro tilt into pinch-to-zoom gestures
+
+Each button can only be assigned to one override mode (Clutch/Scroll/Zoom) at a time.
+
+### Dual Controller Mode
+
+When two Joy-Cons are connected:
+
+- **Primary** controller handles mouse movement and uses primary button mappings
+- **Secondary** controller only sends button inputs using secondary mappings
+- Each controller has **independent** Clutch/Scroll/Zoom button assignments
+- Click "Set Primary" next to a controller to switch which one controls the mouse
+- Use the Primary/Secondary tabs in Button Mappings to configure each
 
 ### Settings
-
-Click the menu bar icon to access settings:
 
 - **Mouse Control** - Enable/disable gyro mouse movement
 - **Sensitivity**
@@ -66,41 +91,62 @@ Click the menu bar icon to access settings:
 - **Stabilization**
   - *Smoothing* - Reduces jitter for slow movements (0=off, higher=smoother)
   - *Recalibrate* - Reset gyro calibration (hold controller still after)
-- **Button Mapping** - Customize what each button does
-  - Click the keyboard area to capture a key combination
-  - Click the mouse icon to assign a mouse click
-  - Click X to clear a mapping
+- **Mirror Face Buttons** - Maps Left Joy-Con D-pad to match Right Joy-Con face button positions
 
-### Dual Controller Mode
+## Development
 
-When two Joy-Cons are connected:
-- The **Primary** controller handles mouse movement and uses the primary button mapping
-- The **Secondary** controller only sends button inputs using the secondary mapping
-- Click "Set Primary" next to a controller to switch which one controls the mouse
+### Prerequisites
 
-### Mirror Face Buttons
+- Xcode 16+
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
-When enabled (default), the Left Joy-Con's D-pad buttons map to the same positions as the Right Joy-Con's face buttons:
-- Left Joy-Con ← maps to Right Joy-Con Y position
-- Left Joy-Con → maps to Right Joy-Con A position
+```bash
+brew install xcodegen
+```
 
-This makes both controllers feel consistent when held sideways.
-
-## Architecture
+### Project Structure
 
 ```
 JamCon/
-├── JamConApp.swift          # App entry point, MenuBarExtra scene
-├── MenuBarView.swift        # Settings UI
-├── Models/
-│   ├── AppState.swift       # Central state management
-│   └── ButtonMapping.swift  # Button-to-action mapping system
-└── Controllers/
-    ├── JoyConController.swift   # Joy-Con Bluetooth communication
-    ├── InputProcessor.swift     # Gyro/button processing, calibration
-    ├── MouseController.swift    # CGEvent-based mouse/keyboard control
-    └── KeyCaptureManager.swift  # Keyboard shortcut capture for mapping
+├── Sources/JamCon/
+│   ├── JamConApp.swift          # App entry point, MenuBarExtra scene
+│   ├── MenuBarView.swift        # Settings UI
+│   ├── Models/
+│   │   ├── AppState.swift       # Central state management
+│   │   └── ButtonMapping.swift  # Button-to-action mapping system
+│   └── Controllers/
+│       ├── JoyConController.swift   # Joy-Con Bluetooth communication
+│       ├── InputProcessor.swift     # Gyro/button processing, calibration
+│       ├── MouseController.swift    # CGEvent-based mouse/keyboard control
+│       └── KeyCaptureManager.swift  # Keyboard shortcut capture for mapping
+├── Resources/
+│   ├── Info.plist
+│   ├── AppIcon.icns
+│   └── *.png                    # Menu bar icons
+├── Packages/JoyConSwift/        # Joy-Con communication library
+├── project.yml                  # XcodeGen project definition
+└── Package.swift                # Swift Package Manager manifest
 ```
+
+### Building
+
+```bash
+# Generate Xcode project (after modifying project.yml)
+xcodegen generate
+
+# Debug build
+xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Debug build
+
+# Release build
+xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Release build
+
+# Or open in Xcode
+open JamCon.xcodeproj
+```
+
+### Code Signing
+
+For development, the app builds with ad-hoc signing. For distribution, configure your signing identity in `project.yml` under `settings.base.CODE_SIGN_IDENTITY`.
 
 ## Troubleshooting
 
@@ -112,7 +158,7 @@ JamCon/
 
 ### Cursor drifts when controller is still
 
-Hold the controller completely still for 1-2 seconds. The app auto-calibrates when it detects no movement. The status indicator will show "Calibrated" when complete.
+Hold the controller completely still for 1-2 seconds. The app auto-calibrates when it detects no movement.
 
 ### Joy-Con not connecting
 
@@ -120,36 +166,13 @@ Hold the controller completely still for 1-2 seconds. The app auto-calibrates wh
 2. Re-pair using the sync button
 3. Ensure no other device (like a Switch) is trying to connect to it
 
-### Can't capture Cmd+Space or other system shortcuts
+### Zoom not working in some apps
 
-System shortcuts will briefly activate (e.g., Spotlight opens) during capture, but the shortcut will still be recorded. This is a macOS limitation.
-
-## Building
-
-### Prerequisites
-
-- Xcode 16+
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (optional, for regenerating project)
-
-```bash
-brew install xcodegen
-```
-
-### Development Build
-
-```bash
-xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Debug build
-```
-
-### Release Build
-
-```bash
-xcodebuild -project JamCon.xcodeproj -scheme JamCon -configuration Release build
-```
+Zoom sends standard macOS magnification gestures. Some apps (especially non-native ones) may not respond to these gestures.
 
 ## Credits
 
-- [JoyConSwift](https://github.com/magicien/JoyConSwift) - Joy-Con communication library (modified for Apple Silicon compatibility)
+- [JoyConSwift](https://github.com/magicien/JoyConSwift) - Joy-Con communication library (bundled, modified for Apple Silicon)
 - Inspired by [JoyShockMapper](https://github.com/JibbSmart/JoyShockMapper) gyro mouse implementation
 
 ## License
