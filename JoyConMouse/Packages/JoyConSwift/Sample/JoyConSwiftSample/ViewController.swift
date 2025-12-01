@@ -102,7 +102,7 @@ class ViewController: NSViewController {
                 self?.rightStickY.stringValue = String(format: "%.2f", pos.y)
             }
         }
-        controller.sensorHandler = {
+        controller.sensorHandler = { _ in
             DispatchQueue.main.async { [weak self] in
                 self?.accelX.stringValue = String(format: "%.2f", controller.acceleration.x)
                 self?.accelY.stringValue = String(format: "%.2f", controller.acceleration.y)

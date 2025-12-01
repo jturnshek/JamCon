@@ -186,7 +186,7 @@ class JoyConController {
         let type = connectedController.type
 
         // Sensor (gyro/accelerometer) updates
-        controller.sensorHandler = { [weak self, weak controller] in
+        controller.sensorHandler = { [weak self, weak controller] timestamp in
             guard let controller else { return }
 
             // JoyConSwift provides gyro as SCNVector3 in degrees per second
@@ -197,7 +197,7 @@ class JoyConController {
                 z: Double(gyro.z)
             )
             self?.markActivity(for: controller)
-            self?.onGyroUpdate?(controllerId, gyroData, CACurrentMediaTime())
+            self?.onGyroUpdate?(controllerId, gyroData, timestamp)
         }
 
         // Button press

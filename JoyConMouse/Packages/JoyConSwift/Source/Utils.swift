@@ -9,6 +9,20 @@
 //  by reading bytes individually instead of using withMemoryRebound
 
 import Foundation
+import Darwin
+
+// Convert mach absolute time ticks to seconds using cached timebase info
+private let machTimebase: mach_timebase_info_data_t = {
+    var info = mach_timebase_info_data_t()
+    mach_timebase_info(&info)
+    return info
+}()
+
+func MachTicksToSeconds(_ ticks: UInt64) -> TimeInterval {
+    // mach_absolute_time units -> nanoseconds -> seconds
+    let nanos = (ticks * UInt64(machTimebase.numer)) / UInt64(machTimebase.denom)
+    return TimeInterval(Double(nanos) / 1_000_000_000.0)
+}
 
 func ReadInt16(from ptr: UnsafePointer<UInt8>) -> Int16 {
     // Read little-endian Int16 byte-by-byte (avoids alignment issues on arm64e)

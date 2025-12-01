@@ -8,6 +8,7 @@
 
 import Foundation
 import SceneKit
+import Darwin
 
 let stickDirections: [JoyCon.StickDirection] = [
     .Down,
@@ -71,6 +72,8 @@ public class Controller {
     var spiReadHandler: [UInt32: ([UInt8]) -> Void]
     private var packetCounter: UInt8
     private var rumbleData: [UInt8]
+    private var lastSensorTimestamp: UInt64?
+    private let defaultSensorSampleSpacing: TimeInterval = 1.0 / 800.0
     
     private var subcommandQueue: [Subcommand]
     private var processingSubcommand: Subcommand?
@@ -151,7 +154,7 @@ public class Controller {
     public var rightStickHandler: ((JoyCon.StickDirection, JoyCon.StickDirection) -> Void)?
     public var leftStickPosHandler: ((_ pos: CGPoint) -> Void)?
     public var rightStickPosHandler: ((_ pos: CGPoint) -> Void)?
-    public var sensorHandler: (() -> Void)?
+    public var sensorHandler: ((_ timestamp: TimeInterval) -> Void)?
     public var batteryChangeHandler: ((JoyCon.BatteryStatus, JoyCon.BatteryStatus) -> Void)?
     public var isChargingChangeHandler: ((Bool) -> Void)?
     
@@ -242,7 +245,22 @@ public class Controller {
         }
 
         self.readStandardState(value: value)
-        self.readSensorData(value: value)
+        
+        let packetTicks = IOHIDValueGetTimeStamp(value)
+        let packetTime = MachTicksToSeconds(packetTicks)
+        var sampleSpacing = self.defaultSensorSampleSpacing
+        if let lastTicks = self.lastSensorTimestamp, packetTicks > lastTicks {
+            let deltaTicks = packetTicks - lastTicks
+            let spacingTicks = max<UInt64>(1, deltaTicks / 3)
+            sampleSpacing = MachTicksToSeconds(spacingTicks)
+        }
+        let timestamps: [TimeInterval] = [
+            packetTime - sampleSpacing * 2,
+            packetTime - sampleSpacing,
+            packetTime
+        ]
+        self.readSensorData(value: value, timestamps: timestamps)
+        self.lastSensorTimestamp = packetTicks
         
         if reportID == 0x31 {
             self.readNFCData(value: value)
@@ -284,17 +302,22 @@ public class Controller {
         }
     }
     
-    func readSensorData(value: IOHIDValue) {
+    func readSensorData(value: IOHIDValue, timestamps: [TimeInterval]? = nil) {
         let ptr = IOHIDValueGetBytePtr(value)
+        let hasHandler = self.sensorHandler != nil
+        let stamps = timestamps ?? []
 
-        if self.sensorHandler != nil {
-            self.readSensorData(at: ptr + 12)
-            self.readSensorData(at: ptr + 24)
+        if hasHandler {
+            let t0 = stamps.count > 0 ? stamps[0] : nil
+            let t1 = stamps.count > 1 ? stamps[1] : nil
+            self.readSensorData(at: ptr + 12, timestamp: t0)
+            self.readSensorData(at: ptr + 24, timestamp: t1)
         }
-        self.readSensorData(at: ptr + 36)
+        let t2 = stamps.count > 2 ? stamps[2] : nil
+        self.readSensorData(at: ptr + 36, timestamp: t2)
     }
     
-    func readSensorData(at ptr: UnsafePointer<UInt8>) {
+    func readSensorData(at ptr: UnsafePointer<UInt8>, timestamp: TimeInterval?) {
         let axInt = ReadInt16(from: ptr)
         let ayInt = ReadInt16(from: ptr + 2)
         let azInt = ReadInt16(from: ptr + 4)
@@ -323,7 +346,9 @@ public class Controller {
             self.gyro.z = CGFloat(rzInt) * 0.06103
         }
 
-        self.sensorHandler?()
+        if let timestamp = timestamp ?? (self.sensorHandler != nil ? MachTicksToSeconds(mach_absolute_time()) : nil) {
+            self.sensorHandler?(timestamp)
+        }
     }
     
     func readNFCData(value: IOHIDValue) {
