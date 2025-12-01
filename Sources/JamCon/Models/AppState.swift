@@ -354,6 +354,12 @@ class AppState: ObservableObject {
 
     // MARK: - Radial Menu
     @Published var radialMenuState = RadialMenuState()
+    @Published var radialMenuConfiguration: RadialMenuConfiguration {
+        didSet {
+            radialMenuConfiguration.save()
+            radialMenuState.activeConfiguration = radialMenuConfiguration
+        }
+    }
     private(set) var radialMenuController: RadialMenuController?
     private var radialMenuWindowController: RadialMenuWindowController?
 
@@ -418,6 +424,11 @@ class AppState: ObservableObject {
         let loadedSecondary = ButtonMappingProfile.load(from: "secondaryButtonMapping") ?? .defaultSecondary
         _primaryMapping = Published(initialValue: loadedPrimary)
         _secondaryMapping = Published(initialValue: loadedSecondary)
+
+        // Load radial menu configuration
+        let loadedRadialConfig = RadialMenuConfiguration.load()
+        _radialMenuConfiguration = Published(initialValue: loadedRadialConfig)
+        radialMenuState.activeConfiguration = loadedRadialConfig
 
         // Initialize settings cache
         inputSettings.isEnabled = isEnabled

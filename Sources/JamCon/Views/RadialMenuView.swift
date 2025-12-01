@@ -42,8 +42,8 @@ struct RadialMenuView: View {
                     )
                 )
 
-                // Icon for each slice
-                sliceIcon(item: item, index: index, isHighlighted: state.highlightedIndex == index)
+                // Label for each slice
+                sliceLabel(item: item, index: index, isHighlighted: state.highlightedIndex == index)
             }
 
             // Center hole border (transparent center)
@@ -65,12 +65,12 @@ struct RadialMenuView: View {
     }
 
     @ViewBuilder
-    private func sliceIcon(item: RadialMenuItem, index: Int, isHighlighted: Bool) -> some View {
+    private func sliceLabel(item: RadialMenuItem, index: Int, isHighlighted: Bool) -> some View {
         let angle = sliceCenterAngle(for: index)
-        let distance = menuSize * 0.34  // Position icons between inner and outer radius
+        let distance = menuSize * 0.34  // Position labels between inner and outer radius
 
-        Image(systemName: item.icon)
-            .font(.system(size: isHighlighted ? 24 : 20, weight: .semibold))
+        Text(item.action.displayName)
+            .font(.system(size: isHighlighted ? 14 : 12, weight: .semibold))
             .foregroundStyle(isHighlighted ? .white : .primary)
             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
             .offset(
@@ -126,10 +126,18 @@ struct PieSlice: InsettableShape {
         let startAngle = -Double.pi / 2 + sliceAngle * Double(index)
         let endAngle = startAngle + sliceAngle
 
-        // Add small gap between slices
-        let gapAngle = 0.03  // radians
-        let adjustedStart = startAngle + gapAngle / 2
-        let adjustedEnd = endAngle - gapAngle / 2
+        // Fixed gap width in points (creates rectangular gaps with parallel edges)
+        let gapWidth: Double = 4.0
+
+        // Calculate perpendicular offsets at each radius
+        // Using asin to convert linear gap width to angular offset at each radius
+        let outerOffset = asin(min((gapWidth / 2) / outerRadius, 0.99))
+        let innerOffset = asin(min((gapWidth / 2) / innerRadius, 0.99))
+
+        let adjustedStartOuter = startAngle + outerOffset
+        let adjustedEndOuter = endAngle - outerOffset
+        let adjustedStartInner = startAngle + innerOffset
+        let adjustedEndInner = endAngle - innerOffset
 
         var path = Path()
 
@@ -137,23 +145,23 @@ struct PieSlice: InsettableShape {
         path.addArc(
             center: center,
             radius: outerRadius,
-            startAngle: .radians(adjustedStart),
-            endAngle: .radians(adjustedEnd),
+            startAngle: .radians(adjustedStartOuter),
+            endAngle: .radians(adjustedEndOuter),
             clockwise: false
         )
 
-        // Line to inner arc
+        // Line to inner arc (perpendicular edge, not radial)
         path.addLine(to: CGPoint(
-            x: center.x + innerRadius * cos(adjustedEnd),
-            y: center.y + innerRadius * sin(adjustedEnd)
+            x: center.x + innerRadius * cos(adjustedEndInner),
+            y: center.y + innerRadius * sin(adjustedEndInner)
         ))
 
         // Inner arc (reverse direction)
         path.addArc(
             center: center,
             radius: innerRadius,
-            startAngle: .radians(adjustedEnd),
-            endAngle: .radians(adjustedStart),
+            startAngle: .radians(adjustedEndInner),
+            endAngle: .radians(adjustedStartInner),
             clockwise: true
         )
 

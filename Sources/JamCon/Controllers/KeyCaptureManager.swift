@@ -7,6 +7,7 @@ import CoreGraphics
 enum KeyCaptureState: Equatable {
     case idle
     case capturing(button: LogicalButton, actionType: ActionType)
+    case capturingRadialItem
 }
 
 /// Manages keyboard event capture for button mapping configuration
@@ -22,11 +23,26 @@ class KeyCaptureManager: ObservableObject {
     /// Callback when a key combo is captured - provides the button, action type, and combo
     var onCapture: ((LogicalButton, ActionType, KeyCombo) -> Void)?
 
+    /// Callback when a radial menu item key combo is captured
+    var onRadialMenuCapture: ((KeyCombo) -> Void)?
+
     /// Start capturing keyboard input for a specific button and action type
     func startCapture(for button: LogicalButton, actionType: ActionType) {
         captureState = .capturing(button: button, actionType: actionType)
         currentModifiers = []
         installEventTap()
+    }
+
+    /// Start capturing keyboard input for a new radial menu item
+    func startRadialMenuCapture() {
+        captureState = .capturingRadialItem
+        currentModifiers = []
+        installEventTap()
+    }
+
+    /// Check if currently capturing for radial menu
+    var isCapturingRadialItem: Bool {
+        captureState == .capturingRadialItem
     }
 
     /// Cancel the current capture session
@@ -97,8 +113,22 @@ class KeyCaptureManager: ObservableObject {
             return Unmanaged.passRetained(event)
         }
 
-        guard case .capturing(let button, let actionType) = captureState else {
+        // Check if we're in any capture mode
+        let isCapturingButton: Bool
+        let button: LogicalButton?
+        let actionType: ActionType?
+
+        switch captureState {
+        case .idle:
             return Unmanaged.passRetained(event)  // Pass through if not capturing
+        case .capturing(let b, let t):
+            isCapturingButton = true
+            button = b
+            actionType = t
+        case .capturingRadialItem:
+            isCapturingButton = false
+            button = nil
+            actionType = nil
         }
 
         // Extract modifiers from event flags
@@ -121,7 +151,11 @@ class KeyCaptureManager: ObservableObject {
             let combo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
 
             Task { @MainActor in
-                self.onCapture?(button, actionType, combo)
+                if isCapturingButton, let button = button, let actionType = actionType {
+                    self.onCapture?(button, actionType, combo)
+                } else {
+                    self.onRadialMenuCapture?(combo)
+                }
                 self.removeEventTap()
                 self.captureState = .idle
                 self.currentModifiers = []

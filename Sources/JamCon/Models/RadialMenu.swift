@@ -114,3 +114,22 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         )
     }
 }
+
+// MARK: - Persistence
+
+extension RadialMenuConfiguration {
+    static let storageKey = "radialMenuConfiguration"
+
+    static func load() -> RadialMenuConfiguration {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let config = try? JSONDecoder().decode(RadialMenuConfiguration.self, from: data)
+        else { return .arrowKeys }
+        return config
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+}

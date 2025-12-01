@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var keyCaptureManager = KeyCaptureManager()
     @State private var showPointerSection = false
+    @State private var showStickSection = false
     @State private var showButtonMappingsSection = false
     @State private var showDebugSection = false
     @State private var selectedMappingRole: MappingRole = .primary
@@ -36,6 +37,11 @@ struct MenuBarView: View {
 
             Divider()
 
+            // Collapsible Stick Controls section
+            stickSection
+
+            Divider()
+
             // Collapsible Button Mappings section
             buttonMappingsSection
 
@@ -54,6 +60,17 @@ struct MenuBarView: View {
         .onAppear {
             keyCaptureManager.onCapture = { button, actionType, combo in
                 setAction(.keyPress(combo), for: button, actionType: actionType)
+            }
+            keyCaptureManager.onRadialMenuCapture = { [weak appState] combo in
+                guard let appState = appState else { return }
+                let newItem = RadialMenuItem(
+                    label: combo.displayName,
+                    icon: "",
+                    action: .keyPress(combo)
+                )
+                var config = appState.radialMenuConfiguration
+                config.items.append(newItem)
+                appState.radialMenuConfiguration = config
             }
         }
         .onDisappear {
@@ -338,44 +355,6 @@ struct MenuBarView: View {
                     Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
                 }
 
-                // Stick Mode picker
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Stick Mode")
-                            .font(.caption)
-                        Spacer()
-                        Picker("", selection: $appState.stickMode) {
-                            ForEach(StickMode.allCases, id: \.self) { mode in
-                                Text(mode.displayName).tag(mode)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(width: 150)
-                    }
-                    Text(appState.stickMode == .scroll
-                         ? "Joystick scrolls content"
-                         : "Joystick shows radial menu for arrow keys")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
-                // Scroll sensitivity (only show when in scroll mode)
-                if appState.stickMode == .scroll {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Scroll")
-                                .font(.caption)
-                            Spacer()
-                            Text(String(format: "%.0f", appState.scrollSensitivity))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .frame(width: 36, alignment: .trailing)
-                        }
-                        Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
-                    }
-                }
-
                 // Jitter Filter
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -467,6 +446,73 @@ struct MenuBarView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
+                }
+            }
+        }
+    }
+
+    // MARK: - Stick Controls Section (Collapsible)
+
+    private var stickSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Expandable header
+            Button(action: { withAnimation { showStickSection.toggle() } }) {
+                HStack {
+                    Image(systemName: "arcade.stick")
+                    Text("Stick Controls")
+                        .font(.subheadline)
+                    Spacer()
+                    Image(systemName: showStickSection ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .foregroundColor(.secondary)
+
+            if showStickSection {
+                // Stick Mode picker
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Mode")
+                            .font(.caption)
+                        Spacer()
+                        Picker("", selection: $appState.stickMode) {
+                            ForEach(StickMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 150)
+                    }
+                    Text(appState.stickMode == .scroll
+                         ? "Joystick scrolls content"
+                         : "Joystick shows radial menu")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // Scroll sensitivity (only show when in scroll mode)
+                if appState.stickMode == .scroll {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Scroll Speed")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.0f", appState.scrollSensitivity))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .frame(width: 36, alignment: .trailing)
+                        }
+                        Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
+                    }
+                }
+
+                // Radial menu items (only show when in radial menu mode)
+                if appState.stickMode == .radialMenu {
+                    radialMenuItemsSection
                 }
             }
         }
@@ -626,6 +672,96 @@ struct MenuBarView: View {
             }
         }
     }
+    // MARK: - Radial Menu Items Section
+
+    private var radialMenuItemsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Radial Menu Items")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // List current items
+            ForEach(Array(appState.radialMenuConfiguration.items.enumerated()), id: \.element.id) { index, item in
+                radialMenuItemRow(item: item, index: index)
+            }
+
+            // Add button or capture view
+            if keyCaptureManager.isCapturingRadialItem {
+                radialMenuCaptureView
+            } else if appState.radialMenuConfiguration.items.count < 10 {
+                Button(action: { keyCaptureManager.startRadialMenuCapture() }) {
+                    HStack {
+                        Image(systemName: "plus.circle")
+                        Text("Add Item")
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if appState.radialMenuConfiguration.items.count >= 10 {
+                Text("Maximum 10 items")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func radialMenuItemRow(item: RadialMenuItem, index: Int) -> some View {
+        HStack {
+            Text("\(index + 1).")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 20, alignment: .leading)
+
+            Text(item.action.displayName)
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: { removeRadialMenuItem(at: index) }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var radialMenuCaptureView: some View {
+        HStack(spacing: 4) {
+            if keyCaptureManager.currentModifiers.isEmpty {
+                Text("Press keys...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text(keyCaptureManager.currentModifiers.displayString)
+                    .font(.caption)
+            }
+
+            Spacer()
+
+            Button(action: { keyCaptureManager.cancelCapture() }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Color.accentColor.opacity(0.2))
+        .cornerRadius(4)
+    }
+
+    private func removeRadialMenuItem(at index: Int) {
+        var config = appState.radialMenuConfiguration
+        guard index >= 0 && index < config.items.count else { return }
+        config.items.remove(at: index)
+        appState.radialMenuConfiguration = config
+    }
+
     private var buttonMappingHeader: some View {
         HStack(spacing: 8) {
             Text("Button")
