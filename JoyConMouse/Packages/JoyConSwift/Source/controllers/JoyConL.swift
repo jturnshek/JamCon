@@ -101,4 +101,17 @@ public class JoyConL: Controller {
         self.readLStickCalibration()
         self.readSensorCalibration()
     }
+    
+    public override func readCalibrationAsync(completion: @escaping () -> Void) {
+        let group = DispatchGroup()
+        group.enter()
+        self.readLStickCalibration {
+            group.leave()
+        }
+        group.enter()
+        self.readSensorCalibration {
+            group.leave()
+        }
+        group.notify(queue: .main, execute: completion)
+    }
 }
