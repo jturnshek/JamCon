@@ -580,38 +580,6 @@ struct MenuBarView: View {
             }
         }
     }
-}
-
-// Simple sparkline for debug timing
-private struct SparklineView: View {
-    let values: [Double]
-    let maxValue: Double
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let height = geometry.size.height
-            let count = values.count
-
-            Path { path in
-                guard count > 1 else { return }
-                for (index, value) in values.enumerated() {
-                    let x = CGFloat(Double(index) / Double(count - 1)) * width
-                    let clamped = max(0.0, min(value, maxValue))
-                    let normalized = clamped / maxValue
-                    let y = height - CGFloat(normalized) * height
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
-            }
-            .stroke(Color.blue, lineWidth: 1)
-        }
-    }
-}
-
     private var buttonMappingHeader: some View {
         HStack(spacing: 8) {
             Text("Button")
@@ -901,5 +869,35 @@ private struct SparklineView: View {
         }
         .buttonStyle(.plain)
         .foregroundColor(.red)
+    }
+}
+
+// Simple sparkline for debug timing
+private struct SparklineView: View {
+    let values: [Double]
+    let maxValue: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let count = values.count
+
+            Path { path in
+                guard count > 1 else { return }
+                for (index, value) in values.enumerated() {
+                    let x = CGFloat(Double(index) / Double(count - 1)) * width
+                    let clamped = max(0.0, min(value, maxValue))
+                    let normalized = clamped / maxValue
+                    let y = height - CGFloat(normalized) * height
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+            }
+            .stroke(Color.blue, lineWidth: 1)
+        }
     }
 }
