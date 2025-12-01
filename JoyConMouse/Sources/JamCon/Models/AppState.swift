@@ -312,6 +312,8 @@ class AppState: ObservableObject {
 
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
+    @Published var imuDtSamples: [Double] = []
+    @Published var imuGapCount: Int = 0
 
     // MARK: - Accessibility Permission
     @Published var hasAccessibilityPermission: Bool = AXIsProcessTrusted()
@@ -352,6 +354,8 @@ class AppState: ObservableObject {
     private var accessibilityCheckTimer: Timer?
     /// Timer for controller idle power-off checks
     private var idleTimer: Timer?
+    /// Last gyro timestamp for diagnostics
+    private var lastGyroTimestamp: TimeInterval?
     /// Track override (drag/scroll/zoom) active state to suppress idle shutdowns mid-gesture
     private var overrideActive = false
 
@@ -468,6 +472,7 @@ class AppState: ObservableObject {
             // Only process gyro from primary controller
             guard settings.primaryControllerId == controllerId else { return }
 
+            self.recordGyroDiagnostics(timestamp: timestamp)
             processor?.processGyro(
                 gyro,
                 timestamp: timestamp,
@@ -677,6 +682,29 @@ class AppState: ObservableObject {
     func resetGyroCalibration() {
         inputProcessor?.resetFilters()
         isGyroCalibrated = false
+    }
+    
+    /// Capture gyro timing diagnostics for UI debugging
+    func recordGyroDiagnostics(timestamp: TimeInterval) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            defer { self.lastGyroTimestamp = timestamp }
+            guard let last = self.lastGyroTimestamp else { return }
+            let dt = timestamp - last
+            guard dt > 0 else { return }
+
+            // Keep a short history (last ~120 samples)
+            let maxSamples = 120
+            if self.imuDtSamples.count >= maxSamples {
+                self.imuDtSamples.removeFirst(self.imuDtSamples.count - maxSamples + 1)
+            }
+            self.imuDtSamples.append(dt)
+
+            // Count obvious gaps ( >20ms between samples)
+            if dt > 0.020 {
+                self.imuGapCount += 1
+            }
+        }
     }
 
     // MARK: - Idle Power-Off

@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @StateObject private var keyCaptureManager = KeyCaptureManager()
     @State private var showPointerSection = false
     @State private var showButtonMappingsSection = false
+    @State private var showDebugSection = false
     @State private var selectedMappingRole: MappingRole = .primary
 
     enum MappingRole: String, CaseIterable {
@@ -37,6 +38,11 @@ struct MenuBarView: View {
 
             // Collapsible Button Mappings section
             buttonMappingsSection
+
+            Divider()
+
+            // Debug section
+            debugSection
 
             Divider()
 
@@ -376,7 +382,7 @@ struct MenuBarView: View {
                             .foregroundColor(.secondary)
                             .frame(width: 52, alignment: .trailing)
                     }
-                    Slider(value: $appState.accelerationGain, in: 0...100, step: 0.1)
+                    Slider(value: $appState.accelerationGain, in: 0...200, step: 0.1)
                     Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -518,9 +524,92 @@ struct MenuBarView: View {
                 .font(.caption)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+        }
+    }
+
+    // MARK: - Debug Section (Collapsible)
+
+    private var debugSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: { withAnimation { showDebugSection.toggle() } }) {
+                HStack {
+                    Image(systemName: "waveform.path.ecg")
+                    Text("Debug")
+                        .font(.subheadline)
+                    Spacer()
+                    Image(systemName: showDebugSection ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .foregroundColor(.secondary)
+
+            if showDebugSection {
+                let samples = appState.imuDtSamples
+                let maxDt = samples.max() ?? 0
+                let avgDt = samples.isEmpty ? 0 : samples.reduce(0, +) / Double(samples.count)
+                let avgHz = avgDt > 0 ? 1.0 / avgDt : 0
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("IMU Timing")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.0f Hz avg", avgHz))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    SparklineView(values: samples, maxValue: 0.03)
+                        .frame(height: 32)
+                        .background(Color.secondary.opacity(0.08))
+                        .cornerRadius(6)
+
+                    HStack(spacing: 12) {
+                        Text(String(format: "Max dt: %.3f s", maxDt))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("Gaps: \(appState.imuGapCount)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
         }
     }
+}
+
+// Simple sparkline for debug timing
+private struct SparklineView: View {
+    let values: [Double]
+    let maxValue: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let height = geometry.size.height
+            let count = values.count
+
+            Path { path in
+                guard count > 1 else { return }
+                for (index, value) in values.enumerated() {
+                    let x = CGFloat(Double(index) / Double(count - 1)) * width
+                    let clamped = max(0.0, min(value, maxValue))
+                    let normalized = clamped / maxValue
+                    let y = height - CGFloat(normalized) * height
+                    if index == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+            }
+            .stroke(Color.blue, lineWidth: 1)
+        }
+    }
+}
 
     private var buttonMappingHeader: some View {
         HStack(spacing: 8) {
