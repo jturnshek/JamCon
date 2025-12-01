@@ -1,0 +1,5 @@
+# macOS
+.DS_Store
+
+# Temporary image files at root (used for icon creation)
+/*.png
