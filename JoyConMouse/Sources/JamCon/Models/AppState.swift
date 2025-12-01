@@ -176,6 +176,33 @@ final class InputSettings: @unchecked Sendable {
         get { lock.withLock { _autoPowerOffEnabled } }
         set { lock.withLock { _autoPowerOffEnabled = newValue } }
     }
+
+    /// Atomically capture all settings needed for button press handling
+    /// This prevents race conditions where settings could change between reads
+    func buttonPressSnapshot(for controllerId: UUID?) -> (
+        isEnabled: Bool,
+        isPrimary: Bool,
+        mapping: ButtonMappingProfile,
+        clutchButtons: Set<LogicalButton>,
+        scrollButtons: Set<LogicalButton>,
+        zoomButtons: Set<LogicalButton>,
+        holdThreshold: Double,
+        mirrorFaceButtons: Bool
+    ) {
+        lock.withLock {
+            let isPrimary = _primaryControllerId == controllerId
+            return (
+                isEnabled: _isEnabled,
+                isPrimary: isPrimary,
+                mapping: isPrimary ? _primaryMapping : _secondaryMapping,
+                clutchButtons: _clutchButtons,
+                scrollButtons: _scrollButtons,
+                zoomButtons: _zoomButtons,
+                holdThreshold: _holdThreshold,
+                mirrorFaceButtons: _mirrorFaceButtons
+            )
+        }
+    }
 }
 
 /// Shared application state
@@ -467,49 +494,52 @@ class AppState: ObservableObject {
         // Buttons: use primary or secondary mapping based on controller
         joyConController?.onButtonPress = { [weak self] controllerId, controllerType, button in
             guard let self = self else { return }
-            let settings = self.inputSettings
+
+            // Take atomic snapshot of all needed settings to prevent race conditions
+            let snapshot = self.inputSettings.buttonPressSnapshot(for: controllerId)
+            guard snapshot.isEnabled else { return }
+
             let processor = self.inputProcessor
-            guard settings.isEnabled else { return }
-            let isPrimary = settings.primaryControllerId == controllerId
-            let mapping = isPrimary ? settings.primaryMapping : settings.secondaryMapping
 
             // Get logical button for hold detection
-            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
-            if settings.clutchButtons.contains(logicalButton) {
+            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: snapshot.mirrorFaceButtons) else { return }
+            if snapshot.clutchButtons.contains(logicalButton) {
                 processor?.beginOverride(.clutch)
                 return
             }
-            if settings.scrollButtons.contains(logicalButton) {
+            if snapshot.scrollButtons.contains(logicalButton) {
                 processor?.beginOverride(.scroll)
                 return
             }
-            if settings.zoomButtons.contains(logicalButton) {
+            if snapshot.zoomButtons.contains(logicalButton) {
                 processor?.beginOverride(.zoom)
                 return
             }
-            let actions = mapping[logicalButton]
+            let actions = snapshot.mapping[logicalButton]
 
-            processor?.handleButtonDown(logicalButton, actions: actions, holdThreshold: settings.holdThreshold)
+            processor?.handleButtonDown(logicalButton, actions: actions, holdThreshold: snapshot.holdThreshold)
         }
 
         joyConController?.onButtonRelease = { [weak self] controllerId, controllerType, button in
             guard let self = self else { return }
-            let settings = self.inputSettings
+
+            // Take atomic snapshot of all needed settings to prevent race conditions
+            let snapshot = self.inputSettings.buttonPressSnapshot(for: controllerId)
+            guard snapshot.isEnabled else { return }
+
             let processor = self.inputProcessor
 
-            guard settings.isEnabled else { return }
-
             // Get logical button for hold detection
-            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: settings.mirrorFaceButtons) else { return }
-            if settings.clutchButtons.contains(logicalButton) {
+            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: snapshot.mirrorFaceButtons) else { return }
+            if snapshot.clutchButtons.contains(logicalButton) {
                 processor?.endOverride(.clutch)
                 return
             }
-            if settings.scrollButtons.contains(logicalButton) {
+            if snapshot.scrollButtons.contains(logicalButton) {
                 processor?.endOverride(.scroll)
                 return
             }
-            if settings.zoomButtons.contains(logicalButton) {
+            if snapshot.zoomButtons.contains(logicalButton) {
                 processor?.endOverride(.zoom)
                 return
             }

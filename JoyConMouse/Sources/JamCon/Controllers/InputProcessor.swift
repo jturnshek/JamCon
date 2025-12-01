@@ -365,14 +365,14 @@ class InputProcessor {
 
         switch currentOverride() {
         case .clutch:
-            reportCalibrationIfNeeded()
-            return
+            onMouseMove?(dx, dy)
         case .scroll:
             onScroll?(dx, dy)
         case .zoom:
             onScroll?(0, dy)
         case .none:
-            onMouseMove?(dx, dy)
+            reportCalibrationIfNeeded()
+            return
         }
         reportCalibrationIfNeeded()
     }
@@ -423,6 +423,9 @@ class InputProcessor {
             }
             holdTimers[button] = workItem
             holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: workItem)
+        } else if actions.press != .none {
+            // No hold action - fire press immediately for sustained hold
+            executeAction(actions.press, isDown: true)
         }
     }
 
@@ -441,10 +444,15 @@ class InputProcessor {
             if state.actions.hold != .none {
                 executeAction(state.actions.hold, isDown: false)
             }
-        } else {
-            // Released before hold threshold - fire press action (down + up)
+        } else if state.actions.hold != .none {
+            // Has hold action but released before threshold - fire press as tap
             if state.actions.press != .none {
                 executeAction(state.actions.press, isDown: true)
+                executeAction(state.actions.press, isDown: false)
+            }
+        } else {
+            // No hold action - release the sustained press
+            if state.actions.press != .none {
                 executeAction(state.actions.press, isDown: false)
             }
         }
