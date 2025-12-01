@@ -559,6 +559,8 @@ struct MenuBarView: View {
                 let maxDt = samples.max() ?? 0
                 let avgDt = samples.isEmpty ? 0 : samples.reduce(0, +) / Double(samples.count)
                 let avgHz = avgDt > 0 ? 1.0 / avgDt : 0
+                let sparkMax = max(maxDt * 1.1, 0.03)
+                let histogramBins: [Double] = [0.004, 0.006, 0.008, 0.010, 0.012, 0.016, 0.020, 0.030, 0.050, 0.080]
 
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -570,7 +572,7 @@ struct MenuBarView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    SparklineView(values: samples, maxValue: 0.03)
+                    SparklineView(values: samples, maxValue: sparkMax, color: .blue)
                         .frame(height: 32)
                         .background(Color.secondary.opacity(0.08))
                         .cornerRadius(6)
@@ -585,7 +587,7 @@ struct MenuBarView: View {
                         .background(Color.secondary.opacity(0.08))
                         .cornerRadius(6)
 
-                    HistogramView(values: samples, bins: [0.012, 0.016, 0.020, 0.024, 0.030])
+                    HistogramView(values: samples, bins: histogramBins)
                         .frame(height: 40)
 
                     HStack(spacing: 12) {
