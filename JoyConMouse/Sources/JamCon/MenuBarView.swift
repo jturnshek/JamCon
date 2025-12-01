@@ -903,8 +903,3 @@ private struct SparklineView: View {
         .foregroundColor(.red)
     }
 }
-
-#Preview {
-    MenuBarView()
-        .environmentObject(AppState())
-}
