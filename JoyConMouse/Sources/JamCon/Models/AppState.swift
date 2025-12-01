@@ -356,6 +356,8 @@ class AppState: ObservableObject {
     private var idleTimer: Timer?
     /// Last gyro timestamp for diagnostics
     private var lastGyroTimestamp: TimeInterval?
+    private var imuDtSum: Double = 0
+    private let imuWindowDuration: Double = 10.0
     /// Track override (drag/scroll/zoom) active state to suppress idle shutdowns mid-gesture
     private var overrideActive = false
 
@@ -693,16 +695,18 @@ class AppState: ObservableObject {
             let dt = timestamp - last
             guard dt > 0 else { return }
 
-            // Keep a short history (last ~120 samples)
-            let maxSamples = 120
-            if self.imuDtSamples.count >= maxSamples {
-                self.imuDtSamples.removeFirst(self.imuDtSamples.count - maxSamples + 1)
-            }
+            // Maintain ~imuWindowDuration seconds of dt samples
             self.imuDtSamples.append(dt)
-
-            // Count obvious gaps ( >20ms between samples)
+            self.imuDtSum += dt
             if dt > 0.020 {
                 self.imuGapCount += 1
+            }
+            while self.imuDtSum > self.imuWindowDuration, let first = self.imuDtSamples.first {
+                self.imuDtSum -= first
+                if first > 0.020 {
+                    self.imuGapCount = max(0, self.imuGapCount - 1)
+                }
+                self.imuDtSamples.removeFirst()
             }
         }
     }
