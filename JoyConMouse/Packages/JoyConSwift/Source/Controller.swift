@@ -669,22 +669,15 @@ public class Controller {
     }
     
     func readLStickCalibration(completion: (() -> Void)? = nil) {
-        let group = DispatchGroup()
-        var completionScheduled = false
-        let scheduleCompletion = {
-            if !completionScheduled {
-                completionScheduled = true
-                if let completion = completion {
-                    DispatchQueue.main.async(execute: completion)
-                }
+        var pending = completion != nil ? 3 : 0
+        let finish: () -> Void = {
+            guard let completion = completion else { return }
+            pending -= 1
+            if pending == 0 {
+                DispatchQueue.main.async(execute: completion)
             }
         }
-        if completion != nil {
-            group.notify(queue: .main, execute: scheduleCompletion)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: scheduleCompletion)
-        }
-        
-        if completion != nil { group.enter() }
+
         self.readSPIFlash(address: 0x603d, length: 0x09) { [weak self] data in
             let data0: UInt16 = (UInt16(data[1]) << 8) & 0xF00 | UInt16(data[0])
             let data1: UInt16 = (UInt16(data[2]) << 4) | (UInt16(data[1]) >> 4)
@@ -703,9 +696,8 @@ public class Controller {
                 deadZone: 0,
                 rangeRatio: 0
             )
-            if completion != nil { group.leave() }
+            finish()
         }
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x6086, length: 18) { [weak self] data in
             // TODO: Check if the calculaition is correct.
             let deadzone = data[3]
@@ -713,14 +705,13 @@ public class Controller {
             
             self?.lStickFactoryCalibration?.deadZone = CGFloat(deadzone)
             self?.lStickFactoryCalibration?.rangeRatio = CGFloat(range)
-            if completion != nil { group.leave() }
+            finish()
         }
         
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x8010, length: 0x0B) { [weak self] data in
             if (data[0] != 0xB2 || data[1] != 0xA1) {
                 // No user calibration data
-                if completion != nil { group.leave() }
+                finish()
                 return;
             }
             
@@ -741,27 +732,19 @@ public class Controller {
                 deadZone: self?.lStickFactoryCalibration?.deadZone ?? 0,
                 rangeRatio: self?.lStickFactoryCalibration?.rangeRatio ?? 0
             )
-            if completion != nil { group.leave() }
+            finish()
         }
     }
     
     func readRStickCalibration(completion: (() -> Void)? = nil) {
-        let group = DispatchGroup()
-        var completionScheduled = false
-        let scheduleCompletion = {
-            if !completionScheduled {
-                completionScheduled = true
-                if let completion = completion {
-                    DispatchQueue.main.async(execute: completion)
-                }
+        var pending = completion != nil ? 3 : 0
+        let finish: () -> Void = {
+            guard let completion = completion else { return }
+            pending -= 1
+            if pending == 0 {
+                DispatchQueue.main.async(execute: completion)
             }
         }
-        if completion != nil {
-            group.notify(queue: .main, execute: scheduleCompletion)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: scheduleCompletion)
-        }
-        
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x6046, length: 0x09) { [weak self] data in
             let data0: UInt16 = (UInt16(data[1]) << 8) & 0xF00 | UInt16(data[0])
             let data1: UInt16 = (UInt16(data[2]) << 4) | (UInt16(data[1]) >> 4)
@@ -780,9 +763,8 @@ public class Controller {
                 deadZone: 0,
                 rangeRatio: 0
             )
-            if completion != nil { group.leave() }
+            finish()
         }
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x6098, length: 18) { [weak self] data in
             // TODO: Check if the calculaition is correct.
             let deadzone = data[3]
@@ -790,14 +772,13 @@ public class Controller {
             
             self?.rStickFactoryCalibration?.deadZone = CGFloat(deadzone)
             self?.rStickFactoryCalibration?.rangeRatio = CGFloat(range)
-            if completion != nil { group.leave() }
+            finish()
         }
         
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x801B, length: 0x0B) { [weak self] data in
             if (data[0] != 0xB2 || data[1] != 0xA1) {
                 // No user calibration data
-                if completion != nil { group.leave() }
+                finish()
                 return;
             }
 
@@ -818,27 +799,19 @@ public class Controller {
                 deadZone: self?.rStickUserCalibration?.deadZone ?? 0,
                 rangeRatio: self?.rStickUserCalibration?.rangeRatio ?? 0
             )
-            if completion != nil { group.leave() }
+            finish()
         }
     }
     
     func readSensorCalibration(completion: (() -> Void)? = nil) {
-        let group = DispatchGroup()
-        var completionScheduled = false
-        let scheduleCompletion = {
-            if !completionScheduled {
-                completionScheduled = true
-                if let completion = completion {
-                    DispatchQueue.main.async(execute: completion)
-                }
+        var pending = completion != nil ? 3 : 0
+        let finish: () -> Void = {
+            guard let completion = completion else { return }
+            pending -= 1
+            if pending == 0 {
+                DispatchQueue.main.async(execute: completion)
             }
         }
-        if completion != nil {
-            group.notify(queue: .main, execute: scheduleCompletion)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: scheduleCompletion)
-        }
-        
-        if completion != nil { group.enter() }
         // Factory calibration
         self.readSPIFlash(address: 0x6020, length: 0x18) { [weak self] data in
             data.withUnsafeBufferPointer {
@@ -884,9 +857,8 @@ public class Controller {
                     zOffset: gyroZOffset
                 )
             }
-            if completion != nil { group.leave() }
+            finish()
         }
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x6080, length: 0x06) { [weak self] data in
             data.withUnsafeBufferPointer {
                 guard let ptr = $0.baseAddress else { return }
@@ -894,11 +866,10 @@ public class Controller {
                 self?.accFactoryCalibration?.yOffset = CGFloat(ReadInt16(from: ptr+2))
                 self?.accFactoryCalibration?.zOffset = CGFloat(ReadInt16(from: ptr+4))
             }
-            if completion != nil { group.leave() }
+            finish()
         }
         
         // User calibration
-        if completion != nil { group.enter() }
         self.readSPIFlash(address: 0x8026, length: 0x1A) { [weak self] data in
             data.withUnsafeBufferPointer {
                 guard let ptr = $0.baseAddress else { return }
@@ -907,7 +878,7 @@ public class Controller {
 
                 if (magic != 0xA1B2) {
                     // No user calibration data
-                    if completion != nil { group.leave() }
+                    finish()
                     return
                 }
                 
@@ -951,7 +922,7 @@ public class Controller {
                     zOffset: gyroZOffset
                 )
             }
-            if completion != nil { group.leave() }
+            finish()
         }
     }
     
