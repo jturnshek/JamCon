@@ -50,9 +50,12 @@ final class InputSettings: @unchecked Sendable {
     private var _accelerationGain: Double = 80.0
     private var _precisionZoneEnabled: Bool = false
     private var _earlyRampEnabled: Bool = false
-    private var _clutchButtons: Set<LogicalButton> = []
-    private var _scrollButtons: Set<LogicalButton> = []
-    private var _zoomButtons: Set<LogicalButton> = []
+    private var _primaryClutchButtons: Set<LogicalButton> = []
+    private var _secondaryClutchButtons: Set<LogicalButton> = []
+    private var _primaryScrollButtons: Set<LogicalButton> = []
+    private var _secondaryScrollButtons: Set<LogicalButton> = []
+    private var _primaryZoomButtons: Set<LogicalButton> = []
+    private var _secondaryZoomButtons: Set<LogicalButton> = []
     private var _accelerationMode: AccelerationMode = .legacy
     private var _adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
     private var _autoNeutralRefresh: Bool = true
@@ -152,19 +155,34 @@ final class InputSettings: @unchecked Sendable {
         set { lock.withLock { _autoNeutralRefresh = newValue } }
     }
 
-    var clutchButtons: Set<LogicalButton> {
-        get { lock.withLock { _clutchButtons } }
-        set { lock.withLock { _clutchButtons = newValue } }
+    var primaryClutchButtons: Set<LogicalButton> {
+        get { lock.withLock { _primaryClutchButtons } }
+        set { lock.withLock { _primaryClutchButtons = newValue } }
     }
 
-    var scrollButtons: Set<LogicalButton> {
-        get { lock.withLock { _scrollButtons } }
-        set { lock.withLock { _scrollButtons = newValue } }
+    var secondaryClutchButtons: Set<LogicalButton> {
+        get { lock.withLock { _secondaryClutchButtons } }
+        set { lock.withLock { _secondaryClutchButtons = newValue } }
     }
 
-    var zoomButtons: Set<LogicalButton> {
-        get { lock.withLock { _zoomButtons } }
-        set { lock.withLock { _zoomButtons = newValue } }
+    var primaryScrollButtons: Set<LogicalButton> {
+        get { lock.withLock { _primaryScrollButtons } }
+        set { lock.withLock { _primaryScrollButtons = newValue } }
+    }
+
+    var secondaryScrollButtons: Set<LogicalButton> {
+        get { lock.withLock { _secondaryScrollButtons } }
+        set { lock.withLock { _secondaryScrollButtons = newValue } }
+    }
+
+    var primaryZoomButtons: Set<LogicalButton> {
+        get { lock.withLock { _primaryZoomButtons } }
+        set { lock.withLock { _primaryZoomButtons = newValue } }
+    }
+
+    var secondaryZoomButtons: Set<LogicalButton> {
+        get { lock.withLock { _secondaryZoomButtons } }
+        set { lock.withLock { _secondaryZoomButtons = newValue } }
     }
 
     var idleTimeoutMinutes: Double {
@@ -195,9 +213,9 @@ final class InputSettings: @unchecked Sendable {
                 isEnabled: _isEnabled,
                 isPrimary: isPrimary,
                 mapping: isPrimary ? _primaryMapping : _secondaryMapping,
-                clutchButtons: _clutchButtons,
-                scrollButtons: _scrollButtons,
-                zoomButtons: _zoomButtons,
+                clutchButtons: isPrimary ? _primaryClutchButtons : _secondaryClutchButtons,
+                scrollButtons: isPrimary ? _primaryScrollButtons : _secondaryScrollButtons,
+                zoomButtons: isPrimary ? _primaryZoomButtons : _secondaryZoomButtons,
                 holdThreshold: _holdThreshold,
                 mirrorFaceButtons: _mirrorFaceButtons
             )
@@ -294,14 +312,25 @@ class AppState: ObservableObject {
     @AppStorage("autoNeutralRefresh") var autoNeutralRefresh: Bool = true {
         didSet { inputSettings.autoNeutralRefresh = autoNeutralRefresh }
     }
-    @AppStorage("dragButtons") private var clutchButtonsRaw: String = "" {
-        didSet { inputSettings.clutchButtons = parseButtons(from: clutchButtonsRaw) }
+    // Primary override buttons (using legacy key "dragButtons" for migration)
+    @AppStorage("dragButtons") private var primaryClutchButtonsRaw: String = "" {
+        didSet { inputSettings.primaryClutchButtons = parseButtons(from: primaryClutchButtonsRaw) }
     }
-    @AppStorage("scrollButtons") private var scrollButtonsRaw: String = "" {
-        didSet { inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw) }
+    @AppStorage("scrollButtons") private var primaryScrollButtonsRaw: String = "" {
+        didSet { inputSettings.primaryScrollButtons = parseButtons(from: primaryScrollButtonsRaw) }
     }
-    @AppStorage("zoomButtons") private var zoomButtonsRaw: String = "" {
-        didSet { inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw) }
+    @AppStorage("zoomButtons") private var primaryZoomButtonsRaw: String = "" {
+        didSet { inputSettings.primaryZoomButtons = parseButtons(from: primaryZoomButtonsRaw) }
+    }
+    // Secondary override buttons
+    @AppStorage("secondaryClutchButtons") private var secondaryClutchButtonsRaw: String = "" {
+        didSet { inputSettings.secondaryClutchButtons = parseButtons(from: secondaryClutchButtonsRaw) }
+    }
+    @AppStorage("secondaryScrollButtons") private var secondaryScrollButtonsRaw: String = "" {
+        didSet { inputSettings.secondaryScrollButtons = parseButtons(from: secondaryScrollButtonsRaw) }
+    }
+    @AppStorage("secondaryZoomButtons") private var secondaryZoomButtonsRaw: String = "" {
+        didSet { inputSettings.secondaryZoomButtons = parseButtons(from: secondaryZoomButtonsRaw) }
     }
     @AppStorage("idleTimeoutMinutes") var idleTimeoutMinutes: Double = 10.0 {
         didSet { inputSettings.idleTimeoutMinutes = idleTimeoutMinutes }
@@ -391,9 +420,12 @@ class AppState: ObservableObject {
         inputSettings.accelerationMode = accelerationMode
         inputSettings.adaptiveSmoothingMode = adaptiveSmoothingMode
         inputSettings.autoNeutralRefresh = autoNeutralRefresh
-        inputSettings.clutchButtons = parseButtons(from: clutchButtonsRaw)
-        inputSettings.scrollButtons = parseButtons(from: scrollButtonsRaw)
-        inputSettings.zoomButtons = parseButtons(from: zoomButtonsRaw)
+        inputSettings.primaryClutchButtons = parseButtons(from: primaryClutchButtonsRaw)
+        inputSettings.primaryScrollButtons = parseButtons(from: primaryScrollButtonsRaw)
+        inputSettings.primaryZoomButtons = parseButtons(from: primaryZoomButtonsRaw)
+        inputSettings.secondaryClutchButtons = parseButtons(from: secondaryClutchButtonsRaw)
+        inputSettings.secondaryScrollButtons = parseButtons(from: secondaryScrollButtonsRaw)
+        inputSettings.secondaryZoomButtons = parseButtons(from: secondaryZoomButtonsRaw)
         inputSettings.idleTimeoutMinutes = idleTimeoutMinutes
         inputSettings.autoPowerOffEnabled = autoPowerOffEnabled
 
@@ -452,6 +484,10 @@ class AppState: ObservableObject {
 
         processor?.onScroll = { dx, dy in
             mouse?.scroll(dx: dx, dy: dy)
+        }
+
+        processor?.onZoom = { magnification in
+            mouse?.magnify(magnification)
         }
 
         processor?.onKeyDown = { keyCombo in
@@ -604,66 +640,128 @@ class AppState: ObservableObject {
         buttons.map { $0.rawValue }.sorted().joined(separator: ",")
     }
 
-    var clutchButtons: Set<LogicalButton> {
-        get { parseButtons(from: clutchButtonsRaw) }
+    // MARK: Primary Override Buttons
+
+    var primaryClutchButtons: Set<LogicalButton> {
+        get { parseButtons(from: primaryClutchButtonsRaw) }
         set {
             if overrideUpdateInProgress {
-                clutchButtonsRaw = storeButtons(newValue)
-                inputSettings.clutchButtons = newValue
+                primaryClutchButtonsRaw = storeButtons(newValue)
+                inputSettings.primaryClutchButtons = newValue
                 return
             }
             overrideUpdateInProgress = true
-            clutchButtonsRaw = storeButtons(newValue)
-            inputSettings.clutchButtons = newValue
+            primaryClutchButtonsRaw = storeButtons(newValue)
+            inputSettings.primaryClutchButtons = newValue
             newValue.forEach { button in
                 primaryMapping[button] = ButtonActions()
-                secondaryMapping[button] = ButtonActions()
             }
-            // Remove from other modes
-            scrollButtons = scrollButtons.subtracting(newValue)
-            zoomButtons = zoomButtons.subtracting(newValue)
+            // Remove from other primary modes
+            primaryScrollButtons = primaryScrollButtons.subtracting(newValue)
+            primaryZoomButtons = primaryZoomButtons.subtracting(newValue)
             overrideUpdateInProgress = false
         }
     }
 
-    var scrollButtons: Set<LogicalButton> {
-        get { parseButtons(from: scrollButtonsRaw) }
+    var primaryScrollButtons: Set<LogicalButton> {
+        get { parseButtons(from: primaryScrollButtonsRaw) }
         set {
             if overrideUpdateInProgress {
-                scrollButtonsRaw = storeButtons(newValue)
-                inputSettings.scrollButtons = newValue
+                primaryScrollButtonsRaw = storeButtons(newValue)
+                inputSettings.primaryScrollButtons = newValue
                 return
             }
             overrideUpdateInProgress = true
-            scrollButtonsRaw = storeButtons(newValue)
-            inputSettings.scrollButtons = newValue
+            primaryScrollButtonsRaw = storeButtons(newValue)
+            inputSettings.primaryScrollButtons = newValue
             newValue.forEach { button in
                 primaryMapping[button] = ButtonActions()
-                secondaryMapping[button] = ButtonActions()
             }
-            clutchButtons = clutchButtons.subtracting(newValue)
-            zoomButtons = zoomButtons.subtracting(newValue)
+            primaryClutchButtons = primaryClutchButtons.subtracting(newValue)
+            primaryZoomButtons = primaryZoomButtons.subtracting(newValue)
             overrideUpdateInProgress = false
         }
     }
 
-    var zoomButtons: Set<LogicalButton> {
-        get { parseButtons(from: zoomButtonsRaw) }
+    var primaryZoomButtons: Set<LogicalButton> {
+        get { parseButtons(from: primaryZoomButtonsRaw) }
         set {
             if overrideUpdateInProgress {
-                zoomButtonsRaw = storeButtons(newValue)
-                inputSettings.zoomButtons = newValue
+                primaryZoomButtonsRaw = storeButtons(newValue)
+                inputSettings.primaryZoomButtons = newValue
                 return
             }
             overrideUpdateInProgress = true
-            zoomButtonsRaw = storeButtons(newValue)
-            inputSettings.zoomButtons = newValue
+            primaryZoomButtonsRaw = storeButtons(newValue)
+            inputSettings.primaryZoomButtons = newValue
             newValue.forEach { button in
                 primaryMapping[button] = ButtonActions()
+            }
+            primaryClutchButtons = primaryClutchButtons.subtracting(newValue)
+            primaryScrollButtons = primaryScrollButtons.subtracting(newValue)
+            overrideUpdateInProgress = false
+        }
+    }
+
+    // MARK: Secondary Override Buttons
+
+    var secondaryClutchButtons: Set<LogicalButton> {
+        get { parseButtons(from: secondaryClutchButtonsRaw) }
+        set {
+            if overrideUpdateInProgress {
+                secondaryClutchButtonsRaw = storeButtons(newValue)
+                inputSettings.secondaryClutchButtons = newValue
+                return
+            }
+            overrideUpdateInProgress = true
+            secondaryClutchButtonsRaw = storeButtons(newValue)
+            inputSettings.secondaryClutchButtons = newValue
+            newValue.forEach { button in
                 secondaryMapping[button] = ButtonActions()
             }
-            clutchButtons = clutchButtons.subtracting(newValue)
-            scrollButtons = scrollButtons.subtracting(newValue)
+            // Remove from other secondary modes
+            secondaryScrollButtons = secondaryScrollButtons.subtracting(newValue)
+            secondaryZoomButtons = secondaryZoomButtons.subtracting(newValue)
+            overrideUpdateInProgress = false
+        }
+    }
+
+    var secondaryScrollButtons: Set<LogicalButton> {
+        get { parseButtons(from: secondaryScrollButtonsRaw) }
+        set {
+            if overrideUpdateInProgress {
+                secondaryScrollButtonsRaw = storeButtons(newValue)
+                inputSettings.secondaryScrollButtons = newValue
+                return
+            }
+            overrideUpdateInProgress = true
+            secondaryScrollButtonsRaw = storeButtons(newValue)
+            inputSettings.secondaryScrollButtons = newValue
+            newValue.forEach { button in
+                secondaryMapping[button] = ButtonActions()
+            }
+            secondaryClutchButtons = secondaryClutchButtons.subtracting(newValue)
+            secondaryZoomButtons = secondaryZoomButtons.subtracting(newValue)
+            overrideUpdateInProgress = false
+        }
+    }
+
+    var secondaryZoomButtons: Set<LogicalButton> {
+        get { parseButtons(from: secondaryZoomButtonsRaw) }
+        set {
+            if overrideUpdateInProgress {
+                secondaryZoomButtonsRaw = storeButtons(newValue)
+                inputSettings.secondaryZoomButtons = newValue
+                return
+            }
+            overrideUpdateInProgress = true
+            secondaryZoomButtonsRaw = storeButtons(newValue)
+            inputSettings.secondaryZoomButtons = newValue
+            newValue.forEach { button in
+                secondaryMapping[button] = ButtonActions()
+            }
+            secondaryClutchButtons = secondaryClutchButtons.subtracting(newValue)
+            secondaryScrollButtons = secondaryScrollButtons.subtracting(newValue)
             overrideUpdateInProgress = false
         }
     }

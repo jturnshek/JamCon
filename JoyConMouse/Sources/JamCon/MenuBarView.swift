@@ -829,50 +829,95 @@ struct MenuBarView: View {
 
     // MARK: - Override button helpers
 
+    private var currentClutchButtons: Set<LogicalButton> {
+        get {
+            switch selectedMappingRole {
+            case .primary: return appState.primaryClutchButtons
+            case .secondary: return appState.secondaryClutchButtons
+            }
+        }
+        nonmutating set {
+            switch selectedMappingRole {
+            case .primary: appState.primaryClutchButtons = newValue
+            case .secondary: appState.secondaryClutchButtons = newValue
+            }
+        }
+    }
+
+    private var currentScrollButtons: Set<LogicalButton> {
+        get {
+            switch selectedMappingRole {
+            case .primary: return appState.primaryScrollButtons
+            case .secondary: return appState.secondaryScrollButtons
+            }
+        }
+        nonmutating set {
+            switch selectedMappingRole {
+            case .primary: appState.primaryScrollButtons = newValue
+            case .secondary: appState.secondaryScrollButtons = newValue
+            }
+        }
+    }
+
+    private var currentZoomButtons: Set<LogicalButton> {
+        get {
+            switch selectedMappingRole {
+            case .primary: return appState.primaryZoomButtons
+            case .secondary: return appState.secondaryZoomButtons
+            }
+        }
+        nonmutating set {
+            switch selectedMappingRole {
+            case .primary: appState.primaryZoomButtons = newValue
+            case .secondary: appState.secondaryZoomButtons = newValue
+            }
+        }
+    }
+
     private func isClutchButton(_ button: LogicalButton) -> Bool {
-        appState.clutchButtons.contains(button)
+        currentClutchButtons.contains(button)
     }
 
     private func setClutchButton(_ button: LogicalButton?) {
         // Clear any in-progress captures when toggling clutch state
         keyCaptureManager.cancelCapture()
-        var buttons = appState.clutchButtons
+        var buttons = currentClutchButtons
         if let button {
             buttons.insert(button)
         } else {
             buttons.removeAll()
         }
-        appState.clutchButtons = buttons
+        currentClutchButtons = buttons
     }
 
     private func isScrollButton(_ button: LogicalButton) -> Bool {
-        appState.scrollButtons.contains(button)
+        currentScrollButtons.contains(button)
     }
 
     private func setScrollButton(_ button: LogicalButton?) {
         keyCaptureManager.cancelCapture()
-        var buttons = appState.scrollButtons
+        var buttons = currentScrollButtons
         if let button {
             buttons.insert(button)
         } else {
             buttons.removeAll()
         }
-        appState.scrollButtons = buttons
+        currentScrollButtons = buttons
     }
 
     private func isZoomButton(_ button: LogicalButton) -> Bool {
-        appState.zoomButtons.contains(button)
+        currentZoomButtons.contains(button)
     }
 
     private func setZoomButton(_ button: LogicalButton?) {
         keyCaptureManager.cancelCapture()
-        var buttons = appState.zoomButtons
+        var buttons = currentZoomButtons
         if let button {
             buttons.insert(button)
         } else {
             buttons.removeAll()
         }
-        appState.zoomButtons = buttons
+        currentZoomButtons = buttons
     }
 
     private func isOverrideButton(_ button: LogicalButton) -> Bool {

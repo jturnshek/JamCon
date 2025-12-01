@@ -133,6 +133,7 @@ class InputProcessor {
     var onMouseMove: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
     var onMouseClick: ((_ button: MouseButton, _ isDown: Bool) -> Void)?
     var onScroll: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
+    var onZoom: ((_ magnification: CGFloat) -> Void)?
     var onKeyDown: ((_ keyCombo: KeyCombo) -> Void)?
     var onKeyUp: ((_ keyCombo: KeyCombo) -> Void)?
     var onSystemAction: ((_ action: SystemAction) -> Void)?
@@ -369,7 +370,10 @@ class InputProcessor {
         case .scroll:
             onScroll?(dx, dy)
         case .zoom:
-            onScroll?(0, dy)
+            // Convert vertical motion to magnification gesture
+            // Scale factor to make zoom feel natural (negative dy = tilt down = zoom out)
+            let zoomScale: CGFloat = 0.01
+            onZoom?(dy * zoomScale)
         case .none:
             reportCalibrationIfNeeded()
             return

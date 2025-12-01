@@ -25,10 +25,18 @@ targets:
       - path: Sources/JamCon
         type: group
     resources:
-      - path: Resources
-        type: group
+      - path: Resources/joycon.png
+        buildPhase: resources
+      - path: Resources/joyconL.png
+        buildPhase: resources
+      - path: Resources/joyconR.png
+        buildPhase: resources
       - path: Sources/JamCon/Resources
         type: group
+    postCompileScripts:
+      - script: |
+          cp "${PROJECT_DIR}/Resources/AppIcon.icns" "${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/"
+        name: Copy App Icon
     dependencies:
       - package: JoyConSwift
     settings:

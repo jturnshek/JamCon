@@ -125,6 +125,7 @@
 			buildConfigurationList = 88963DF838DEADA89260E823 /* Build configuration list for PBXNativeTarget "JamCon" */;
 			buildPhases = (
 				F257B2FCA1F9552FCF6C95E9 /* Sources */,
+				BB7888F1A19016AC84CF1F2C /* Copy App Icon */,
 				6DA3B54CFF9784A434D281FA /* Resources */,
 				1305B6BD8DC189B8CF7234BB /* Frameworks */,
 			);
@@ -188,6 +189,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		BB7888F1A19016AC84CF1F2C /* Copy App Icon */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy App Icon";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cp \"${PROJECT_DIR}/Resources/AppIcon.icns\" \"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		F257B2FCA1F9552FCF6C95E9 /* Sources */ = {

@@ -213,6 +213,25 @@ class MouseController {
         event.post(tap: .cghidEventTap)
     }
 
+    /// Send a magnification (pinch-to-zoom) gesture event
+    /// - Parameter magnification: The zoom delta (positive = zoom in, negative = zoom out)
+    func magnify(_ magnification: CGFloat) {
+        // CGEventType 30 is magnify gesture
+        guard let event = CGEvent(source: nil) else {
+            handleEventCreationFailure()
+            return
+        }
+
+        // Set event type to magnify (type 30)
+        event.type = CGEventType(rawValue: 30)!
+
+        // Set the magnification amount (field 0 for magnification delta)
+        event.setDoubleValueField(.init(rawValue: 0)!, value: Double(magnification))
+
+        handleEventSuccess()
+        event.post(tap: .cghidEventTap)
+    }
+
     // MARK: - Keyboard Events
 
     /// Shared event source for keyboard events - maintains modifier state across events
