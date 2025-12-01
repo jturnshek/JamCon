@@ -524,6 +524,7 @@ struct MenuBarView: View {
                 .font(.caption)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+            }
         }
     }
 
