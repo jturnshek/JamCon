@@ -48,6 +48,9 @@ class JoyConController {
     private let hidQueue = DispatchQueue(label: "JoyConController.hidQueue", qos: .userInteractive)
     private var connectOrder: Int = 0
 
+    /// Minimum gyro magnitude (deg/s) to count as user activity
+    private let gyroActivityThreshold: Double = 0.5
+
     /// Thread-safe storage for connected controllers
     private let controllersLock = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ConnectedController]())
 
@@ -196,7 +199,9 @@ class JoyConController {
                 y: Double(gyro.y),
                 z: Double(gyro.z)
             )
-            self?.markActivity(for: controller)
+            if let isActive = self?.isGyroSignificant(gyroData), isActive {
+                self?.markActivity(for: controller)
+            }
             self?.onGyroUpdate?(controllerId, gyroData, timestamp)
         }
 
@@ -301,6 +306,11 @@ class JoyConController {
     }
 
     // MARK: - Activity Tracking
+
+    private func isGyroSignificant(_ gyro: GyroData) -> Bool {
+        let maxAxis = max(abs(gyro.x), abs(gyro.y), abs(gyro.z))
+        return maxAxis >= gyroActivityThreshold
+    }
 
     private func markActivity(for controller: Controller) {
         let key = ObjectIdentifier(controller)

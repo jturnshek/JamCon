@@ -31,6 +31,8 @@ targets:
         buildPhase: resources
       - path: Resources/joyconR.png
         buildPhase: resources
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: Sources/JamCon/Resources
         type: group
     postCompileScripts:

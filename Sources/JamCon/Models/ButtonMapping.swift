@@ -361,6 +361,11 @@ struct ButtonMappingProfile: Codable, Equatable {
         ButtonMappingProfile(mappings: [
             .trigger: ButtonActions(press: .mouseClick(.left)),
             .shoulder: ButtonActions(press: .mouseClick(.right)),
+            .menu: ButtonActions(press: .systemAction(.playPause)),
+            .system: ButtonActions(press: .systemAction(.missionControl)),
+            .stick: ButtonActions(press: .mouseClick(.middle)),
+            .sl: ButtonActions(press: .keyPress(.arrowDown)),
+            .sr: ButtonActions(press: .keyPress(.arrowUp)),
         ])
     }
 

@@ -276,7 +276,7 @@ class AppState: ObservableObject {
     @AppStorage("isEnabled") var isEnabled: Bool = true {
         didSet { inputSettings.isEnabled = isEnabled }
     }
-    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 20.0 {
+    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 15.0 {
         didSet { inputSettings.gyroSensitivity = gyroSensitivity }
     }
     @AppStorage("scrollSensitivity") var scrollSensitivity: Double = 10.0 {
@@ -291,7 +291,7 @@ class AppState: ObservableObject {
     @AppStorage("smoothThreshold") var smoothThreshold: Double = 0.0 {
         didSet { inputSettings.smoothThreshold = smoothThreshold }
     }
-    @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = true {
+    @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = false {
         didSet { inputSettings.mirrorFaceButtons = mirrorFaceButtons }
     }
     @AppStorage("holdThreshold") var holdThreshold: Double = 0.6 {
@@ -300,7 +300,7 @@ class AppState: ObservableObject {
     @AppStorage("filterBeta") var filterBeta: Double = 0.0 {
         didSet { inputSettings.filterBeta = filterBeta }
     }
-    @AppStorage("accelerationGain") var accelerationGain: Double = 100.0 {
+    @AppStorage("accelerationGain") var accelerationGain: Double = 175.0 {
         didSet { inputSettings.accelerationGain = accelerationGain }
     }
     @AppStorage("precisionZoneEnabled") var precisionZoneEnabled: Bool = true {
@@ -319,10 +319,10 @@ class AppState: ObservableObject {
         didSet { inputSettings.autoNeutralRefresh = autoNeutralRefresh }
     }
     // Primary override buttons (using legacy key "dragButtons" for migration)
-    @AppStorage("dragButtons") private var primaryClutchButtonsRaw: String = "" {
+    @AppStorage("dragButtons") private var primaryClutchButtonsRaw: String = "faceTop" {
         didSet { inputSettings.primaryClutchButtons = parseButtons(from: primaryClutchButtonsRaw) }
     }
-    @AppStorage("scrollButtons") private var primaryScrollButtonsRaw: String = "" {
+    @AppStorage("scrollButtons") private var primaryScrollButtonsRaw: String = "faceBottom" {
         didSet { inputSettings.primaryScrollButtons = parseButtons(from: primaryScrollButtonsRaw) }
     }
     @AppStorage("zoomButtons") private var primaryZoomButtonsRaw: String = "" {

@@ -91,27 +91,30 @@ struct MenuBarView: View {
     private var accessibilityWarning: some View {
         VStack(spacing: 6) {
             HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
+                Image(systemName: "exclamationmark.triangle")
+                    .fontWeight(.light)
+                    .foregroundColor(JamConColors.orange)
                 Text("Accessibility Required")
-                    .font(.headline)
+                    .font(JamConFonts.headline)
             }
 
             Text("You may need to manually add this app in Settings.")
-                .font(.caption)
+                .font(JamConFonts.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
 
             Button(action: appState.openAccessibilitySettings) {
                 Text("Open Accessibility Settings")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.glass(color: JamConColors.orange))
             .controlSize(.small)
         }
-        .padding()
+        .padding(JamConMetrics.spacingMD)
         .frame(maxWidth: .infinity)
-        .background(Color.orange.opacity(0.1))
-        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: JamConMetrics.radiusSmall)
+                .strokeBorder(JamConColors.orange, lineWidth: JamConMetrics.strokeThin)
+        )
     }
 
     // MARK: - Header Section
@@ -145,13 +148,7 @@ struct MenuBarView: View {
             }
 
             if isPrimary {
-                Text("Primary")
-                    .font(.caption2)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.green.opacity(0.2))
-                    .foregroundColor(.green)
-                    .cornerRadius(3)
+                OutlineBadge("Primary", color: JamConColors.green)
             }
 
             Spacer()
@@ -171,13 +168,7 @@ struct MenuBarView: View {
                     Text(controller.type.rawValue)
                         .font(.headline)
                     if isPrimary {
-                        Text("Primary")
-                            .font(.caption2)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.green.opacity(0.2))
-                            .foregroundColor(.green)
-                            .cornerRadius(3)
+                        OutlineBadge("Primary", color: JamConColors.green)
                     }
                 }
 
@@ -208,13 +199,13 @@ struct MenuBarView: View {
     private func batteryIconInfo(for level: BatteryLevel) -> (String, Color) {
         switch level {
         case .full:
-            return ("battery.100", .green)
+            return ("battery.100", JamConColors.green)
         case .medium:
-            return ("battery.75", .green)
+            return ("battery.75", JamConColors.green)
         case .low:
-            return ("battery.25", .yellow)
+            return ("battery.25", JamConColors.yellow)
         case .critical, .empty:
-            return ("battery.0", .red)
+            return ("battery.0", JamConColors.red)
         case .unknown:
             return ("battery.0", .secondary)
         }
@@ -231,14 +222,15 @@ struct MenuBarView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(height: 17)
                 .rotationEffect(.degrees(-90))  // 90° clockwise for both
-                .foregroundColor(isConnected ? .green : .secondary)
-                .opacity(isConnected ? 1.0 : 0.25)
+                .foregroundColor(isConnected ? JamConColors.green : .secondary)
+                .opacity(isConnected ? 1.0 : JamConColors.disabledOpacity)
         } else {
             // Fallback to SF Symbol if image not found
             Image(systemName: "gamecontroller")
+                .fontWeight(.light)
                 .font(.largeTitle)
-                .foregroundColor(isConnected ? .green : .secondary)
-                .opacity(isConnected ? 1.0 : 0.25)
+                .foregroundColor(isConnected ? JamConColors.green : .secondary)
+                .opacity(isConnected ? 1.0 : JamConColors.disabledOpacity)
         }
     }
 
@@ -343,9 +335,10 @@ struct MenuBarView: View {
                 .font(.caption2)
                 .fontWeight(.semibold)
                 .foregroundColor(.secondary.opacity(0.7))
+                .headingStyle()
             Rectangle()
                 .fill(Color.secondary.opacity(0.2))
-                .frame(height: 1)
+                .frame(height: JamConMetrics.strokeHairline)
         }
         .padding(.top, 4)
     }
@@ -358,6 +351,7 @@ struct MenuBarView: View {
                     Image(systemName: "cursorarrow.motionlines")
                     Text("Pointer Controls")
                         .font(.subheadline)
+                        .headingStyle()
                     Spacer()
                     Image(systemName: showPointerSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
@@ -379,11 +373,12 @@ struct MenuBarView: View {
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.0f", appState.gyroSensitivity))
-                            .font(.caption)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 36, alignment: .trailing)
                     }
                     Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
+                        .tint(JamConColors.blue)
                 }
 
                 // Acceleration
@@ -393,11 +388,12 @@ struct MenuBarView: View {
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
-                            .font(.caption)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 52, alignment: .trailing)
                     }
                     Slider(value: $appState.accelerationGain, in: 0...500, step: 0.1)
+                        .tint(JamConColors.blue)
                     Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -413,11 +409,12 @@ struct MenuBarView: View {
                             .font(.caption)
                         Spacer()
                         Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
-                            .font(.caption)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 30, alignment: .trailing)
                     }
                     Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
+                        .tint(JamConColors.blue)
                     Text("Higher = smoother when moving slowly; too high can feel floaty.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -471,11 +468,12 @@ struct MenuBarView: View {
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.2f", appState.filterBeta))
-                            .font(.caption)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 40, alignment: .trailing)
                     }
                     Slider(value: $appState.filterBeta, in: 0...1.0, step: 0.01)
+                        .tint(JamConColors.blue)
                     Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -494,6 +492,7 @@ struct MenuBarView: View {
                     Image(systemName: "arcade.stick")
                     Text("Stick Controls")
                         .font(.subheadline)
+                        .headingStyle()
                     Spacer()
                     Image(systemName: showStickSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
@@ -535,11 +534,12 @@ struct MenuBarView: View {
                                 .font(.caption)
                             Spacer()
                             Text(String(format: "%.0f", appState.scrollSensitivity))
-                                .font(.caption)
+                                .font(JamConFonts.mono)
                                 .foregroundColor(.secondary)
                                 .frame(width: 36, alignment: .trailing)
                         }
                         Slider(value: $appState.scrollSensitivity, in: 1...40, step: 1)
+                            .tint(JamConColors.blue)
                     }
                 }
 
@@ -561,6 +561,7 @@ struct MenuBarView: View {
                     Image(systemName: "keyboard")
                     Text("Button Mappings")
                         .font(.subheadline)
+                        .headingStyle()
                     Spacer()
                     Image(systemName: showButtonMappingsSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
@@ -588,11 +589,12 @@ struct MenuBarView: View {
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.1fs", appState.holdThreshold))
-                            .font(.caption)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 36, alignment: .trailing)
                     }
                     Slider(value: $appState.holdThreshold, in: 0.2...2.0, step: 0.1)
+                        .tint(JamConColors.blue)
                     Text("Time before a press becomes a hold action")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -640,6 +642,7 @@ struct MenuBarView: View {
                     Image(systemName: "waveform.path.ecg")
                     Text("Debug")
                         .font(.subheadline)
+                        .headingStyle()
                     Spacer()
                     Image(systemName: showDebugSection ? "chevron.up" : "chevron.down")
                         .font(.caption)
@@ -671,34 +674,34 @@ struct MenuBarView: View {
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.0f Hz avg (%.0f inst)", avgHz, appState.imuLastHz))
-                            .font(.caption)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                     }
 
                     SparklineView(values: samples, maxValue: sparkMax, color: .blue)
                         .frame(height: 32)
                         .background(Color.secondary.opacity(0.08))
-                        .cornerRadius(6)
+                        .cornerRadius(JamConMetrics.radiusSmall)
 
                     SparklineView(values: appState.imuGapFlags.map { $0 ? 1.0 : 0.0 }, maxValue: 1.0, color: .red.opacity(0.8))
                         .frame(height: 12)
                         .background(Color.secondary.opacity(0.08))
-                        .cornerRadius(6)
+                        .cornerRadius(JamConMetrics.radiusSmall)
 
                     SparklineView(values: appState.imuMotionSamples, maxValue: max(appState.imuMotionSamples.max() ?? 1, 500), color: .purple.opacity(0.8))
                         .frame(height: 32)
                         .background(Color.secondary.opacity(0.08))
-                        .cornerRadius(6)
+                        .cornerRadius(JamConMetrics.radiusSmall)
 
                     HistogramView(values: samples, bins: histogramBins)
                         .frame(height: 40)
 
                     HStack(spacing: 12) {
                         Text(String(format: "Max dt: %.3f s", maxDt))
-                            .font(.caption2)
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
-                        Text("Gaps: \(appState.imuGapCount)")
-                            .font(.caption2)
+                        Text(String(format: "Gaps: %d", appState.imuGapCount))
+                            .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                     }
                 }

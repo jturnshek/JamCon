@@ -12,11 +12,13 @@
 		26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */; };
 		277864CFE0BF467326E29A46 /* RadialMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139A6679A627B6E119D10C91 /* RadialMenuController.swift */; };
 		2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */; };
+		486851E1B78B21DF9EEF562A /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06163606DBD2D0774C796B81 /* DiagnosticLogger.swift */; };
 		5E10AAA3C81E7349594194C6 /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */; };
 		6528D1E9766F9570BA9F1152 /* joyconR.png in Resources */ = {isa = PBXBuildFile; fileRef = FA22C0E6FE919EDD6C5C8172 /* joyconR.png */; };
 		7FE6BFA1769DEF13826F26BF /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971C84A4E5D508FE84285CBD /* MouseController.swift */; };
 		86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */; };
 		8DA3E24EAA19B6C6140EA663 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFCA51E71DA6009CBB5085D /* AppState.swift */; };
+		98DB0EDDC18A49D37B376816 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F668E790F1B8BF38BF405A5 /* Theme.swift */; };
 		AE47964B8D2980AB99868160 /* InputProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89741C3C0925900809304917 /* InputProcessor.swift */; };
 		BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103F11341851C9371929B73 /* JamConApp.swift */; };
 		BDECF86DE1BFEAC8880AE6B7 /* JoyConSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 2ABD6974BD795D4D46EBA7D2 /* JoyConSwift */; };
@@ -26,8 +28,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		06163606DBD2D0774C796B81 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
 		0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
 		139A6679A627B6E119D10C91 /* RadialMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuController.swift; sourceTree = "<group>"; };
+		1F668E790F1B8BF38BF405A5 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		391708AC5481DFB95E4CC4C8 /* joyconL.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = joyconL.png; sourceTree = "<group>"; };
 		61579A3B51A4968E3BA62CA2 /* JoyConSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JoyConSwift; path = Packages/JoyConSwift; sourceTree = SOURCE_ROOT; };
 		66C80626B3F0074ADCC12723 /* JoyConController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConController.swift; sourceTree = "<group>"; };
@@ -122,8 +126,10 @@
 				0D8E39DFC253166116995708 /* Models */,
 				43931D87C47743A64A3B317E /* Resources */,
 				B220C732347A376ED8BDE358 /* Views */,
+				06163606DBD2D0774C796B81 /* DiagnosticLogger.swift */,
 				8103F11341851C9371929B73 /* JamConApp.swift */,
 				FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */,
+				1F668E790F1B8BF38BF405A5 /* Theme.swift */,
 			);
 			name = JamCon;
 			path = Sources/JamCon;
@@ -238,6 +244,7 @@
 			files = (
 				8DA3E24EAA19B6C6140EA663 /* AppState.swift in Sources */,
 				F962B7C12ED96C5D65499DEF /* ButtonMapping.swift in Sources */,
+				486851E1B78B21DF9EEF562A /* DiagnosticLogger.swift in Sources */,
 				AE47964B8D2980AB99868160 /* InputProcessor.swift in Sources */,
 				BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */,
 				FA4CA5CAF8D1374E7431720F /* JoyConController.swift in Sources */,
@@ -248,6 +255,7 @@
 				277864CFE0BF467326E29A46 /* RadialMenuController.swift in Sources */,
 				2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */,
 				26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */,
+				98DB0EDDC18A49D37B376816 /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

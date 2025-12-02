@@ -50,14 +50,17 @@ class MenuBarIconCache {
         let leftImage = Self.loadImage("joyconL")
         let rightImage = Self.loadImage("joyconR")
 
+        // Use theme disabled opacity for disconnected state
+        let disconnectedOpacity = JamConColors.disabledOpacity
+
         noneConnected = Self.createCombined(leftImage: leftImage, rightImage: rightImage,
-                                            leftOpacity: 0.35, rightOpacity: 0.35,
+                                            leftOpacity: disconnectedOpacity, rightOpacity: disconnectedOpacity,
                                             iconWidth: iconWidth, iconHeight: iconHeight, spacing: spacing)
         leftOnly = Self.createCombined(leftImage: leftImage, rightImage: rightImage,
-                                       leftOpacity: 1.0, rightOpacity: 0.35,
+                                       leftOpacity: 1.0, rightOpacity: disconnectedOpacity,
                                        iconWidth: iconWidth, iconHeight: iconHeight, spacing: spacing)
         rightOnly = Self.createCombined(leftImage: leftImage, rightImage: rightImage,
-                                        leftOpacity: 0.35, rightOpacity: 1.0,
+                                        leftOpacity: disconnectedOpacity, rightOpacity: 1.0,
                                         iconWidth: iconWidth, iconHeight: iconHeight, spacing: spacing)
         bothConnected = Self.createCombined(leftImage: leftImage, rightImage: rightImage,
                                             leftOpacity: 1.0, rightOpacity: 1.0,

@@ -4,6 +4,7 @@ import AppKit
 // MARK: - Radial Menu View
 
 /// The visual representation of the radial menu
+/// Design: Stroke-based segments with rainbow colors, Liquid Glass on macOS 26+
 struct RadialMenuView: View {
     @ObservedObject var state: RadialMenuState
 
@@ -11,61 +12,84 @@ struct RadialMenuView: View {
 
     var body: some View {
         ZStack {
-            // Pie slices
+            // Pie slices - stroke-based design with rainbow colors
             ForEach(Array(state.activeConfiguration.items.enumerated()), id: \.element.id) { index, item in
+                let isHighlighted = state.highlightedIndex == index
+                let sliceColor = rainbowColor(for: index)
+
+                // Glass background for each slice (macOS 26+)
+                sliceGlassBackground(index: index)
+
+                // Subtle fill only when highlighted
                 PieSlice(
                     index: index,
                     total: state.sliceCount,
                     innerRadiusRatio: state.activeConfiguration.innerRadiusRatio
                 )
-                .fill(sliceColor(index: index, isHighlighted: state.highlightedIndex == index))
-                .overlay(
-                    PieSlice(
-                        index: index,
-                        total: state.sliceCount,
-                        innerRadiusRatio: state.activeConfiguration.innerRadiusRatio
-                    )
-                    .strokeBorder(
-                        state.highlightedIndex == index
-                            ? Color.white.opacity(0.8)
-                            : Color.white.opacity(0.2),
-                        lineWidth: state.highlightedIndex == index ? 2 : 1
-                    )
+                .fill(isHighlighted ? sliceColor.opacity(0.2) : Color.clear)
+
+                // Stroke border - the main visual element
+                PieSlice(
+                    index: index,
+                    total: state.sliceCount,
+                    innerRadiusRatio: state.activeConfiguration.innerRadiusRatio
+                )
+                .strokeBorder(
+                    isHighlighted ? sliceColor : sliceColor.opacity(0.6),
+                    lineWidth: isHighlighted ? JamConMetrics.strokeRegular : JamConMetrics.strokeThin
                 )
 
                 // Label for each slice
-                sliceLabel(item: item, index: index, isHighlighted: state.highlightedIndex == index)
+                sliceLabel(item: item, index: index, isHighlighted: isHighlighted, color: sliceColor)
             }
 
-            // Center hole border (transparent center)
+            // Center hole border
             Circle()
-                .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.2), lineWidth: JamConMetrics.strokeThin)
                 .frame(
                     width: menuSize * state.activeConfiguration.innerRadiusRatio,
                     height: menuSize * state.activeConfiguration.innerRadiusRatio
                 )
         }
         .frame(width: menuSize, height: menuSize)
-        .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+        .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 6)
     }
 
     // MARK: - Helpers
 
-    private func sliceColor(index: Int, isHighlighted: Bool) -> Color {
-        let hue = Double(index) / Double(max(state.sliceCount, 1))
-        return Color(hue: hue, saturation: isHighlighted ? 0.6 : 0.4, brightness: isHighlighted ? 0.95 : 0.75)
-            .opacity(isHighlighted ? 0.85 : 0.65)
+    /// Glass background for individual pie slice (macOS 26+)
+    @ViewBuilder
+    private func sliceGlassBackground(index: Int) -> some View {
+        let slice = PieSlice(
+            index: index,
+            total: state.sliceCount,
+            innerRadiusRatio: state.activeConfiguration.innerRadiusRatio
+        )
+        if #available(macOS 26.0, *) {
+            // Just glass with clear tint for maximum transparency
+            slice
+                .fill(.white.opacity(0.001))
+                .glassEffect(.clear.tint(.white.opacity(0)), in: slice)
+        } else {
+            slice
+                .fill(.ultraThinMaterial)
+        }
+    }
+
+    /// Get rainbow color for slice index
+    private func rainbowColor(for index: Int) -> Color {
+        JamConColors.rainbow(at: index, count: state.sliceCount)
     }
 
     @ViewBuilder
-    private func sliceLabel(item: RadialMenuItem, index: Int, isHighlighted: Bool) -> some View {
+    private func sliceLabel(item: RadialMenuItem, index: Int, isHighlighted: Bool, color: Color) -> some View {
         let angle = sliceCenterAngle(for: index)
         let distance = menuSize * 0.34  // Position labels between inner and outer radius
 
         Text(item.action.displayName)
-            .font(.system(size: isHighlighted ? 18 : 16, weight: .semibold))
-            .foregroundStyle(isHighlighted ? .white : .primary)
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+            .font(.system(size: isHighlighted ? 14 : 12, weight: .medium))
+            .foregroundStyle(isHighlighted ? color : .primary)
+            .shadow(color: .black.opacity(0.2), radius: 1, x: 0, y: 1)
             .offset(
                 x: cos(angle) * distance,
                 y: sin(angle) * distance
