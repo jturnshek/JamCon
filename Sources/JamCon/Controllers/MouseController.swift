@@ -15,6 +15,14 @@ class MouseController {
     private let failureThreshold = 5
     private var consecutiveFailures = 0
 
+    /// Track which mouse button is currently held (for drag events)
+    private var heldMouseButton: MouseButton? = nil
+
+    /// Track click timing for double/triple click detection
+    private var lastClickTime: Date = .distantPast
+    private var lastClickPosition: CGPoint = .zero
+    private var clickCount: Int64 = 0
+
     private var currentPosition: CGPoint {
         NSEvent.mouseLocation
     }
@@ -73,12 +81,35 @@ class MouseController {
         let clamped = clamp(proposed, to: bounds)
         let quartzPoint = toQuartzSpace(point: clamped, in: bounds)
 
-        // Create and post mouse move event
+        // Determine event type based on whether a mouse button is held
+        let mouseType: CGEventType
+        let mouseButton: CGMouseButton
+
+        if let held = heldMouseButton {
+            // Button is held - send drag event for proper drag-and-drop support
+            switch held {
+            case .left:
+                mouseType = .leftMouseDragged
+                mouseButton = .left
+            case .right:
+                mouseType = .rightMouseDragged
+                mouseButton = .right
+            case .middle:
+                mouseType = .otherMouseDragged
+                mouseButton = .center
+            }
+        } else {
+            // No button held - send regular move event
+            mouseType = .mouseMoved
+            mouseButton = .left
+        }
+
+        // Create and post mouse event
         guard let event = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .mouseMoved,
+            mouseEventSource: Self.mouseEventSource,
+            mouseType: mouseType,
             mouseCursorPosition: quartzPoint,
-            mouseButton: .left
+            mouseButton: mouseButton
         ) else {
             handleEventCreationFailure()
             return
@@ -148,12 +179,34 @@ class MouseController {
         // Clear any inherited modifier flags - Joy-Con mouse clicks should be "clean"
         event.flags = []
 
+        // Detect double/triple click based on timing and position
+        let now = Date()
+        let timeSinceLastClick = now.timeIntervalSince(lastClickTime)
+        let doubleClickInterval = NSEvent.doubleClickInterval
+        let maxClickDistance: CGFloat = 4.0  // pixels
+
+        let distance = hypot(currentPos.x - lastClickPosition.x, currentPos.y - lastClickPosition.y)
+
+        if timeSinceLastClick <= doubleClickInterval && distance <= maxClickDistance {
+            // Rapid click near same position - increment click count (max 3 for triple-click)
+            clickCount = min(clickCount + 1, 3)
+        } else {
+            // New click sequence
+            clickCount = 1
+        }
+
+        lastClickTime = now
+        lastClickPosition = currentPos
+
         // Log event details before posting
         let flags = event.flags.rawValue
-        DiagnosticLogger.shared.log("MOUSE DOWN \(button) at (\(Int(point.x)),\(Int(point.y))) flags:0x\(String(flags, radix: 16))")
+        DiagnosticLogger.shared.log("MOUSE DOWN \(button) at (\(Int(point.x)),\(Int(point.y))) flags:0x\(String(flags, radix: 16)) clickCount:\(clickCount)")
 
         // Set click state for proper recognition in all applications
-        event.setIntegerValueField(.mouseEventClickState, value: 1)
+        event.setIntegerValueField(.mouseEventClickState, value: clickCount)
+
+        // Track this button as held (for drag events)
+        heldMouseButton = button
 
         handleEventSuccess()
         event.post(tap: .cghidEventTap)
@@ -196,10 +249,13 @@ class MouseController {
 
         // Log event details before posting
         let flags = event.flags.rawValue
-        DiagnosticLogger.shared.log("MOUSE UP \(button) at (\(Int(point.x)),\(Int(point.y))) flags:0x\(String(flags, radix: 16))")
+        DiagnosticLogger.shared.log("MOUSE UP \(button) at (\(Int(point.x)),\(Int(point.y))) flags:0x\(String(flags, radix: 16)) clickCount:\(clickCount)")
 
-        // Set click state for proper recognition in all applications
-        event.setIntegerValueField(.mouseEventClickState, value: 1)
+        // Set click state to match the mouseDown (for double/triple click recognition)
+        event.setIntegerValueField(.mouseEventClickState, value: clickCount)
+
+        // Clear held button state (drag ended)
+        heldMouseButton = nil
 
         handleEventSuccess()
         event.post(tap: .cghidEventTap)
