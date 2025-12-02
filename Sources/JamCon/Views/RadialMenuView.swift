@@ -7,7 +7,7 @@ import AppKit
 struct RadialMenuView: View {
     @ObservedObject var state: RadialMenuState
 
-    private let menuSize: CGFloat = 200
+    private let menuSize: CGFloat = 300
 
     var body: some View {
         ZStack {
@@ -18,7 +18,7 @@ struct RadialMenuView: View {
                     total: state.sliceCount,
                     innerRadiusRatio: state.activeConfiguration.innerRadiusRatio
                 )
-                .fill(sliceColor(isHighlighted: state.highlightedIndex == index))
+                .fill(sliceColor(index: index, isHighlighted: state.highlightedIndex == index))
                 .overlay(
                     PieSlice(
                         index: index,
@@ -51,8 +51,10 @@ struct RadialMenuView: View {
 
     // MARK: - Helpers
 
-    private func sliceColor(isHighlighted: Bool) -> Color {
-        isHighlighted ? Color.green.opacity(0.8) : Color.clear
+    private func sliceColor(index: Int, isHighlighted: Bool) -> Color {
+        let hue = Double(index) / Double(max(state.sliceCount, 1))
+        return Color(hue: hue, saturation: isHighlighted ? 0.6 : 0.4, brightness: isHighlighted ? 0.95 : 0.75)
+            .opacity(isHighlighted ? 0.85 : 0.65)
     }
 
     @ViewBuilder
@@ -61,7 +63,7 @@ struct RadialMenuView: View {
         let distance = menuSize * 0.34  // Position labels between inner and outer radius
 
         Text(item.action.displayName)
-            .font(.system(size: isHighlighted ? 14 : 12, weight: .semibold))
+            .font(.system(size: isHighlighted ? 18 : 16, weight: .semibold))
             .foregroundStyle(isHighlighted ? .white : .primary)
             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
             .offset(
@@ -176,7 +178,7 @@ class RadialMenuWindowController {
     private var window: NSWindow?
     private var hostingView: NSHostingView<RadialMenuView>?
     private let state: RadialMenuState
-    private let menuSize: CGFloat = 200
+    private let menuSize: CGFloat = 300
 
     init(state: RadialMenuState) {
         self.state = state
@@ -201,7 +203,7 @@ class RadialMenuWindowController {
         window.level = .floating
         window.hasShadow = false  // SwiftUI view handles shadow
         window.ignoresMouseEvents = true  // Click-through
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .stationary]
         window.contentView = hostingView
 
         self.window = window

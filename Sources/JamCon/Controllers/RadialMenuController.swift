@@ -20,6 +20,7 @@ class RadialMenuController {
     // MARK: - State
 
     private var menuActive: Bool = false
+    private var requireRearm: Bool = false  // Must return to deadzone before next activation
 
     // MARK: - Joystick Processing
 
@@ -41,11 +42,15 @@ class RadialMenuController {
         let clampedMagnitude = min(1.0, magnitude)
 
         // Check for menu activation/deactivation based on deadzone
-        if !menuActive && clampedMagnitude >= deadzone {
+        if clampedMagnitude < deadzone {
+            // Joystick returned to center - allow next activation
+            requireRearm = false
+            if menuActive {
+                deactivateMenu()
+                return
+            }
+        } else if !menuActive && !requireRearm {
             activateMenu()
-        } else if menuActive && clampedMagnitude < deadzone {
-            deactivateMenu()
-            return
         }
 
         // Update joystick state if menu is active
@@ -74,6 +79,7 @@ class RadialMenuController {
         if menuActive {
             deactivateMenu()
         }
+        requireRearm = true  // Require joystick to return to center before next activation
     }
 
     /// Whether the radial menu is currently active

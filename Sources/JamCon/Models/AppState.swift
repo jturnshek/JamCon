@@ -873,15 +873,17 @@ class AppState: ObservableObject {
 
     private func confirmRadialMenuSelection() {
         Task { @MainActor in
-            guard let item = radialMenuState.highlightedItem() else {
-                // No item highlighted, just hide
-                radialMenuState.hide()
-                radialMenuWindowController?.hide()
-                radialMenuController?.reset()
-                return
-            }
+            let item = radialMenuState.highlightedItem()
 
-            // Execute the action
+            // Hide menu immediately before executing action
+            // This prevents the menu from lingering during screen transitions
+            radialMenuState.hide()
+            radialMenuWindowController?.hide()
+            radialMenuController?.reset()
+
+            // Execute the action after hiding
+            guard let item = item else { return }
+
             switch item.action {
             case .none:
                 break
@@ -894,11 +896,6 @@ class AppState: ObservableObject {
             case .systemAction(let action):
                 mouseController?.performSystemAction(action)
             }
-
-            // Hide after selection
-            radialMenuState.hide()
-            radialMenuWindowController?.hide()
-            radialMenuController?.reset()
         }
     }
 
