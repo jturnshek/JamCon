@@ -209,14 +209,7 @@ class RadialMenuWindowController {
 
     func show(at position: CGPoint) {
         guard let window = window else { return }
-
-        // Position window centered on mouse
-        // NSEvent.mouseLocation uses bottom-left origin (Cocoa coordinates)
-        let origin = CGPoint(
-            x: position.x - menuSize / 2,
-            y: position.y - menuSize / 2
-        )
-
+        let origin = clampedOrigin(for: position)
         window.setFrameOrigin(origin)
         window.orderFront(nil)
     }
@@ -227,11 +220,32 @@ class RadialMenuWindowController {
 
     func updatePosition(_ position: CGPoint) {
         guard let window = window, window.isVisible else { return }
-        let origin = CGPoint(
-            x: position.x - menuSize / 2,
-            y: position.y - menuSize / 2
-        )
+        let origin = clampedOrigin(for: position)
         window.setFrameOrigin(origin)
+    }
+
+    /// Calculate menu origin, clamped to keep the entire menu on screen
+    private func clampedOrigin(for mousePosition: CGPoint) -> CGPoint {
+        // Start with centered position
+        var origin = CGPoint(
+            x: mousePosition.x - menuSize / 2,
+            y: mousePosition.y - menuSize / 2
+        )
+
+        // Get the screen containing the mouse
+        guard let screen = NSScreen.screens.first(where: {
+            $0.frame.contains(mousePosition)
+        }) ?? NSScreen.main else {
+            return origin
+        }
+
+        let screenFrame = screen.visibleFrame  // Accounts for menu bar/dock
+
+        // Clamp to keep menu fully on screen
+        origin.x = max(screenFrame.minX, min(origin.x, screenFrame.maxX - menuSize))
+        origin.y = max(screenFrame.minY, min(origin.y, screenFrame.maxY - menuSize))
+
+        return origin
     }
 }
 
