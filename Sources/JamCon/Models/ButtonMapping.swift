@@ -273,6 +273,7 @@ enum SystemAction: String, Codable, Hashable, Sendable, CaseIterable {
     case launchpad
     case showDesktop
     case appSwitcher
+    case playPause
 
     var displayName: String {
         switch self {
@@ -280,6 +281,7 @@ enum SystemAction: String, Codable, Hashable, Sendable, CaseIterable {
         case .launchpad: return "Launchpad"
         case .showDesktop: return "Show Desktop"
         case .appSwitcher: return "App Switcher"
+        case .playPause: return "Play/Pause"
         }
     }
 }

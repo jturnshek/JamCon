@@ -292,35 +292,63 @@ struct MenuBarView: View {
             Divider()
 
             // Auto power-off
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $appState.autoPowerOffEnabled) {
-                    Text("Auto power-off")
-                        .font(.caption)
+            HStack {
+                Text("Auto power-off")
+                    .font(.caption)
+                Spacer()
+                Picker("", selection: autoPowerOffBinding) {
+                    Text("Off").tag(0)
+                    Text("5 min").tag(5)
+                    Text("15 min").tag(15)
+                    Text("30 min").tag(30)
+                    Text("1 hr").tag(60)
+                    Text("2 hr").tag(120)
                 }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                if appState.autoPowerOffEnabled {
-                    HStack {
-                        Text("Idle timeout")
-                            .font(.caption)
-                        Spacer()
-                        Text(String(format: "%.0f min", appState.idleTimeoutMinutes))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 50, alignment: .trailing)
-                    }
-                    Slider(value: $appState.idleTimeoutMinutes, in: 1...120, step: 1)
-                }
-
-                Text("Turns controllers off after inactivity")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 80)
             }
         }
     }
 
+    /// Binding that converts the separate autoPowerOffEnabled + idleTimeoutMinutes into a single picker value
+    private var autoPowerOffBinding: Binding<Int> {
+        Binding(
+            get: {
+                if !appState.autoPowerOffEnabled {
+                    return 0
+                }
+                // Round to nearest preset value
+                let minutes = Int(appState.idleTimeoutMinutes)
+                let presets = [5, 15, 30, 60, 120]
+                return presets.min(by: { abs($0 - minutes) < abs($1 - minutes) }) ?? 30
+            },
+            set: { newValue in
+                if newValue == 0 {
+                    appState.autoPowerOffEnabled = false
+                } else {
+                    appState.autoPowerOffEnabled = true
+                    appState.idleTimeoutMinutes = Double(newValue)
+                }
+            }
+        )
+    }
+
     // MARK: - Pointer Controls Section (Collapsible)
+
+    /// Sub-header label for grouping related settings
+    private func subHeader(_ title: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title.uppercased())
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary.opacity(0.7))
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(height: 1)
+        }
+        .padding(.top, 4)
+    }
 
     private var pointerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -341,6 +369,9 @@ struct MenuBarView: View {
             .foregroundColor(.secondary)
 
             if showPointerSection {
+                // ─── SENSITIVITY ───
+                subHeader("Sensitivity")
+
                 // Speed (gyro sensitivity)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -354,6 +385,26 @@ struct MenuBarView: View {
                     }
                     Slider(value: $appState.gyroSensitivity, in: 1...200, step: 1)
                 }
+
+                // Acceleration
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Acceleration")
+                            .font(.caption)
+                        Spacer()
+                        Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                    Slider(value: $appState.accelerationGain, in: 0...500, step: 0.1)
+                    Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // ─── SMOOTHING ───
+                subHeader("Smoothing")
 
                 // Jitter Filter
                 VStack(alignment: .leading, spacing: 4) {
@@ -372,24 +423,22 @@ struct MenuBarView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Divider()
-
-                // Acceleration
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Acceleration")
-                            .font(.caption)
-                        Spacer()
-                        Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .frame(width: 52, alignment: .trailing)
+                // Adaptive Smoothing
+                HStack {
+                    Text("Adaptive")
+                        .font(.caption)
+                    Spacer()
+                    Picker("", selection: $appState.adaptiveSmoothingMode) {
+                        ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
                     }
-                    Slider(value: $appState.accelerationGain, in: 0...500, step: 0.1)
-                    Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    .labelsHidden()
+                    .pickerStyle(.menu)
                 }
+
+                // ─── FINE TUNING ───
+                subHeader("Fine Tuning")
 
                 // Precision Zone toggle
                 Toggle(isOn: $appState.precisionZoneEnabled) {
@@ -415,12 +464,10 @@ struct MenuBarView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
 
-                Divider()
-
                 // Filter Responsiveness
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Filter Responsiveness")
+                        Text("Filter Beta")
                             .font(.caption)
                         Spacer()
                         Text(String(format: "%.2f", appState.filterBeta))
@@ -432,20 +479,6 @@ struct MenuBarView: View {
                     Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                }
-
-                // Adaptive Smoothing
-                HStack {
-                    Text("Adaptive Smoothing")
-                        .font(.caption)
-                    Spacer()
-                    Picker("", selection: $appState.adaptiveSmoothingMode) {
-                        ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
                 }
             }
         }
@@ -931,6 +964,7 @@ struct MenuBarView: View {
                     Button("Launchpad") { setAction(.systemAction(.launchpad), for: button, actionType: actionType) }
                     Button("Show Desktop") { setAction(.systemAction(.showDesktop), for: button, actionType: actionType) }
                     Button("App Switcher") { setAction(.systemAction(.appSwitcher), for: button, actionType: actionType) }
+                    Button("Play/Pause") { setAction(.systemAction(.playPause), for: button, actionType: actionType) }
                 }
             } label: {
                 Image(systemName: "plus.circle")

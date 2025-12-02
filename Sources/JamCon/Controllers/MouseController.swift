@@ -420,7 +420,34 @@ class MouseController {
             // Simulate Cmd+Tab
             let cmdTab = KeyCombo(keyCode: UInt16(kVK_Tab), modifiers: .command)
             keyPress(cmdTab)
+        case .playPause:
+            postMediaKey(keyType: 16)  // NX_KEYTYPE_PLAY = 16
         }
+    }
+
+    /// Post a media key event (play/pause, next, previous, volume, etc.)
+    /// Media keys use a special NSEvent.systemDefined event type, not regular keyboard events.
+    private func postMediaKey(keyType: Int) {
+        func postKey(down: Bool) {
+            let flags = down ? 0xa00 : 0xb00
+            let data1 = (keyType << 16) | ((down ? 0xa : 0xb) << 8)
+
+            let event = NSEvent.otherEvent(
+                with: .systemDefined,
+                location: .zero,
+                modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(flags)),
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                subtype: 8,
+                data1: data1,
+                data2: -1
+            )
+            event?.cgEvent?.post(tap: .cghidEventTap)
+        }
+
+        postKey(down: true)
+        postKey(down: false)
     }
 
     private func launchApp(_ appName: String) {
