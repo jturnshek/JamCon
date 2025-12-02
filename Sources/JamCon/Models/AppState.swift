@@ -467,6 +467,9 @@ class AppState: ObservableObject {
         // Start periodic accessibility permission check
         startAccessibilityMonitoring()
         startIdleMonitoring()
+
+        // Initialize diagnostic logger
+        DiagnosticLogger.shared.log("AppState initialized")
     }
 
     deinit {

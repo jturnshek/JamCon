@@ -709,7 +709,9 @@ struct MenuBarView: View {
     }
 
     private func radialMenuItemRow(item: RadialMenuItem, index: Int) -> some View {
-        HStack {
+        let itemCount = appState.radialMenuConfiguration.items.count
+
+        return HStack {
             Text("\(index + 1).")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -719,6 +721,25 @@ struct MenuBarView: View {
                 .font(.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            // Move up button (disabled for first item)
+            Button(action: { moveRadialMenuItem(from: index, direction: -1) }) {
+                Image(systemName: "chevron.up")
+                    .font(.caption)
+                    .foregroundColor(index == 0 ? .secondary.opacity(0.3) : .secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(index == 0)
+
+            // Move down button (disabled for last item)
+            Button(action: { moveRadialMenuItem(from: index, direction: 1) }) {
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundColor(index == itemCount - 1 ? .secondary.opacity(0.3) : .secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(index == itemCount - 1)
+
+            // Remove button
             Button(action: { removeRadialMenuItem(at: index) }) {
                 Image(systemName: "xmark.circle.fill")
                     .font(.caption)
@@ -759,6 +780,14 @@ struct MenuBarView: View {
         var config = appState.radialMenuConfiguration
         guard index >= 0 && index < config.items.count else { return }
         config.items.remove(at: index)
+        appState.radialMenuConfiguration = config
+    }
+
+    private func moveRadialMenuItem(from index: Int, direction: Int) {
+        var config = appState.radialMenuConfiguration
+        let newIndex = index + direction
+        guard newIndex >= 0 && newIndex < config.items.count else { return }
+        config.items.swapAt(index, newIndex)
         appState.radialMenuConfiguration = config
     }
 

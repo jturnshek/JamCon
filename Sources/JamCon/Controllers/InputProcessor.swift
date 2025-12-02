@@ -407,6 +407,11 @@ class InputProcessor {
     ///   - actions: The configured actions for press and hold
     ///   - holdThreshold: Time in seconds before hold action fires
     func handleButtonDown(_ button: LogicalButton, actions: ButtonActions, holdThreshold: Double) {
+        // Log trigger button events
+        if button == .trigger {
+            DiagnosticLogger.shared.log("TRIGGER DOWN - press:\(actions.press.displayName) hold:\(actions.hold.displayName) threshold:\(holdThreshold)s")
+        }
+
         // Cancel any existing timer for this button
         holdTimers[button]?.cancel()
         holdTimers[button] = nil
@@ -436,6 +441,12 @@ class InputProcessor {
     /// Handle button release with hold detection
     /// - Parameter button: The logical button released
     func handleButtonUp(_ button: LogicalButton) {
+        // Log trigger button events
+        if button == .trigger {
+            let state = buttonState[button]
+            DiagnosticLogger.shared.log("TRIGGER UP - hadState:\(state != nil) holdFired:\(state?.holdFired ?? false)")
+        }
+
         // Cancel hold timer if still pending
         holdTimers[button]?.cancel()
         holdTimers[button] = nil
@@ -464,6 +475,11 @@ class InputProcessor {
 
     /// Execute a single action (internal helper)
     private func executeAction(_ action: ButtonAction, isDown: Bool) {
+        // Log mouse click executions
+        if case .mouseClick(let btn) = action {
+            DiagnosticLogger.shared.log("EXECUTE mouseClick(\(btn)) isDown:\(isDown)")
+        }
+
         switch action {
         case .none:
             break

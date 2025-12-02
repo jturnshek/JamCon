@@ -11,15 +11,6 @@ struct RadialMenuView: View {
 
     var body: some View {
         ZStack {
-            // Background blur circle (ring only, center is transparent)
-            Circle()
-                .fill(.ultraThinMaterial)
-                .frame(width: menuSize, height: menuSize)
-                .mask(
-                    Ring(innerRadiusRatio: state.activeConfiguration.innerRadiusRatio)
-                        .fill(style: FillStyle(eoFill: true))
-                )
-
             // Pie slices
             ForEach(Array(state.activeConfiguration.items.enumerated()), id: \.element.id) { index, item in
                 PieSlice(
@@ -55,13 +46,13 @@ struct RadialMenuView: View {
                 )
         }
         .frame(width: menuSize, height: menuSize)
-        .shadow(color: .black.opacity(0.25), radius: 20, x: 0, y: 10)
+        .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
     }
 
     // MARK: - Helpers
 
     private func sliceColor(isHighlighted: Bool) -> Color {
-        isHighlighted ? Color.accentColor.opacity(0.8) : Color.clear
+        isHighlighted ? Color.green.opacity(0.8) : Color.clear
     }
 
     @ViewBuilder

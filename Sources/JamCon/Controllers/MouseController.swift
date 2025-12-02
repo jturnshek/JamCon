@@ -110,6 +110,9 @@ class MouseController {
 
     // MARK: - Mouse Clicks
 
+    /// Shared event source for mouse events - uses private state to avoid inheriting system modifier flags
+    private static let mouseEventSource: CGEventSource? = CGEventSource(stateID: .privateState)
+
     /// Press mouse button down
     func mouseDown(button: MouseButton) {
         let currentPos = currentPosition
@@ -132,14 +135,25 @@ class MouseController {
         }
 
         guard let event = CGEvent(
-            mouseEventSource: nil,
+            mouseEventSource: Self.mouseEventSource,
             mouseType: eventType,
             mouseCursorPosition: point,
             mouseButton: cgButton
         ) else {
+            DiagnosticLogger.shared.log("MOUSE DOWN FAILED - event creation failed for \(button)")
             handleEventCreationFailure()
             return
         }
+
+        // Clear any inherited modifier flags - Joy-Con mouse clicks should be "clean"
+        event.flags = []
+
+        // Log event details before posting
+        let flags = event.flags.rawValue
+        DiagnosticLogger.shared.log("MOUSE DOWN \(button) at (\(Int(point.x)),\(Int(point.y))) flags:0x\(String(flags, radix: 16))")
+
+        // Set click state for proper recognition in all applications
+        event.setIntegerValueField(.mouseEventClickState, value: 1)
 
         handleEventSuccess()
         event.post(tap: .cghidEventTap)
@@ -167,14 +181,25 @@ class MouseController {
         }
 
         guard let event = CGEvent(
-            mouseEventSource: nil,
+            mouseEventSource: Self.mouseEventSource,
             mouseType: eventType,
             mouseCursorPosition: point,
             mouseButton: cgButton
         ) else {
+            DiagnosticLogger.shared.log("MOUSE UP FAILED - event creation failed for \(button)")
             handleEventCreationFailure()
             return
         }
+
+        // Clear any inherited modifier flags - Joy-Con mouse clicks should be "clean"
+        event.flags = []
+
+        // Log event details before posting
+        let flags = event.flags.rawValue
+        DiagnosticLogger.shared.log("MOUSE UP \(button) at (\(Int(point.x)),\(Int(point.y))) flags:0x\(String(flags, radix: 16))")
+
+        // Set click state for proper recognition in all applications
+        event.setIntegerValueField(.mouseEventClickState, value: 1)
 
         handleEventSuccess()
         event.post(tap: .cghidEventTap)
@@ -260,6 +285,13 @@ class MouseController {
             flags.insert(.maskNumericPad)
         }
 
+        // For Control+Arrow system shortcuts (Mission Control, desktop switching)
+        // macOS requires the secondary Fn flag to recognize these
+        if keyCombo.modifiers.contains(.control) &&
+           [kVK_UpArrow, kVK_DownArrow, kVK_LeftArrow, kVK_RightArrow].contains(Int(keyCombo.keyCode)) {
+            flags.insert(.maskSecondaryFn)
+        }
+
         // Create and post key down event using shared event source
         guard let event = CGEvent(keyboardEventSource: Self.keyboardEventSource, virtualKey: keyCombo.keyCode, keyDown: true) else {
             handleEventCreationFailure()
@@ -267,7 +299,7 @@ class MouseController {
         }
         handleEventSuccess()
         event.flags = flags
-        event.post(tap: .cgSessionEventTap)
+        event.post(tap: .cghidEventTap)
     }
 
     /// Release a key combination
@@ -293,6 +325,13 @@ class MouseController {
             flags.insert(.maskNumericPad)
         }
 
+        // For Control+Arrow system shortcuts (Mission Control, desktop switching)
+        // macOS requires the secondary Fn flag to recognize these
+        if keyCombo.modifiers.contains(.control) &&
+           [kVK_UpArrow, kVK_DownArrow, kVK_LeftArrow, kVK_RightArrow].contains(Int(keyCombo.keyCode)) {
+            flags.insert(.maskSecondaryFn)
+        }
+
         // Create and post key up event using shared event source
         guard let event = CGEvent(keyboardEventSource: Self.keyboardEventSource, virtualKey: keyCombo.keyCode, keyDown: false) else {
             handleEventCreationFailure()
@@ -300,7 +339,7 @@ class MouseController {
         }
         handleEventSuccess()
         event.flags = flags
-        event.post(tap: .cgSessionEventTap)
+        event.post(tap: .cghidEventTap)
     }
 
     /// Press and release a key combination
