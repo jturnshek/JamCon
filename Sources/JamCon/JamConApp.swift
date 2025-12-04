@@ -7,8 +7,9 @@ struct JamConApp: App {
     @StateObject private var appState = AppState()
 
     var body: some Scene {
+        // Menu bar (simplified status + quick controls)
         MenuBarExtra {
-            MenuBarView()
+            CompactMenuView()
                 .environmentObject(appState)
         } label: {
             MenuBarIcon(
@@ -17,6 +18,18 @@ struct JamConApp: App {
             )
         }
         .menuBarExtraStyle(.window)
+
+        // Settings window
+        Window("JamCon Settings", id: "settings") {
+            SettingsContainer()
+                .environmentObject(appState)
+        }
+        .windowStyle(.automatic)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 700, height: 500)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+        }
     }
 }
 

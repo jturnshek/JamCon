@@ -77,24 +77,32 @@ class JoyConController {
     // MARK: - Public Methods
 
     func startScanning() {
-        guard !isScanning else { return }
+        logDebug("startScanning() called, isScanning=\(isScanning)", category: "JoyCon")
+        guard !isScanning else {
+            logDebug("Already scanning, skipping", category: "JoyCon")
+            return
+        }
         isScanning = true
 
+        logInfo("Setting up connect/disconnect handlers", category: "JoyCon")
         manager.connectHandler = { [weak self] controller in
+            logInfo("Controller connected: \(controller.type)", category: "JoyCon")
             self?.handleControllerConnected(controller)
         }
 
         manager.disconnectHandler = { [weak self] controller in
+            logWarning("Controller disconnected: \(controller.type)", category: "JoyCon")
             self?.handleControllerDisconnected(controller)
         }
 
+        logInfo("Launching HID manager on background queue", category: "JoyCon")
         hidQueue.async { [weak self] in
             guard let self else { return }
             let result = self.manager.run()
             if result != kIOReturnSuccess {
-                print("[JoyConController] Failed to start scanning: \(String(describing: result))")
+                logError("manager.run() failed with code: \(result) (0x\(String(result, radix: 16)))", category: "JoyCon")
             } else {
-                print("[JoyConController] Started scanning for controllers...")
+                logInfo("HID manager running, listening for Joy-Cons", category: "JoyCon")
             }
         }
     }
@@ -102,13 +110,13 @@ class JoyConController {
     func stopScanning() {
         isScanning = false
         manager.stop()
-        print("[JoyConController] Stopped scanning")
+        logInfo("Stopped scanning", category: "JoyCon")
     }
 
     // MARK: - Controller Connection Handling
 
     private func handleControllerConnected(_ controller: Controller) {
-        print("[JoyConController] Controller connected: \(controller.type)")
+        logInfo("Setting up controller: \(controller.type)", category: "JoyCon")
 
         // Determine controller type
         let type: ControllerType
@@ -171,7 +179,7 @@ class JoyConController {
     }
 
     private func handleControllerDisconnected(_ controller: Controller) {
-        print("[JoyConController] Controller disconnected")
+        logInfo("Controller disconnected: \(controller.type)", category: "JoyCon")
 
         let key = ObjectIdentifier(controller)
         removeController(for: key)

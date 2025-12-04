@@ -381,6 +381,49 @@ class InputProcessor {
         reportCalibrationIfNeeded()
     }
 
+    // MARK: - Air Mouse Processing
+
+    /// Process mouse delta input from an air mouse
+    /// Unlike gyro input, air mice already provide pixel deltas.
+    /// Clutch is still required - movement is blocked when no override is active.
+    /// - Parameters:
+    ///   - dx: Horizontal delta in device units (typically pixels)
+    ///   - dy: Vertical delta in device units (typically pixels)
+    ///   - timestamp: Monotonic timestamp for this sample
+    ///   - sensitivity: Multiplier for movement (1.0 = pass-through)
+    func processMouseDeltas(
+        dx: Double,
+        dy: Double,
+        timestamp: TimeInterval,
+        sensitivity: Double = 1.0
+    ) {
+        // Apply sensitivity scaling
+        let scaledDx = CGFloat(dx * sensitivity)
+        let scaledDy = CGFloat(dy * sensitivity)
+
+        // Skip if no movement
+        if scaledDx == 0 && scaledDy == 0 {
+            return
+        }
+
+        // Handle based on override mode (same as Joy-Con gyro)
+        switch currentOverride() {
+        case .clutch:
+            onMouseMove?(scaledDx, scaledDy)
+        case .scroll:
+            // Scale down for scroll since deltas are in pixels
+            let scrollScale: CGFloat = 0.1
+            onScroll?(scaledDx * scrollScale, scaledDy * scrollScale)
+        case .zoom:
+            // Convert vertical motion to magnification gesture
+            let zoomScale: CGFloat = 0.005
+            onZoom?(scaledDy * zoomScale)
+        case .none:
+            // Air mouse requires clutch - do not move when no override active
+            return
+        }
+    }
+
     private func reportCalibrationIfNeeded() {
         let calibrated = biasEstimator.isCalibrated
         if calibrated != lastReportedCalibration {

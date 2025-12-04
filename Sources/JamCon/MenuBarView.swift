@@ -123,12 +123,121 @@ struct MenuBarView: View {
         let leftController = appState.connectedControllers.first { $0.type == .leftJoyCon }
         let rightController = appState.connectedControllers.first { $0.type == .rightJoyCon || $0.type == .proController }
 
-        return VStack(spacing: 4) {
-            // Left Joy-Con row
-            controllerRow(type: .leftJoyCon, controller: leftController)
-            // Right Joy-Con row
-            controllerRow(type: .rightJoyCon, controller: rightController)
+        return VStack(spacing: 8) {
+            // Joy-Con section
+            VStack(spacing: 4) {
+                // Left Joy-Con row
+                controllerRow(type: .leftJoyCon, controller: leftController)
+                // Right Joy-Con row
+                controllerRow(type: .rightJoyCon, controller: rightController)
+            }
+
+            // Air Mouse section (if any available or connected)
+            if !appState.availableAirMice.isEmpty || hasConnectedAirMice {
+                Divider()
+                airMouseSection
+            }
         }
+    }
+
+    private var hasConnectedAirMice: Bool {
+        appState.deviceManager?.connectedDevices.contains { $0.deviceType.isMouse } ?? false
+    }
+
+    private var airMouseSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Section header
+            HStack {
+                Image(systemName: "computermouse")
+                    .foregroundColor(.secondary)
+                Text("Air Mice")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+
+            // Connected air mice
+            if let deviceManager = appState.deviceManager {
+                ForEach(deviceManager.connectedDevices.filter { $0.deviceType.isMouse }, id: \.id) { device in
+                    connectedAirMouseRow(device)
+                }
+            }
+
+            // Available (not yet connected) air mice
+            ForEach(appState.availableAirMice) { device in
+                availableAirMouseRow(device)
+            }
+
+            if appState.availableAirMice.isEmpty && !hasConnectedAirMice {
+                Text("No air mice detected")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private func connectedAirMouseRow(_ device: any InputDevice) -> some View {
+        let isPrimary = appState.deviceManager?.primaryDevice?.id == device.id
+        let isSecondary = appState.deviceManager?.secondaryDevice?.id == device.id
+
+        return HStack {
+            Image(systemName: "computermouse.fill")
+                .foregroundColor(JamConColors.green)
+
+            Text(device.displayName)
+                .lineLimit(1)
+
+            if isPrimary {
+                OutlineBadge("Primary", color: JamConColors.green)
+            } else if isSecondary {
+                OutlineBadge("Secondary", color: JamConColors.blue)
+            }
+
+            Spacer()
+
+            // Slot assignment menu
+            Menu {
+                Button("Set as Primary") {
+                    appState.deviceManager?.assignToPrimary(device)
+                }
+                Button("Set as Secondary") {
+                    appState.deviceManager?.assignToSecondary(device)
+                }
+                Divider()
+                Button("Disconnect", role: .destructive) {
+                    appState.deviceManager?.disconnectAirMouse(device.id)
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .foregroundColor(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 24)
+        }
+    }
+
+    private func availableAirMouseRow(_ device: AvailableDevice) -> some View {
+        HStack {
+            Image(systemName: "computermouse")
+                .foregroundColor(.secondary)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(device.displayName)
+                    .lineLimit(1)
+                Text(device.isBluetooth ? "Bluetooth" : "USB")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button("Connect") {
+                appState.deviceManager?.connectAirMouse(device)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .foregroundColor(.secondary)
     }
 
     private func controllerRow(type: ControllerType, controller: ConnectedController?) -> some View {

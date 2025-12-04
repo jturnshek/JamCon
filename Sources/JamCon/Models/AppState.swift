@@ -363,6 +363,12 @@ class AppState: ObservableObject {
     private(set) var radialMenuController: RadialMenuController?
     private var radialMenuWindowController: RadialMenuWindowController?
 
+    // MARK: - Slot Assignments (new device-centric architecture)
+    /// These track which device is assigned to each slot and what type it's configured as.
+    /// Settings are stored per (slot, deviceType) combination in DeviceTypeSettings.
+    @Published var primarySlotAssignment: SlotAssignment = SlotAssignment.load(slot: .primary)
+    @Published var secondarySlotAssignment: SlotAssignment = SlotAssignment.load(slot: .secondary)
+
     // MARK: - Calibration State
     @Published var isGyroCalibrated: Bool = false
     @Published var debugIMUEnabled: Bool = false
@@ -395,9 +401,16 @@ class AppState: ObservableObject {
     }
 
     // MARK: - Controllers
-    private var joyConController: JoyConController?
     private var mouseController: MouseController?
     private(set) var inputProcessor: InputProcessor?
+
+    /// Unified device manager (wraps Joy-Cons and air mice)
+    @Published private(set) var deviceManager: DeviceManager?
+
+    /// Available air mice (for UI), grouped by device
+    var availableAirMice: [AvailableDevice] {
+        deviceManager?.availableAirMice ?? []
+    }
 
     /// Prevents recursive updates when keeping override button sets mutually exclusive
     private var overrideUpdateInProgress = false
@@ -468,6 +481,9 @@ class AppState: ObservableObject {
         startAccessibilityMonitoring()
         startIdleMonitoring()
 
+        // Sync settings from new device-centric storage
+        syncInputSettings()
+
         // Initialize diagnostic logger
         DiagnosticLogger.shared.log("AppState initialized")
     }
@@ -475,7 +491,7 @@ class AppState: ObservableObject {
     deinit {
         accessibilityCheckTimer?.invalidate()
         idleTimer?.invalidate()
-        joyConController?.stopScanning()
+        // Note: deviceManager is MainActor-isolated; its deinit handles cleanup
     }
 
     /// Start periodic accessibility permission monitoring
@@ -490,7 +506,6 @@ class AppState: ObservableObject {
     private func setupControllers() {
         mouseController = MouseController()
         inputProcessor = InputProcessor()
-        joyConController = JoyConController()
 
         let processor = inputProcessor
         let mouse = mouseController
@@ -535,37 +550,6 @@ class AppState: ObservableObject {
             mouse?.performSystemAction(action)
         }
 
-        // Set up radial menu
-        setupRadialMenu()
-
-        // Wire up Joy-Con events - NO main thread dispatch for input processing
-        // Gyro: only process from primary controller
-        joyConController?.onGyroUpdate = { [weak self] controllerId, gyro, timestamp in
-            guard let self = self else { return }
-            let settings = self.inputSettings
-            let processor = self.inputProcessor
-
-            guard settings.isEnabled else { return }
-
-            // Only process gyro from primary controller
-            guard settings.primaryControllerId == controllerId else { return }
-
-            self.recordGyroDiagnostics(timestamp: timestamp, gyro: gyro)
-            processor?.processGyro(
-                gyro,
-                timestamp: timestamp,
-                sensitivity: settings.gyroSensitivity,
-                deadzone: settings.gyroDeadzone,
-                smoothThreshold: settings.smoothThreshold,
-                filterBeta: settings.filterBeta,
-                accelerationMaxExtra: settings.accelerationGain,
-                accelerationMode: settings.accelerationMode,
-                precisionZoneEnabled: settings.precisionZoneEnabled,
-                earlyRampEnabled: settings.earlyRampEnabled,
-                adaptiveSmoothingMode: settings.adaptiveSmoothingMode,
-                autoNeutralRefresh: settings.autoNeutralRefresh
-            )
-        }
         processor?.onCalibrationChange = { [weak self] isCalibrated in
             Task { @MainActor in
                 if self?.isGyroCalibrated != isCalibrated {
@@ -574,20 +558,78 @@ class AppState: ObservableObject {
             }
         }
 
-        // Buttons: use primary or secondary mapping based on controller
-        joyConController?.onButtonPress = { [weak self] controllerId, controllerType, button in
+        // Set up radial menu
+        setupRadialMenu()
+
+        // Set up DeviceManager (single source of truth for all devices)
+        setupDeviceManager()
+    }
+
+    // MARK: - Device Manager Setup (Air Mouse Support)
+
+    private func setupDeviceManager() {
+        deviceManager = DeviceManager()
+
+        // Wire up air mouse motion events
+        deviceManager?.onMotionUpdate = { [weak self] deviceId, motion, timestamp in
+            guard let self = self else { return }
+            let settings = self.inputSettings
+            let processor = self.inputProcessor
+
+            guard settings.isEnabled else { return }
+            // Only process motion from primary device
+            guard settings.primaryControllerId == deviceId else { return }
+
+            switch motion {
+            case .gyro(let gyroData):
+                // Joy-Con gyro - already handled by JoyConController callbacks
+                // This is a fallback if we fully migrate to DeviceManager later
+                self.recordGyroDiagnostics(timestamp: timestamp, gyro: gyroData)
+                processor?.processGyro(
+                    gyroData,
+                    timestamp: timestamp,
+                    sensitivity: settings.gyroSensitivity,
+                    deadzone: settings.gyroDeadzone,
+                    smoothThreshold: settings.smoothThreshold,
+                    filterBeta: settings.filterBeta,
+                    accelerationMaxExtra: settings.accelerationGain,
+                    accelerationMode: settings.accelerationMode,
+                    precisionZoneEnabled: settings.precisionZoneEnabled,
+                    earlyRampEnabled: settings.earlyRampEnabled,
+                    adaptiveSmoothingMode: settings.adaptiveSmoothingMode,
+                    autoNeutralRefresh: settings.autoNeutralRefresh
+                )
+
+            case .mouseDeltas(let dx, let dy):
+                // Air mouse - use mouse delta processing
+                // Sensitivity is scaled differently for direct deltas
+                let airMouseSensitivity = settings.gyroSensitivity / 15.0
+                processor?.processMouseDeltas(
+                    dx: dx,
+                    dy: dy,
+                    timestamp: timestamp,
+                    sensitivity: airMouseSensitivity
+                )
+            }
+        }
+
+        // Wire up button events (all devices - Joy-Cons and air mice)
+        deviceManager?.onButtonPress = { [weak self] deviceId, deviceType, button in
             guard let self = self else { return }
 
-            // Take atomic snapshot of all needed settings to prevent race conditions
-            let snapshot = self.inputSettings.buttonPressSnapshot(for: controllerId)
+            let snapshot = self.inputSettings.buttonPressSnapshot(for: deviceId)
             guard snapshot.isEnabled else { return }
 
             let processor = self.inputProcessor
 
-            // Get logical button for hold detection
-            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: snapshot.mirrorFaceButtons) else { return }
+            // Convert DeviceButton to LogicalButton
+            guard let logicalButton = LogicalButton.from(
+                button,
+                deviceType: deviceType,
+                mirrorFaceButtons: snapshot.mirrorFaceButtons
+            ) else { return }
 
-            // Check for radial menu confirmation (left click while menu is visible)
+            // Check for radial menu confirmation
             if self.radialMenuController?.isActive == true {
                 let actions = snapshot.mapping[logicalButton]
                 if case .mouseClick(.left) = actions.press {
@@ -596,6 +638,7 @@ class AppState: ObservableObject {
                 }
             }
 
+            // Handle override buttons (clutch/scroll/zoom)
             if snapshot.clutchButtons.contains(logicalButton) {
                 processor?.beginOverride(.clutch)
                 return
@@ -608,22 +651,27 @@ class AppState: ObservableObject {
                 processor?.beginOverride(.zoom)
                 return
             }
-            let actions = snapshot.mapping[logicalButton]
 
+            // Normal button handling
+            let actions = snapshot.mapping[logicalButton]
             processor?.handleButtonDown(logicalButton, actions: actions, holdThreshold: snapshot.holdThreshold)
         }
 
-        joyConController?.onButtonRelease = { [weak self] controllerId, controllerType, button in
+        deviceManager?.onButtonRelease = { [weak self] deviceId, deviceType, button in
             guard let self = self else { return }
 
-            // Take atomic snapshot of all needed settings to prevent race conditions
-            let snapshot = self.inputSettings.buttonPressSnapshot(for: controllerId)
+            let snapshot = self.inputSettings.buttonPressSnapshot(for: deviceId)
             guard snapshot.isEnabled else { return }
 
             let processor = self.inputProcessor
 
-            // Get logical button for hold detection
-            guard let logicalButton = LogicalButton.from(button, controllerType: controllerType, mirrorFaceButtons: snapshot.mirrorFaceButtons) else { return }
+            guard let logicalButton = LogicalButton.from(
+                button,
+                deviceType: deviceType,
+                mirrorFaceButtons: snapshot.mirrorFaceButtons
+            ) else { return }
+
+            // Handle override button releases
             if snapshot.clutchButtons.contains(logicalButton) {
                 processor?.endOverride(.clutch)
                 return
@@ -640,14 +688,14 @@ class AppState: ObservableObject {
             processor?.handleButtonUp(logicalButton)
         }
 
-        // Stick: only process from primary controller
-        joyConController?.onStickUpdate = { [weak self] controllerId, position in
+        // Wire up stick events (Joy-Cons only)
+        deviceManager?.onStickUpdate = { [weak self] deviceId, position in
             guard let self = self else { return }
             let settings = self.inputSettings
 
             guard settings.isEnabled else { return }
-            // Only process stick from primary controller
-            guard settings.primaryControllerId == controllerId else { return }
+            // Only process stick from primary device
+            guard settings.primaryControllerId == deviceId else { return }
 
             switch settings.stickMode {
             case .scroll:
@@ -659,27 +707,102 @@ class AppState: ObservableObject {
             }
         }
 
-        // Connection state updates still need main thread (for UI)
-        joyConController?.onConnectionChange = { [weak self] controllers in
+        // Connection changes - update connectedControllers and primary ID
+        deviceManager?.onConnectionChange = { [weak self] devices in
             Task { @MainActor in
-                self?.connectedControllers = controllers
-                // Update primary controller ID based on type preference
-                self?.inputSettings.primaryControllerId = self?.primaryController?.id
-                // Recheck Accessibility permission when controllers connect
-                self?.checkAccessibilityPermission()
+                guard let self = self else { return }
+
+                // Update connectedControllers from DeviceManager's Joy-Con wrappers
+                var controllers: [ConnectedController] = []
+                for device in devices {
+                    if let wrapper = device as? JoyConDeviceWrapper {
+                        controllers.append(wrapper.connectedController)
+                    }
+                }
+                self.connectedControllers = controllers
+
+                // Update primary controller ID based on slot assignment
+                self.inputSettings.primaryControllerId = self.primaryController?.id
+
+                // Recheck Accessibility permission when devices connect
+                self.checkAccessibilityPermission()
             }
         }
 
-        joyConController?.onBatteryUpdate = { [weak self] controllerId, level in
+        // Battery updates
+        deviceManager?.onBatteryUpdate = { [weak self] deviceId, level in
             Task { @MainActor in
-                if let index = self?.connectedControllers.firstIndex(where: { $0.id == controllerId }) {
+                if let index = self?.connectedControllers.firstIndex(where: { $0.id == deviceId }) {
                     self?.connectedControllers[index].batteryLevel = level
                 }
             }
         }
 
-        // Start scanning for controllers
-        joyConController?.startScanning()
+        // Activity tracking for idle timeout
+        deviceManager?.onActivity = { [weak self] deviceId in
+            // Mark activity for idle timeout tracking
+            // (Activity from air mice counts the same as Joy-Con activity)
+            _ = self  // Capture self but idle tracking uses Joy-Con's lastActivity
+        }
+
+        // Start scanning for air mice
+        deviceManager?.startScanning()
+    }
+
+    // MARK: - Device-Centric Settings Sync
+
+    /// Sync settings from the new per-(slot, deviceType) storage to InputSettings.
+    /// Call this when slot assignments change or after settings are saved.
+    func syncInputSettings() {
+        // Load primary slot settings
+        let primarySettings = DeviceTypeSettings.load(slot: .primary, deviceType: primarySlotAssignment.deviceType)
+        inputSettings.gyroSensitivity = primarySettings.pointerSensitivity
+        inputSettings.accelerationGain = primarySettings.accelerationGain
+        inputSettings.smoothThreshold = primarySettings.smoothThreshold
+        inputSettings.filterBeta = primarySettings.filterBeta
+        inputSettings.adaptiveSmoothingMode = primarySettings.adaptiveSmoothingMode
+        inputSettings.precisionZoneEnabled = primarySettings.precisionZoneEnabled
+        inputSettings.earlyRampEnabled = primarySettings.earlyRampEnabled
+        inputSettings.gyroDeadzone = primarySettings.gyroDeadzone
+        inputSettings.stickMode = primarySettings.stickMode
+        inputSettings.scrollSensitivity = primarySettings.scrollSensitivity
+        inputSettings.stickDeadzone = primarySettings.stickDeadzone
+        inputSettings.primaryMapping = primarySettings.buttonMappings
+        inputSettings.primaryClutchButtons = primarySettings.clutchButtons
+        inputSettings.primaryScrollButtons = primarySettings.scrollButtons
+        inputSettings.primaryZoomButtons = primarySettings.zoomButtons
+        inputSettings.holdThreshold = primarySettings.holdThreshold
+        inputSettings.mirrorFaceButtons = primarySettings.mirrorFaceButtons
+
+        // Update primary controller ID based on slot assignment
+        inputSettings.primaryControllerId = primarySlotAssignment.deviceId
+
+        // Load secondary slot settings (only button-related, secondary doesn't control pointer)
+        let secondarySettings = DeviceTypeSettings.load(slot: .secondary, deviceType: secondarySlotAssignment.deviceType)
+        inputSettings.secondaryMapping = secondarySettings.buttonMappings
+        inputSettings.secondaryClutchButtons = secondarySettings.clutchButtons
+        inputSettings.secondaryScrollButtons = secondarySettings.scrollButtons
+        inputSettings.secondaryZoomButtons = secondarySettings.zoomButtons
+
+        // Update radial menu configuration from primary settings
+        radialMenuConfiguration = RadialMenuConfiguration(name: "Primary", items: primarySettings.radialMenuItems)
+    }
+
+    /// Update slot assignment and sync settings
+    func updateSlotAssignment(_ assignment: SlotAssignment, for slot: DeviceSlot) {
+        switch slot {
+        case .primary:
+            primarySlotAssignment = assignment
+        case .secondary:
+            secondarySlotAssignment = assignment
+        }
+        assignment.save(slot: slot)
+        syncInputSettings()
+
+        // Reset calibration when primary device changes
+        if slot == .primary {
+            resetGyroCalibration()
+        }
     }
 
     // MARK: - Override Button Management (Clutch/Scroll/Zoom)
@@ -952,9 +1075,9 @@ class AppState: ObservableObject {
         guard autoPowerOffEnabled else { return }
         let timeoutSeconds = idleTimeoutMinutes * 60.0
         let now = CACurrentMediaTime()
-        let idleControllers = joyConController?.controllers.filter {
+        let idleControllers = connectedControllers.filter {
             now - $0.lastActivity >= timeoutSeconds
-        } ?? []
+        }
 
         idleControllers.forEach { controller in
             // Only power off if we still have a matching controller instance

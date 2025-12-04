@@ -8,44 +8,90 @@
 
 /* Begin PBXBuildFile section */
 		01772595B7A51F43AEBAEB6B /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */; };
+		17C1CDD93775BF13CD809BB8 /* StickSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED96EA6094779BDA7F54C2DA /* StickSettingsView.swift */; };
 		25171E973A34CC561937923B /* joyconL.png in Resources */ = {isa = PBXBuildFile; fileRef = 391708AC5481DFB95E4CC4C8 /* joyconL.png */; };
 		26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */; };
 		277864CFE0BF467326E29A46 /* RadialMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 139A6679A627B6E119D10C91 /* RadialMenuController.swift */; };
+		2EF63DED698DBC0651DEA594 /* DeviceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10238D2D982D2BF9D933CBAB /* DeviceManager.swift */; };
 		2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */; };
+		30670EE258BEDD6D8350E432 /* DeviceTypeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692E642ACAE90846438F8B25 /* DeviceTypeSettings.swift */; };
 		486851E1B78B21DF9EEF562A /* DiagnosticLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06163606DBD2D0774C796B81 /* DiagnosticLogger.swift */; };
+		4D2FEE407D889DB0C40FCACE /* SlotConfigView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8656F68936BD63DD8A04B956 /* SlotConfigView.swift */; };
+		55FA6FE6988A98A1327D8BA4 /* SettingsContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1D500AFA8852E4FF0D4291 /* SettingsContainer.swift */; };
 		5E10AAA3C81E7349594194C6 /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */; };
+		5EA55EE8C8FF0CFBCBBBF82D /* ManagedDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = E11B8619BBBD2D471D174BD0 /* ManagedDevice.swift */; };
+		636231E1D754AA6A896DB44F /* ButtonsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FFFE7340AD9938BF827F052 /* ButtonsSettingsView.swift */; };
 		6528D1E9766F9570BA9F1152 /* joyconR.png in Resources */ = {isa = PBXBuildFile; fileRef = FA22C0E6FE919EDD6C5C8172 /* joyconR.png */; };
+		7C6559E12211BFB511A3DE03 /* ConfigurableDeviceType.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3DE5DE12967D7C60F650A3 /* ConfigurableDeviceType.swift */; };
 		7FE6BFA1769DEF13826F26BF /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 971C84A4E5D508FE84285CBD /* MouseController.swift */; };
 		86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */; };
+		8AF0CEA4662BA212FA094F31 /* CalibrationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B3F01FE7859B14A126DF967 /* CalibrationSettingsView.swift */; };
+		8B03B2F23D7398B8E7773924 /* CompactMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D291277E3FB65F5DEAF0A2 /* CompactMenuView.swift */; };
 		8DA3E24EAA19B6C6140EA663 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAFCA51E71DA6009CBB5085D /* AppState.swift */; };
+		93FE7E577A06ED0CECC8E67B /* PointerSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 120816C25551A52099E04D03 /* PointerSettingsView.swift */; };
 		98DB0EDDC18A49D37B376816 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F668E790F1B8BF38BF405A5 /* Theme.swift */; };
+		9D15E0A559F20DB5FF71F9AC /* DeviceButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9837B9D8E005413742555EB /* DeviceButton.swift */; };
+		A312D06298E4785D5D9426D6 /* InputDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF5CF175CAD3E065E858EB2D /* InputDevice.swift */; };
+		A426FC1C3B32B46E27DDAF5E /* AirMouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DD199B64619681B4466964C /* AirMouseController.swift */; };
+		A8E63B90E494D326E2B0AC81 /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FDBF8CE26B3AD02E0A1AF1 /* AppLogger.swift */; };
+		AB901D0ABE3DDE15C7E54B41 /* ButtonsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C3BE55BF39CAE99ECF44A3 /* ButtonsPane.swift */; };
+		AC72738F694CA62ADC0C5626 /* KnownDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E59C14BCF56B6487378FD9E /* KnownDevice.swift */; };
 		AE47964B8D2980AB99868160 /* InputProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89741C3C0925900809304917 /* InputProcessor.swift */; };
+		B52510BCAD53095ACBD9CC07 /* AdvancedPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E47EE4AD4D8B106746E9E9DF /* AdvancedPane.swift */; };
 		BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103F11341851C9371929B73 /* JamConApp.swift */; };
 		BDECF86DE1BFEAC8880AE6B7 /* JoyConSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 2ABD6974BD795D4D46EBA7D2 /* JoyConSwift */; };
+		C44E06155720BC2ABD7488F5 /* LogPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801B6667D0FC0C76FE3368DD /* LogPane.swift */; };
+		C573647089CC6F7B3B758C4C /* CalibrationPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A19B156592263879E0DAF4E /* CalibrationPane.swift */; };
 		C6425364FA4EC29A5D985921 /* joycon.png in Resources */ = {isa = PBXBuildFile; fileRef = 7B68F3A27903A014562155CD /* joycon.png */; };
+		E4A9D8EB3CF4667427A6B38C /* PointerPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBC5904B9DA9FE6107D26D99 /* PointerPane.swift */; };
+		E55D2BAE27E3C35FC6BBFC40 /* DevicesPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7FE7B4EC987B3782D00880 /* DevicesPane.swift */; };
 		F962B7C12ED96C5D65499DEF /* ButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79B65A92666C303BBB87EE37 /* ButtonMapping.swift */; };
 		FA4CA5CAF8D1374E7431720F /* JoyConController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C80626B3F0074ADCC12723 /* JoyConController.swift */; };
+		FDC1DC36C08F5F3795C32A17 /* StickPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DDCD56B6540B6851922A55A /* StickPane.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		06163606DBD2D0774C796B81 /* DiagnosticLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticLogger.swift; sourceTree = "<group>"; };
+		0B3F01FE7859B14A126DF967 /* CalibrationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationSettingsView.swift; sourceTree = "<group>"; };
 		0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
+		10238D2D982D2BF9D933CBAB /* DeviceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceManager.swift; sourceTree = "<group>"; };
+		120816C25551A52099E04D03 /* PointerSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointerSettingsView.swift; sourceTree = "<group>"; };
 		139A6679A627B6E119D10C91 /* RadialMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuController.swift; sourceTree = "<group>"; };
+		1E59C14BCF56B6487378FD9E /* KnownDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnownDevice.swift; sourceTree = "<group>"; };
 		1F668E790F1B8BF38BF405A5 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		391708AC5481DFB95E4CC4C8 /* joyconL.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = joyconL.png; sourceTree = "<group>"; };
+		3B7FE7B4EC987B3782D00880 /* DevicesPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesPane.swift; sourceTree = "<group>"; };
 		61579A3B51A4968E3BA62CA2 /* JoyConSwift */ = {isa = PBXFileReference; lastKnownFileType = folder; name = JoyConSwift; path = Packages/JoyConSwift; sourceTree = SOURCE_ROOT; };
 		66C80626B3F0074ADCC12723 /* JoyConController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConController.swift; sourceTree = "<group>"; };
+		692E642ACAE90846438F8B25 /* DeviceTypeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTypeSettings.swift; sourceTree = "<group>"; };
+		6A19B156592263879E0DAF4E /* CalibrationPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalibrationPane.swift; sourceTree = "<group>"; };
+		6DDCD56B6540B6851922A55A /* StickPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickPane.swift; sourceTree = "<group>"; };
 		79B65A92666C303BBB87EE37 /* ButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMapping.swift; sourceTree = "<group>"; };
 		7B68F3A27903A014562155CD /* joycon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = joycon.png; sourceTree = "<group>"; };
+		7FFFE7340AD9938BF827F052 /* ButtonsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonsSettingsView.swift; sourceTree = "<group>"; };
+		801B6667D0FC0C76FE3368DD /* LogPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogPane.swift; sourceTree = "<group>"; };
 		8103F11341851C9371929B73 /* JamConApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamConApp.swift; sourceTree = "<group>"; };
+		8656F68936BD63DD8A04B956 /* SlotConfigView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotConfigView.swift; sourceTree = "<group>"; };
+		88FDBF8CE26B3AD02E0A1AF1 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		89741C3C0925900809304917 /* InputProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputProcessor.swift; sourceTree = "<group>"; };
 		8A018018F04F12A98D20A52F /* JamCon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JamCon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuView.swift; sourceTree = "<group>"; };
+		96C3BE55BF39CAE99ECF44A3 /* ButtonsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonsPane.swift; sourceTree = "<group>"; };
 		971C84A4E5D508FE84285CBD /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
+		9DD199B64619681B4466964C /* AirMouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirMouseController.swift; sourceTree = "<group>"; };
+		A9837B9D8E005413742555EB /* DeviceButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceButton.swift; sourceTree = "<group>"; };
 		C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaptureManager.swift; sourceTree = "<group>"; };
 		CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		DAFCA51E71DA6009CBB5085D /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		DBC5904B9DA9FE6107D26D99 /* PointerPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointerPane.swift; sourceTree = "<group>"; };
+		DF1D500AFA8852E4FF0D4291 /* SettingsContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsContainer.swift; sourceTree = "<group>"; };
+		DF5CF175CAD3E065E858EB2D /* InputDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDevice.swift; sourceTree = "<group>"; };
+		E11B8619BBBD2D471D174BD0 /* ManagedDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedDevice.swift; sourceTree = "<group>"; };
+		E47EE4AD4D8B106746E9E9DF /* AdvancedPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedPane.swift; sourceTree = "<group>"; };
+		E5D291277E3FB65F5DEAF0A2 /* CompactMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactMenuView.swift; sourceTree = "<group>"; };
+		ED96EA6094779BDA7F54C2DA /* StickSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickSettingsView.swift; sourceTree = "<group>"; };
 		FA22C0E6FE919EDD6C5C8172 /* joyconR.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = joyconR.png; sourceTree = "<group>"; };
+		FA3DE5DE12967D7C60F650A3 /* ConfigurableDeviceType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurableDeviceType.swift; sourceTree = "<group>"; };
 		FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -66,6 +112,12 @@
 			children = (
 				DAFCA51E71DA6009CBB5085D /* AppState.swift */,
 				79B65A92666C303BBB87EE37 /* ButtonMapping.swift */,
+				FA3DE5DE12967D7C60F650A3 /* ConfigurableDeviceType.swift */,
+				A9837B9D8E005413742555EB /* DeviceButton.swift */,
+				692E642ACAE90846438F8B25 /* DeviceTypeSettings.swift */,
+				DF5CF175CAD3E065E858EB2D /* InputDevice.swift */,
+				1E59C14BCF56B6487378FD9E /* KnownDevice.swift */,
+				E11B8619BBBD2D471D174BD0 /* ManagedDevice.swift */,
 				0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */,
 				CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */,
 			);
@@ -110,6 +162,8 @@
 		69279B652572AF860D792437 /* Controllers */ = {
 			isa = PBXGroup;
 			children = (
+				9DD199B64619681B4466964C /* AirMouseController.swift */,
+				10238D2D982D2BF9D933CBAB /* DeviceManager.swift */,
 				89741C3C0925900809304917 /* InputProcessor.swift */,
 				66C80626B3F0074ADCC12723 /* JoyConController.swift */,
 				C1D277E09DE303E46C79B84C /* KeyCaptureManager.swift */,
@@ -125,7 +179,9 @@
 				69279B652572AF860D792437 /* Controllers */,
 				0D8E39DFC253166116995708 /* Models */,
 				43931D87C47743A64A3B317E /* Resources */,
+				8651FDB6A95527C6B6B7E25C /* Services */,
 				B220C732347A376ED8BDE358 /* Views */,
+				E5D291277E3FB65F5DEAF0A2 /* CompactMenuView.swift */,
 				06163606DBD2D0774C796B81 /* DiagnosticLogger.swift */,
 				8103F11341851C9371929B73 /* JamConApp.swift */,
 				FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */,
@@ -135,12 +191,41 @@
 			path = Sources/JamCon;
 			sourceTree = "<group>";
 		};
+		8651FDB6A95527C6B6B7E25C /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				88FDBF8CE26B3AD02E0A1AF1 /* AppLogger.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
 		B220C732347A376ED8BDE358 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				BEEFF24D08E15D3CC23E83F1 /* Settings */,
 				8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */,
+				DF1D500AFA8852E4FF0D4291 /* SettingsContainer.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		BEEFF24D08E15D3CC23E83F1 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				E47EE4AD4D8B106746E9E9DF /* AdvancedPane.swift */,
+				96C3BE55BF39CAE99ECF44A3 /* ButtonsPane.swift */,
+				7FFFE7340AD9938BF827F052 /* ButtonsSettingsView.swift */,
+				6A19B156592263879E0DAF4E /* CalibrationPane.swift */,
+				0B3F01FE7859B14A126DF967 /* CalibrationSettingsView.swift */,
+				3B7FE7B4EC987B3782D00880 /* DevicesPane.swift */,
+				801B6667D0FC0C76FE3368DD /* LogPane.swift */,
+				DBC5904B9DA9FE6107D26D99 /* PointerPane.swift */,
+				120816C25551A52099E04D03 /* PointerSettingsView.swift */,
+				8656F68936BD63DD8A04B956 /* SlotConfigView.swift */,
+				6DDCD56B6540B6851922A55A /* StickPane.swift */,
+				ED96EA6094779BDA7F54C2DA /* StickSettingsView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -242,19 +327,42 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B52510BCAD53095ACBD9CC07 /* AdvancedPane.swift in Sources */,
+				A426FC1C3B32B46E27DDAF5E /* AirMouseController.swift in Sources */,
+				A8E63B90E494D326E2B0AC81 /* AppLogger.swift in Sources */,
 				8DA3E24EAA19B6C6140EA663 /* AppState.swift in Sources */,
 				F962B7C12ED96C5D65499DEF /* ButtonMapping.swift in Sources */,
+				AB901D0ABE3DDE15C7E54B41 /* ButtonsPane.swift in Sources */,
+				636231E1D754AA6A896DB44F /* ButtonsSettingsView.swift in Sources */,
+				C573647089CC6F7B3B758C4C /* CalibrationPane.swift in Sources */,
+				8AF0CEA4662BA212FA094F31 /* CalibrationSettingsView.swift in Sources */,
+				8B03B2F23D7398B8E7773924 /* CompactMenuView.swift in Sources */,
+				7C6559E12211BFB511A3DE03 /* ConfigurableDeviceType.swift in Sources */,
+				9D15E0A559F20DB5FF71F9AC /* DeviceButton.swift in Sources */,
+				2EF63DED698DBC0651DEA594 /* DeviceManager.swift in Sources */,
+				30670EE258BEDD6D8350E432 /* DeviceTypeSettings.swift in Sources */,
+				E55D2BAE27E3C35FC6BBFC40 /* DevicesPane.swift in Sources */,
 				486851E1B78B21DF9EEF562A /* DiagnosticLogger.swift in Sources */,
+				A312D06298E4785D5D9426D6 /* InputDevice.swift in Sources */,
 				AE47964B8D2980AB99868160 /* InputProcessor.swift in Sources */,
 				BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */,
 				FA4CA5CAF8D1374E7431720F /* JoyConController.swift in Sources */,
 				5E10AAA3C81E7349594194C6 /* KeyCaptureManager.swift in Sources */,
+				AC72738F694CA62ADC0C5626 /* KnownDevice.swift in Sources */,
+				C44E06155720BC2ABD7488F5 /* LogPane.swift in Sources */,
+				5EA55EE8C8FF0CFBCBBBF82D /* ManagedDevice.swift in Sources */,
 				01772595B7A51F43AEBAEB6B /* MenuBarView.swift in Sources */,
 				7FE6BFA1769DEF13826F26BF /* MouseController.swift in Sources */,
+				E4A9D8EB3CF4667427A6B38C /* PointerPane.swift in Sources */,
+				93FE7E577A06ED0CECC8E67B /* PointerSettingsView.swift in Sources */,
 				86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */,
 				277864CFE0BF467326E29A46 /* RadialMenuController.swift in Sources */,
 				2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */,
 				26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */,
+				55FA6FE6988A98A1327D8BA4 /* SettingsContainer.swift in Sources */,
+				4D2FEE407D889DB0C40FCACE /* SlotConfigView.swift in Sources */,
+				FDC1DC36C08F5F3795C32A17 /* StickPane.swift in Sources */,
+				17C1CDD93775BF13CD809BB8 /* StickSettingsView.swift in Sources */,
 				98DB0EDDC18A49D37B376816 /* Theme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -7,7 +7,8 @@ let package = Package(
         .macOS(.v14)  // macOS 14 Sonoma minimum (update to v15/v26 when available)
     ],
     products: [
-        .executable(name: "JamCon", targets: ["JamCon"])
+        .executable(name: "JamCon", targets: ["JamCon"]),
+        .executable(name: "jamcon-hid", targets: ["JamConHID"])
     ],
     dependencies: [
         .package(path: "Packages/JoyConSwift")
@@ -21,6 +22,14 @@ let package = Package(
                 .copy("Resources/joyconL.png"),
                 .copy("Resources/joyconR.png"),
                 .copy("Resources/joycon.png")
+            ]
+        ),
+        .executableTarget(
+            name: "JamConHID",
+            path: "Sources/JamConHID",
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+                .linkedFramework("CoreFoundation")
             ]
         )
     ]
