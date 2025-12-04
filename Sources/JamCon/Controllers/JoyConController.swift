@@ -49,7 +49,7 @@ class JoyConController {
     private var connectOrder: Int = 0
 
     /// Minimum gyro magnitude (deg/s) to count as user activity
-    private let gyroActivityThreshold: Double = 0.5
+    private let gyroActivityThreshold: Double = 5.0
 
     /// Thread-safe storage for connected controllers
     private let controllersLock = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ConnectedController]())
