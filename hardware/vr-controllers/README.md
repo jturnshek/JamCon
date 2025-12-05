@@ -122,88 +122,99 @@ VR controllers solve the core problems with consumer air mice:
 
 ---
 
-### ❌ NOT VIABLE - Doesn't Meet Requirements
+### ❌ CANNOT CONNECT TO PC - Headset-Only Communication
+
+These controllers have no way to communicate with a PC at all. They only pair with their specific headset.
 
 #### Meta Quest Controllers (Touch, Touch Plus)
 | Attribute | Value |
 |-----------|-------|
 | **Tracking** | 6DoF (inside-out, needs headset cameras) |
 | **Connection** | Bluetooth to headset only |
-| **Works without headset** | ❌ No |
-| **IMU** | Gyro + Accel (but not exposed standalone) |
-| **Why Not** | Controllers pair to headset via Bluetooth. Headset cameras required for tracking. No PC dongle mode. Cannot access gyro data without headset. |
+| **Can connect to PC?** | ❌ **No** - Pairs exclusively to Quest headset |
+| **IMU** | Gyro + Accel (inaccessible) |
+| **Why Not** | Controllers use proprietary Bluetooth pairing that only works with Quest headsets. There is no dongle, no PC pairing mode, no way to access any data. |
 
 #### Meta Quest Pro Controllers
 | Attribute | Value |
 |-----------|-------|
 | **Tracking** | 6DoF (self-tracking via onboard cameras) |
-| **Connection** | Bluetooth to headset |
-| **Works without headset** | ❌ No (pairs to headset only) |
-| **IMU** | Gyro + Accel |
-| **Why Not** | Despite self-tracking capability, still requires headset pairing. No standalone PC mode. |
+| **Connection** | Bluetooth to headset only |
+| **Can connect to PC?** | ❌ **No** - Pairs exclusively to Quest headset |
+| **IMU** | Gyro + Accel (inaccessible) |
+| **Why Not** | Despite having self-tracking cameras, still requires Quest headset pairing. No standalone PC mode exists. |
 
 #### Pico 4 Controllers
 | Attribute | Value |
 |-----------|-------|
 | **Tracking** | 6DoF (inside-out, needs headset) |
-| **Connection** | Bluetooth to headset |
-| **Works without headset** | ❌ No |
-| **IMU** | Gyro + Accel |
-| **Why Not** | Same as Quest - requires headset cameras for tracking, pairs to headset only. |
-
-#### PlayStation VR2 Sense Controllers
-| Attribute | Value |
-|-----------|-------|
-| **Tracking** | 6DoF (inside-out, needs headset) |
-| **Connection** | Bluetooth |
-| **Works without headset** | ❌ No (requires SteamVR + PSVR2 headset) |
-| **IMU** | 6-axis (3-axis gyro, 3-axis accel) |
-| **Why Not** | Can pair via Bluetooth to PC but requires full VR stack. Gyro not exposed as gamepad input. Pairing issues reported. |
-
-#### Windows Mixed Reality Controllers
-| Attribute | Value |
-|-----------|-------|
-| **Tracking** | 6DoF (inside-out, needs headset) |
-| **Connection** | Bluetooth 4.0 |
-| **Works without headset** | ❌ No (tracking requires headset cameras) |
-| **IMU** | Gyro + Accel (used when out of camera view) |
-| **Why Not** | Requires headset for positional tracking. Platform deprecated by Microsoft (removed in Windows 11 24H2). No standalone gyro access. |
+| **Connection** | Bluetooth to headset only |
+| **Can connect to PC?** | ❌ **No** - Pairs exclusively to Pico headset |
+| **IMU** | Gyro + Accel (inaccessible) |
+| **Why Not** | Same as Quest - proprietary Bluetooth pairing to headset only. Cannot connect to anything else. |
 
 #### HTC Vive Focus 3 Controllers
 | Attribute | Value |
 |-----------|-------|
 | **Tracking** | 6DoF (inside-out, needs headset) |
-| **Connection** | Proprietary to headset |
-| **Works without headset** | ❌ No |
-| **IMU** | Gyro + Accel |
-| **Why Not** | Enterprise standalone headset - controllers only work with Focus 3 headset. |
+| **Connection** | Proprietary wireless to headset |
+| **Can connect to PC?** | ❌ **No** - Proprietary protocol, headset only |
+| **IMU** | Gyro + Accel (inaccessible) |
+| **Why Not** | Enterprise standalone headset with proprietary controller protocol. No PC connectivity whatsoever. |
 
 #### HTC Vive XR Elite Controllers
 | Attribute | Value |
 |-----------|-------|
 | **Tracking** | 6DoF (inside-out) |
-| **Connection** | Proprietary to headset |
-| **Works without headset** | ❌ No |
-| **IMU** | Gyro + Accel |
-| **Why Not** | Controllers designed for XR Elite headset only. No standalone mode. |
+| **Connection** | Proprietary wireless to headset |
+| **Can connect to PC?** | ❌ **No** - Proprietary protocol, headset only |
+| **IMU** | Gyro + Accel (inaccessible) |
+| **Why Not** | Same as Focus 3 - proprietary controller protocol with no PC connectivity. |
+
+---
+
+### ❌ CAN CONNECT BUT USELESS - Requires Full VR Stack
+
+These controllers can technically pair with a PC via Bluetooth, but you cannot access the gyro data without running the full VR software stack with a headset connected.
+
+#### PlayStation VR2 Sense Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) |
+| **Connection** | Bluetooth (can pair to PC) |
+| **Can connect to PC?** | ⚠️ **Yes, but...** - Pairs via Bluetooth, data inaccessible |
+| **IMU** | 6-axis (3-axis gyro, 3-axis accel) |
+| **Why Not** | Can pair to PC via Bluetooth, but gyro data is not exposed through any standard protocol. Requires SteamVR + PSVR2 headset connected to access any sensor data. Pairing is also unreliable. |
+
+#### Windows Mixed Reality Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) |
+| **Connection** | Bluetooth 4.0 (can pair to PC) |
+| **Can connect to PC?** | ⚠️ **Yes, but...** - Pairs via Bluetooth, gyro not exposed |
+| **IMU** | Gyro + Accel (used internally for prediction) |
+| **Why Not** | Can pair to PC via standard Bluetooth, but the gyro/accel data is only used internally for motion prediction when controllers leave camera view. No API exposes raw sensor data. Also, platform deprecated by Microsoft (removed in Windows 11 24H2). |
 
 ---
 
 ## Summary Comparison
 
-| Controller | Standalone Gyro? | 6DoF without Headset? | Has Buttons? | Price (used) | Recommended? |
-|------------|------------------|----------------------|--------------|--------------|--------------|
-| **Valve Index** | ✅ | ✅ (needs base station) | ✅ Excellent | ~$100-150 | ⭐ **Best Option** |
-| **HTC Vive Wand** | ✅ | ✅ (needs base station) | ✅ Good | ~$50-80 | ✅ Budget option |
-| **Vive Tracker** | ✅ | ✅ (needs base station) | ❌ None | ~$80-130 | For DIY only |
-| **Tundra Tracker** | ✅ | ✅ (needs base station) | ❌ None | ~$100 | For DIY only |
-| **Pimax Sword** | ✅ | ✅ (needs base station) | ✅ Good | ~$269 | Limited availability |
-| **etee** | ✅ | Optional | ✅ Finger tracking | ~$300-400 | Unique but expensive |
-| **Steam Frame** | ⏳ TBD | ❌ (needs headset) | ✅ Excellent | TBD | Wait for Q1 2026 |
-| Meta Quest | ❌ | ❌ | ✅ | N/A | **Not viable** |
-| Pico 4 | ❌ | ❌ | ✅ | N/A | **Not viable** |
-| PSVR2 Sense | ❌ | ❌ | ✅ | N/A | **Not viable** |
-| WMR | ❌ | ❌ | ✅ | N/A | **Not viable** (deprecated) |
+| Controller | Connects to PC? | Standalone Gyro? | Has Buttons? | Price (used) | Status |
+|------------|-----------------|------------------|--------------|--------------|--------|
+| **Valve Index** | ✅ USB dongle | ✅ | ✅ Excellent | ~$100-150 | ⭐ **Best Option** |
+| **HTC Vive Wand** | ✅ USB dongle | ✅ | ✅ Good | ~$50-80 | ✅ Budget option |
+| **Vive Tracker** | ✅ USB dongle | ✅ | ❌ None | ~$80-130 | For DIY only |
+| **Tundra Tracker** | ✅ USB dongle | ✅ | ❌ None | ~$100 | For DIY only |
+| **Pimax Sword** | ✅ USB dongle | ✅ | ✅ Good | ~$269 | Limited availability |
+| **etee** | ✅ USB dongle | ✅ | ✅ Finger tracking | ~$300-400 | Unique but expensive |
+| **Steam Frame** | ⏳ TBD | ⏳ TBD | ✅ Excellent | TBD | Wait for Q1 2026 |
+| Meta Quest | ❌ **No** | N/A | ✅ | N/A | Cannot connect to PC |
+| Quest Pro | ❌ **No** | N/A | ✅ | N/A | Cannot connect to PC |
+| Pico 4 | ❌ **No** | N/A | ✅ | N/A | Cannot connect to PC |
+| Focus 3 | ❌ **No** | N/A | ✅ | N/A | Cannot connect to PC |
+| XR Elite | ❌ **No** | N/A | ✅ | N/A | Cannot connect to PC |
+| PSVR2 Sense | ⚠️ BT (useless) | ❌ | ✅ | N/A | Gyro data inaccessible |
+| WMR | ⚠️ BT (useless) | ❌ | ✅ | N/A | Deprecated, gyro hidden |
 
 ---
 
