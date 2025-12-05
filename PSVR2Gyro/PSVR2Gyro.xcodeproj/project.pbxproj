@@ -1,0 +1,312 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */; };
+		3544991E17CB20B0F04DC505 /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CAE859D72F3378922F7505 /* MouseController.swift */; };
+		60D59DE415EC63B1823280BA /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69264866137391FFF73D2D71 /* AppState.swift */; };
+		8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F358F393D1578D77696C6D70 /* MenuBarView.swift */; };
+		90BD5CABB59462AB17E31CCE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0ED0C83E20088426A8401026 /* SettingsView.swift */; };
+		A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0D944F62A7696169616814 /* GyroProcessor.swift */; };
+		FB325B128C3D10B039511ADD /* PSVR2Controller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0ED0C83E20088426A8401026 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2Controller.swift; sourceTree = "<group>"; };
+		461E1062B3962AE7DDD99273 /* PSVR2Gyro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PSVR2Gyro.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		69264866137391FFF73D2D71 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		7C0D944F62A7696169616814 /* GyroProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroProcessor.swift; sourceTree = "<group>"; };
+		9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2GyroApp.swift; sourceTree = "<group>"; };
+		B1CAE859D72F3378922F7505 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
+		F358F393D1578D77696C6D70 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		4E65986D30DC4B464B2F4A58 = {
+			isa = PBXGroup;
+			children = (
+				A4F71F056A1A63EC1B67D8E2 /* PSVR2Gyro */,
+				D7E962EDE5987C782187932A /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A4F71F056A1A63EC1B67D8E2 /* PSVR2Gyro */ = {
+			isa = PBXGroup;
+			children = (
+				69264866137391FFF73D2D71 /* AppState.swift */,
+				7C0D944F62A7696169616814 /* GyroProcessor.swift */,
+				F358F393D1578D77696C6D70 /* MenuBarView.swift */,
+				B1CAE859D72F3378922F7505 /* MouseController.swift */,
+				1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */,
+				9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */,
+				0ED0C83E20088426A8401026 /* SettingsView.swift */,
+			);
+			name = PSVR2Gyro;
+			path = Sources/PSVR2Gyro;
+			sourceTree = "<group>";
+		};
+		D7E962EDE5987C782187932A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				461E1062B3962AE7DDD99273 /* PSVR2Gyro.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		095AEE606C66F4A31D4C59AF /* PSVR2Gyro */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F9B53A35F0195B7B12A92D94 /* Build configuration list for PBXNativeTarget "PSVR2Gyro" */;
+			buildPhases = (
+				8DA59A1FE0A1A7362ED08573 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PSVR2Gyro;
+			packageProductDependencies = (
+			);
+			productName = PSVR2Gyro;
+			productReference = 461E1062B3962AE7DDD99273 /* PSVR2Gyro.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		50574B8BD25A20B5C39E7A4E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					095AEE606C66F4A31D4C59AF = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = B81B3AFE49786C4BFDDA7DFB /* Build configuration list for PBXProject "PSVR2Gyro" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4E65986D30DC4B464B2F4A58;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				095AEE606C66F4A31D4C59AF /* PSVR2Gyro */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8DA59A1FE0A1A7362ED08573 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				60D59DE415EC63B1823280BA /* AppState.swift in Sources */,
+				A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */,
+				8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */,
+				3544991E17CB20B0F04DC505 /* MouseController.swift in Sources */,
+				FB325B128C3D10B039511ADD /* PSVR2Controller.swift in Sources */,
+				1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */,
+				90BD5CABB59462AB17E31CCE /* SettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		6A63452A134875E4527F9314 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Resources/PSVR2Gyro.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.psvr2gyro.app;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		7CB657E5B10DE1F972A675CB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = PSVR2Gyro;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		A48ABBCF5A39B64AC56D7F5F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = PSVR2Gyro;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		C7F29DF989C7237147D18D11 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Resources/PSVR2Gyro.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.psvr2gyro.app;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B81B3AFE49786C4BFDDA7DFB /* Build configuration list for PBXProject "PSVR2Gyro" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7CB657E5B10DE1F972A675CB /* Debug */,
+				A48ABBCF5A39B64AC56D7F5F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F9B53A35F0195B7B12A92D94 /* Build configuration list for PBXNativeTarget "PSVR2Gyro" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C7F29DF989C7237147D18D11 /* Debug */,
+				6A63452A134875E4527F9314 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 50574B8BD25A20B5C39E7A4E /* Project object */;
+}
