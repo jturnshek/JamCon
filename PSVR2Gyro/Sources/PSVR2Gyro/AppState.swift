@@ -88,8 +88,8 @@ class AppState: ObservableObject {
         return .normal
     }
 
-    // Raw report data (full 78 bytes)
-    @Published var reportBytes: [UInt8] = Array(repeating: 0, count: 78)
+    // Raw report data (full report)
+    @Published var reportBytes: [UInt8] = Array(repeating: 0, count: PSVR2HIDProtocol.reportLength)
 
     /// Safe accessor for report bytes - returns 0 if index out of bounds
     func safeReportByte(_ index: Int) -> UInt8 {
@@ -97,15 +97,15 @@ class AppState: ObservableObject {
         return reportBytes[index]
     }
     @Published var reportLength: Int = 0
-    @Published var byteLastChanged: [Date] = Array(repeating: Date.distantPast, count: 78)
+    @Published var byteLastChanged: [Date] = Array(repeating: Date.distantPast, count: PSVR2HIDProtocol.reportLength)
 
-    // Bit-level tracking for button discovery (78 bytes * 8 bits)
-    @Published var bitLastChanged: [[Date]] = Array(repeating: Array(repeating: Date.distantPast, count: 8), count: 78)
+    // Bit-level tracking for button discovery (reportLength bytes * 8 bits)
+    @Published var bitLastChanged: [[Date]] = Array(repeating: Array(repeating: Date.distantPast, count: 8), count: PSVR2HIDProtocol.reportLength)
 
     // Throttling for UI updates
     private var lastUIUpdate: Date = .distantPast
     private let uiUpdateInterval: TimeInterval = 1.0 / 30.0  // 30 FPS for UI
-    private var pendingReportBytes: [UInt8] = Array(repeating: 0, count: 78)
+    private var pendingReportBytes: [UInt8] = Array(repeating: 0, count: PSVR2HIDProtocol.reportLength)
     private var pendingByteChanges: [Int: Date] = [:]
     private var pendingBitChanges: [(byte: Int, bit: Int, date: Date)] = []
 
@@ -120,13 +120,13 @@ class AppState: ObservableObject {
     }
 
     // Gyro axis offsets (for tuning)
-    @Published var gyroOffsetX: Int = 17 {
+    @Published var gyroOffsetX: Int = PSVR2HIDProtocol.Offset.gyroXLow {
         didSet { controller.gyroOffsetX = gyroOffsetX }
     }
-    @Published var gyroOffsetY: Int = 19 {
+    @Published var gyroOffsetY: Int = PSVR2HIDProtocol.Offset.gyroYLow {
         didSet { controller.gyroOffsetY = gyroOffsetY }
     }
-    @Published var gyroOffsetZ: Int = 21 {
+    @Published var gyroOffsetZ: Int = PSVR2HIDProtocol.Offset.gyroZLow {
         didSet { controller.gyroOffsetZ = gyroOffsetZ }
     }
 
@@ -146,6 +146,14 @@ class AppState: ObservableObject {
     }
 
     private func setupCallbacks() {
+        setupDebugCallback()
+        setupConnectionCallbacks()
+        setupGyroCallback()
+        setupIMUCallback()
+        setupReportCallback()
+    }
+
+    private func setupDebugCallback() {
         controller.onDebugMessage = { [weak self] message in
             Task { @MainActor in
                 self?.debugLog.append(message)
@@ -155,7 +163,9 @@ class AppState: ObservableObject {
                 self?.statusMessage = message
             }
         }
+    }
 
+    private func setupConnectionCallbacks() {
         controller.onConnectionChange = { [weak self] connected, name in
             Task { @MainActor in
                 self?.isConnected = connected
@@ -178,7 +188,9 @@ class AppState: ObservableObject {
                 }
             }
         }
+    }
 
+    private func setupGyroCallback() {
         controller.onGyroData = { [weak self] x, y, z, timestamp in
             guard let self = self else { return }
 
@@ -211,8 +223,9 @@ class AppState: ObservableObject {
                 self.reportCount += 1
             }
         }
+    }
 
-        // IMU callback for sensor fusion (gyro + accel combined)
+    private func setupIMUCallback() {
         controller.onIMUData = { [weak self] gyroX, gyroY, gyroZ, accelX, accelY, accelZ, timestamp in
             guard let self = self else { return }
 
@@ -226,7 +239,9 @@ class AppState: ObservableObject {
                 self.lastAccelZ = accelZ
             }
         }
+    }
 
+    private func setupReportCallback() {
         controller.onReportData = { [weak self] bytes, length in
             guard let self = self else { return }
 

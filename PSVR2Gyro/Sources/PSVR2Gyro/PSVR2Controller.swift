@@ -23,11 +23,11 @@ struct DiscoveredController: Identifiable, Equatable {
 /// Reads raw HID reports and extracts gyro data
 class PSVR2Controller {
 
-    // MARK: - Constants
+    // MARK: - Constants (use PSVR2HIDProtocol for shared constants)
 
-    private static let sonyVendorID = 0x054C
-    private static let psvr2LeftProductID = 0x0E45
-    private static let psvr2RightProductID = 0x0E46
+    private static let sonyVendorID = PSVR2HIDProtocol.sonyVendorID
+    private static let psvr2LeftProductID = PSVR2HIDProtocol.leftProductID
+    private static let psvr2RightProductID = PSVR2HIDProtocol.rightProductID
 
     // MARK: - Properties
 
@@ -69,17 +69,15 @@ class PSVR2Controller {
 
     // MARK: - IMU Decoding
 
-    // These offsets are experimental - we'll tune them based on testing
-    // Based on analysis, IMU data appears to be around bytes 17-30
-    // Gyroscope: bytes 17-22 (CONFIRMED)
-    var gyroOffsetX: Int = 17
-    var gyroOffsetY: Int = 19
-    var gyroOffsetZ: Int = 21
+    // Gyroscope: bytes 17-22 (CONFIRMED - see PSVR2HIDProtocol)
+    var gyroOffsetX: Int = PSVR2HIDProtocol.Offset.gyroXLow
+    var gyroOffsetY: Int = PSVR2HIDProtocol.Offset.gyroYLow
+    var gyroOffsetZ: Int = PSVR2HIDProtocol.Offset.gyroZLow
 
-    // Accelerometer: bytes 23-28 (CONFIRMED, ~4096/g)
-    var accelOffsetX: Int = 23
-    var accelOffsetY: Int = 25
-    var accelOffsetZ: Int = 27
+    // Accelerometer: bytes 23-28 (CONFIRMED, ~4096/g - see PSVR2HIDProtocol)
+    var accelOffsetX: Int = PSVR2HIDProtocol.Offset.accelXLow
+    var accelOffsetY: Int = PSVR2HIDProtocol.Offset.accelYLow
+    var accelOffsetZ: Int = PSVR2HIDProtocol.Offset.accelZLow
 
     /// Track how many devices we've seen
     private(set) var devicesScanned: Int = 0
@@ -304,8 +302,9 @@ class PSVR2Controller {
     // MARK: - Input Report Processing
 
     private func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
-        // Only process main input reports (0x31)
-        guard reportID == 0x31, length >= 40 else { return }
+        // Only process main input reports
+        guard reportID == PSVR2HIDProtocol.inputReportID,
+              length >= PSVR2HIDProtocol.minimumReportLength else { return }
 
         let timestamp = CACurrentMediaTime()
 
@@ -331,8 +330,8 @@ class PSVR2Controller {
         onIMUData?(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, timestamp)
 
         // Extract full report for debug display
-        var reportBytes = [UInt8](repeating: 0, count: 78)
-        for i in 0..<min(78, length) {
+        var reportBytes = [UInt8](repeating: 0, count: PSVR2HIDProtocol.reportLength)
+        for i in 0..<min(PSVR2HIDProtocol.reportLength, length) {
             reportBytes[i] = report[i]
         }
         onReportData?(reportBytes, length)
@@ -346,7 +345,7 @@ class PSVR2Controller {
     /// Send a raw output report to the controller
     /// Returns true if the report was sent successfully
     @discardableResult
-    func sendOutputReport(_ data: [UInt8], reportID: UInt8 = 0x31) -> Bool {
+    func sendOutputReport(_ data: [UInt8], reportID: UInt8 = PSVR2HIDProtocol.OutputReport.reportID) -> Bool {
         guard let device = activeDevice else {
             log("Cannot send output: no active device")
             return false
@@ -368,7 +367,7 @@ class PSVR2Controller {
         return true
     }
 
-    /// Build a DualSense-style Bluetooth output report (78 bytes)
+    /// Build a DualSense-style Bluetooth output report
     /// This is EXPERIMENTAL - PSVR2 Sense may use different format
     private func buildBTOutputReport(
         motorLeft: UInt8 = 0,
@@ -380,12 +379,12 @@ class PSVR2Controller {
         validFlags0: UInt8 = 0,
         validFlags1: UInt8 = 0
     ) -> [UInt8] {
-        var report = [UInt8](repeating: 0, count: 78)
+        var report = [UInt8](repeating: 0, count: PSVR2HIDProtocol.OutputReport.length)
 
         // Bluetooth header
         report[0] = outputSeqTag << 4  // Sequence tag in upper nibble
         outputSeqTag = (outputSeqTag + 1) & 0x0F
-        report[1] = 0x10  // Tag byte
+        report[1] = PSVR2HIDProtocol.OutputReport.tagByteValue
 
         // Common report structure starts at offset 2
         report[2] = validFlags0  // Valid flags 0
@@ -398,12 +397,12 @@ class PSVR2Controller {
         // Trigger effects would go here (bytes 11-21 for right, 22-32 for left)
 
         // LED settings (offset varies - trying DualSense offsets)
-        report[44] = 0x02  // Lightbar setup - enable
-        report[45] = 0x02  // LED brightness
-        report[46] = playerLEDs  // Player LEDs bitmask
-        report[47] = ledRed
-        report[48] = ledGreen
-        report[49] = ledBlue
+        report[PSVR2HIDProtocol.OutputReport.lightbarSetup] = 0x02  // Lightbar setup - enable
+        report[PSVR2HIDProtocol.OutputReport.ledBrightness] = 0x02  // LED brightness
+        report[PSVR2HIDProtocol.OutputReport.playerLEDs] = playerLEDs
+        report[PSVR2HIDProtocol.OutputReport.ledRed] = ledRed
+        report[PSVR2HIDProtocol.OutputReport.ledGreen] = ledGreen
+        report[PSVR2HIDProtocol.OutputReport.ledBlue] = ledBlue
 
         // CRC32 would go in bytes 74-77, but we'll try without first
 

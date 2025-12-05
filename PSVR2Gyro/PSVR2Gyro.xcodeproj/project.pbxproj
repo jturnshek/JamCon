@@ -21,15 +21,18 @@
 		8382FC5D5ECB7DB0A13DBC57 /* GyroDebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AE7D99A960616C5B74CB17 /* GyroDebugViews.swift */; };
 		8593D817D288745B442B46C9 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */; };
 		8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F358F393D1578D77696C6D70 /* MenuBarView.swift */; };
+		8B668672AB44630B18EA68E2 /* PSVR2HIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */; };
 		A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0D944F62A7696169616814 /* GyroProcessor.swift */; };
 		A0EA8BB51029D1783902AA4E /* ButtonsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953B2055C5B47244AE77056E /* ButtonsTab.swift */; };
 		A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */; };
+		ADEEEE8FF19BC569C3A63AFD /* BatteryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */; };
 		AE1A960E5C1AD7E04D4C5D88 /* DebugTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F713D09A4AD0DDDF693F4320 /* DebugTab.swift */; };
 		B3352B5D8C0DD0B41880CA3E /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */; };
 		B4E64456D08B8F44315CB341 /* LogTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD63314D6C110B20553D3C90 /* LogTab.swift */; };
 		C8362FD92B51994D5B0CAC7A /* ButtonMappingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079E91B184CDF891D5A15F40 /* ButtonMappingViews.swift */; };
 		D2F26DD1DE3373271EE5FB48 /* ButtonAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EB72E24A3172F56DE5AC6A /* ButtonAction.swift */; };
 		D9153EBBF9024EEB8ADE5D3F /* StatusIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA566CD4FBF183EA2AFA48A6 /* StatusIndicators.swift */; };
+		F64DC113CB942C24EAC8CDE1 /* SliderWithLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */; };
 		FB325B128C3D10B039511ADD /* PSVR2Controller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */; };
 		FE52C5775B836FB1372BE29E /* ControllerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6703F972821135CB1CC8D6C6 /* ControllerTab.swift */; };
 /* End PBXBuildFile section */
@@ -40,8 +43,11 @@
 		153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputIndicators.swift; sourceTree = "<group>"; };
 		1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2Controller.swift; sourceTree = "<group>"; };
 		20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseControlTab.swift; sourceTree = "<group>"; };
+		27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderWithLabel.swift; sourceTree = "<group>"; };
 		28AE7D99A960616C5B74CB17 /* GyroDebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroDebugViews.swift; sourceTree = "<group>"; };
+		3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2HIDProtocol.swift; sourceTree = "<group>"; };
 		461E1062B3962AE7DDD99273 /* PSVR2Gyro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PSVR2Gyro.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
 		6703F972821135CB1CC8D6C6 /* ControllerTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTab.swift; sourceTree = "<group>"; };
 		69264866137391FFF73D2D71 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		7C0D944F62A7696169616814 /* GyroProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroProcessor.swift; sourceTree = "<group>"; };
@@ -108,6 +114,7 @@
 		A4F71F056A1A63EC1B67D8E2 /* PSVR2Gyro */ = {
 			isa = PBXGroup;
 			children = (
+				A6DDF8264E69E94E46873EF2 /* Utilities */,
 				FB9C5477C28F14A2E7F15AEF /* Views */,
 				DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */,
 				69264866137391FFF73D2D71 /* AppState.swift */,
@@ -119,9 +126,18 @@
 				B1CAE859D72F3378922F7505 /* MouseController.swift */,
 				1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */,
 				9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */,
+				3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */,
 			);
 			name = PSVR2Gyro;
 			path = Sources/PSVR2Gyro;
+			sourceTree = "<group>";
+		};
+		A6DDF8264E69E94E46873EF2 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */,
+			);
+			path = Utilities;
 			sourceTree = "<group>";
 		};
 		D7E962EDE5987C782187932A /* Products */ = {
@@ -137,6 +153,7 @@
 			children = (
 				153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */,
 				B02DB0D20C8DA96C40FAD2A1 /* SharedComponents.swift */,
+				27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */,
 				AA566CD4FBF183EA2AFA48A6 /* StatusIndicators.swift */,
 			);
 			path = Components;
@@ -213,6 +230,7 @@
 			files = (
 				8593D817D288745B442B46C9 /* ActionExecutor.swift in Sources */,
 				60D59DE415EC63B1823280BA /* AppState.swift in Sources */,
+				ADEEEE8FF19BC569C3A63AFD /* BatteryHelper.swift in Sources */,
 				D2F26DD1DE3373271EE5FB48 /* ButtonAction.swift in Sources */,
 				521E885557B7E0BBF7DFF146 /* ButtonMapping.swift in Sources */,
 				C8362FD92B51994D5B0CAC7A /* ButtonMappingViews.swift in Sources */,
@@ -231,9 +249,11 @@
 				1512193F01393C7F3CB4EE20 /* OutputTestView.swift in Sources */,
 				FB325B128C3D10B039511ADD /* PSVR2Controller.swift in Sources */,
 				1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */,
+				8B668672AB44630B18EA68E2 /* PSVR2HIDProtocol.swift in Sources */,
 				2B2766F7C5A99674E46AC1DC /* SensorValidationViews.swift in Sources */,
 				621873D4E44DDECB264B423B /* SettingsView.swift in Sources */,
 				1E66660B33CC19683578D222 /* SharedComponents.swift in Sources */,
+				F64DC113CB942C24EAC8CDE1 /* SliderWithLabel.swift in Sources */,
 				D9153EBBF9024EEB8ADE5D3F /* StatusIndicators.swift in Sources */,
 				1D208477339776C070FD51A9 /* StickTab.swift in Sources */,
 			);

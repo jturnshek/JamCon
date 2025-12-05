@@ -9,12 +9,14 @@ struct ButtonsTab: View {
     private var isLeft: Bool { appState.isLeftController }
     private var side: String { isLeft ? "Left" : "Right" }
 
-    private var byte11: UInt8 { appState.safeReportByte(11) }
-    private var faceTopTouch: Bool { isLeft ? (byte11 & 0x01) != 0 : (byte11 & 0x04) != 0 }
+    private var byte11: UInt8 { appState.safeReportByte(PSVR2HIDProtocol.Offset.touchStates) }
+    private var faceTopTouch: Bool { isLeft ? (byte11 & 0x01) != 0 : (byte11 & PSVR2HIDProtocol.TouchStateMask.joystickTouch) != 0 }
     private var faceBottomTouch: Bool { (byte11 & 0x02) != 0 }
-    private var stickTouch: Bool { (byte11 & 0x04) != 0 }
+    private var stickTouch: Bool { (byte11 & PSVR2HIDProtocol.TouchStateMask.joystickTouch) != 0 }
 
-    private var batteryLevel: Int { Int(appState.safeReportByte(43) & 0x0F) * 10 }
+    private var batteryLevel: Int {
+        BatteryHelper.level(from: appState.safeReportByte(PSVR2HIDProtocol.Offset.battery))
+    }
 
     var body: some View {
         VStack(spacing: 0) {

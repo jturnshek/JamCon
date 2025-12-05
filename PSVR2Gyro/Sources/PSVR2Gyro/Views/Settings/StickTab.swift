@@ -9,7 +9,7 @@ struct StickTab: View {
     private var side: String { isLeft ? "Left" : "Right" }
 
     private var isStickTouched: Bool {
-        (appState.safeReportByte(11) & 0x04) != 0
+        (appState.safeReportByte(PSVR2HIDProtocol.Offset.touchStates) & PSVR2HIDProtocol.TouchStateMask.joystickTouch) != 0
     }
 
     var body: some View {
@@ -29,19 +29,19 @@ struct StickTab: View {
                     VStack(spacing: 12) {
                         HStack(spacing: 16) {
                             StickPositionIndicator(
-                                x: appState.safeReportByte(2),
-                                y: appState.safeReportByte(3),
+                                x: appState.safeReportByte(PSVR2HIDProtocol.Offset.joystickX),
+                                y: appState.safeReportByte(PSVR2HIDProtocol.Offset.joystickY),
                                 isPressed: appState.buttonStates[.stickClick] ?? false
                             )
 
                             VStack(spacing: 8) {
                                 StickAxisRow(
                                     name: "X",
-                                    value: appState.safeReportByte(2)
+                                    value: appState.safeReportByte(PSVR2HIDProtocol.Offset.joystickX)
                                 )
                                 StickAxisRow(
                                     name: "Y",
-                                    value: appState.safeReportByte(3)
+                                    value: appState.safeReportByte(PSVR2HIDProtocol.Offset.joystickY)
                                 )
                             }
                         }
