@@ -73,20 +73,20 @@ class GyroProcessor {
         // Apply bias correction
         let calibratedX = x - biasX
         let calibratedY = y - biasY
-        let calibratedZ = z - biasZ
+        _ = z - biasZ  // Z (roll) not used for mouse control
 
         // Convert to degrees/second
-        _ = calibratedX * gyroScale  // X not used for 2D mouse
+        // Based on testing: Y axis = left/right pointing, X axis = up/down tilting, Z = roll (ignored)
+        let degreesX = calibratedX * gyroScale
         let degreesY = calibratedY * gyroScale
-        let degreesZ = calibratedZ * gyroScale
 
         // Apply smoothing
-        smoothedX = smoothingFactor * degreesZ + (1 - smoothingFactor) * smoothedX  // Z = yaw
-        smoothedY = smoothingFactor * degreesY + (1 - smoothingFactor) * smoothedY  // Y = pitch
+        smoothedX = smoothingFactor * degreesY + (1 - smoothingFactor) * smoothedX  // Y → horizontal
+        smoothedY = smoothingFactor * degreesX + (1 - smoothingFactor) * smoothedY  // X → vertical
 
         // Apply deadzone
-        var yaw = smoothedX
-        var pitch = -smoothedY  // Invert for natural direction
+        var yaw = -smoothedX    // Invert for natural left/right direction
+        var pitch = -smoothedY  // Invert for natural up/down direction
 
         if abs(yaw) < deadzone { yaw = 0 }
         if abs(pitch) < deadzone { pitch = 0 }

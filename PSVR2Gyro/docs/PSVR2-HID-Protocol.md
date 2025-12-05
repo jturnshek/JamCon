@@ -23,14 +23,20 @@ This document describes the HID report structure for the PlayStation VR2 Sense C
 | 2 | Joystick X | Analog position |
 | 3 | Joystick Y | Analog position |
 | 4 | Primary Trigger | Analog + digital |
-| 5 | Trigger Capacitive | Touch sensor on trigger |
-| 6-8 | Unknown | |
+| 5 | Trigger Proximity | Proximity sensor on trigger (0-255, detects finger before touch) |
+| 6 | Grip Capacitive | Touch sensor on grip (0-255) |
+| 7-8 | Unknown | |
 | 9 | Face Buttons | Circle, X, Grip (bit-packed) |
 | 10 | System Buttons | Joystick click, Start/Share, PlayStation button |
-| 11 | Joystick Capacitive | Touch sensor on joystick |
+| 11 | Touch States | Bit-packed: Joystick touch (bit 2), Grip touch (bit 3) |
 | 12-16 | Unknown | |
-| 17-30 | IMU Data | Accelerometer + Gyroscope (constantly changing) |
-| 31-77 | Unknown | May include additional sensors, battery, etc. |
+| **17-22** | **Gyroscope** | **CONFIRMED: 3× signed Int16 LE (X, Y, Z)** |
+| **23-28** | **Accelerometer** | **CONFIRMED: 3× signed Int16 LE (X, Y, Z), ~4096/g** |
+| 29-30 | Unknown | Part of IMU cluster |
+| 31-42 | Unknown | |
+| **43** | **Battery Level** | **CONFIRMED: Lower nibble × 10 = percentage (0-100%)** |
+| 44 | Unknown | Possibly charger-related |
+| 45-77 | Unknown | May include additional sensors |
 
 ### Byte 4 - Trigger (R2)
 
@@ -40,41 +46,92 @@ Analog value: 0-255 (0x00-0xFF)
 
 ### Byte 9 - Face Buttons (Bit-packed)
 
-| Bit | Mask | Button |
-|-----|------|--------|
-| 5 | 0x20 | Grip (R1) |
-| 2 | 0x04 | Circle |
-| 1 | 0x02 | X |
+Buttons differ by controller side:
+
+| Bit | Mask | Right Controller | Left Controller |
+|-----|------|------------------|-----------------|
+| 0 | 0x01 | - | Square |
+| 1 | 0x02 | X | - |
+| 2 | 0x04 | Circle | - |
+| 3 | 0x08 | - | Triangle |
+| 4 | 0x10 | - | Grip (L1) |
+| 5 | 0x20 | Grip (R1) | - |
 
 ### Byte 10 - System Buttons (Bit-packed)
 
-| Bit | Mask | Button |
-|-----|------|--------|
-| 1 | 0x02 | Start/Options |
-| ? | ? | Joystick Click (L3/R3) |
-| ? | ? | PlayStation |
+Buttons differ by controller side:
+
+| Bit | Mask | Right Controller | Left Controller |
+|-----|------|------------------|-----------------|
+| 0 | 0x01 | - | Create |
+| 1 | 0x02 | Options | - |
+| 2 | 0x04 | - | L3 (Stick Click) |
+| 3 | 0x08 | R3 (Stick Click) | - |
+| 4 | 0x10 | PlayStation ⚠️ | PlayStation ⚠️ |
 
 Note: Values are additive when multiple buttons pressed.
 
-**Warning**: The PlayStation button triggers Apple Arcade on macOS. This may require system-level handling or may be incompatible with our use case.
+**Warning**: The PlayStation button (0x10) triggers Apple Arcade on macOS. The HID report shows the button press, but macOS also intercepts it at the system level.
 
-### Bytes 17-30 - IMU Data
+### Bytes 17-28 - IMU Data (CONFIRMED)
 
-The gyroscope data is read as signed 16-bit little-endian integers:
-- Gyro X: Bytes 17-18
-- Gyro Y: Bytes 19-20
-- Gyro Z: Bytes 21-22
-- Accelerometer data likely in bytes 23-30
+The IMU data is encoded as signed 16-bit little-endian integers:
 
-These bytes change constantly and are used for motion/pointing control.
+#### Gyroscope (Bytes 17-22) - CONFIRMED
 
-### Capacitive Sensors
+| Bytes | Axis | Notes |
+|-------|------|-------|
+| 17-18 | X | Angular velocity |
+| 19-20 | Y | Angular velocity |
+| 21-22 | Z | Angular velocity |
 
-The PSVR2 Sense Controller has capacitive touch sensors:
-- **Byte 5**: Trigger finger presence detection
-- **Byte 11**: Thumb presence on joystick
+**Validation:** At rest, gyroscope values read near zero (typically -5 to +5).
 
-These detect whether the user is touching the control without necessarily pressing it.
+#### Accelerometer (Bytes 23-28) - CONFIRMED
+
+| Bytes | Axis | Notes |
+|-------|------|-------|
+| 23-24 | X | Linear acceleration |
+| 25-26 | Y | Linear acceleration |
+| 27-28 | Z | Linear acceleration |
+
+**Scaling:** ~4096 per g (different from DualSense which uses ~8192/g)
+
+**Validation:** At rest on a flat surface, one axis shows ~4000 (gravity), others near zero. Flipping the controller inverts the gravity axis sign.
+
+Example readings:
+- Controller upright: Z ≈ -3120 (gravity pointing down)
+- Controller flipped: Z ≈ +3880 (gravity pointing up)
+
+These bytes are used for motion/pointing control.
+
+### Capacitive / Proximity Sensors
+
+The PSVR2 Sense Controller has capacitive and proximity sensors:
+- **Byte 5**: Trigger proximity (0-255) - Can detect finger before touching
+- **Byte 6**: Grip capacitive (0-255) - How much of the grip is covered
+- **Byte 11**: Binary touch states (bit-packed)
+  - Bit 2 (0x04): Joystick touch
+  - Bit 3 (0x08): Grip touch
+
+Bytes 5 and 6 are analog values. Byte 11 is digital on/off states.
+
+### Byte 43 - Battery Level (CONFIRMED)
+
+The battery level is encoded in the lower nibble of byte 43:
+
+```
+Battery % = (byte43 & 0x0F) × 10
+```
+
+| Lower Nibble | Battery Level |
+|--------------|---------------|
+| 0x00 | 0% |
+| 0x05 | 50% |
+| 0x09 | 90% |
+| 0x0A | 100% |
+
+The upper nibble (byte43 >> 4) may contain charging status flags, but this is unconfirmed.
 
 ## Byte Activity Observations
 
@@ -98,22 +155,20 @@ Even when the controller is stationary, these bytes continue to change:
 
 ### Analysis
 
-**Movement-only bytes** (change when moving, stable when still):
-- 17, 18, 20, 22, 24, 26, 28
-- These are likely **accelerometer** data (responds to physical movement/gravity changes)
+**IMU Layout (CONFIRMED):**
+- Bytes 17-22: **Gyroscope** (angular velocity, near-zero at rest)
+- Bytes 23-28: **Accelerometer** (shows gravity ~4096/g at rest)
 
-**Always-noisy bytes** (change even when still):
-- 1, 13, 19, 21, 23, 25, 27, 29, 30, 31, 33
-- 49, 50, 51, 57, 58, 59, 60, 61, 62, 63, 64
-- 74, 75, 76, 77
-- These likely include **gyroscope** data (has inherent drift/noise) and possibly other sensors
+**Byte Activity Explanation:**
+- The gyroscope bytes (17-22) show slight noise/drift even at rest due to sensor characteristics
+- The accelerometer bytes (23-28) show stable gravity readings when still, change with movement
+- Other noisy bytes (49-64, 74-77) may be a second IMU or other sensors
 
 **Observations:**
 - Byte 1: Possibly a sequence counter or timestamp
 - Byte 13: Unknown - always noisy
-- Bytes 17-31: IMU cluster (mix of accel/gyro)
 - Bytes 49-51, 57-64: Unknown sensor cluster - possibly second IMU or other sensors
-- Bytes 74-77: Unknown - tail of report, possibly checksums or additional sensor data
+- Bytes 74-77: Unknown - possibly checksums (CRC32 claim not confirmed)
 - Byte 33: Only appears in "still" list - may be touch/capacitive related
 
 **Static bytes** (never change - reserved/unused):
@@ -125,30 +180,25 @@ Even when the controller is stationary, these bytes continue to change:
 These are likely padding, reserved for future use, or features only active when connected to the VR headset.
 
 **Active input bytes** (confirmed button/analog input):
-- 2, 3: Joystick X/Y
-- 4: Trigger analog
-- 5: Trigger capacitive
-- 6: Unknown (possibly grip analog?)
-- 9: Face buttons (Circle, X, Grip)
-- 10: System buttons (Joystick click, Start, PS)
-- 11: Joystick capacitive
+- 2, 3: Joystick X/Y (0-255, center ~128)
+- 4: Trigger analog (0-255)
+- 5: Trigger proximity (0-255, detects finger before touch)
+- 6: Grip capacitive (0-255)
+- 9: Face buttons (Circle bit 2, X bit 1, Grip bit 5)
+- 10: System buttons (Joystick click bit 3, Start bit 1, PS bit 4)
+- 11: Touch states (Joystick bit 2, Grip bit 3)
 
-### Periodic/Pulsing Bytes
+### Connection Timer Bytes
 
-Some bytes pulse at regular intervals rather than changing continuously:
+Some bytes increment slowly and reset when Bluetooth reconnects:
 
-| Byte | Pulse Rate | Possible Function |
-|------|------------|-------------------|
-| 14 | Every few seconds | Battery status? Heartbeat? |
-| 32 | Every few seconds | Status/sync signal? |
-| 52 | Every few seconds | Status/sync signal? |
-| 17 | ~1 Hz (once per second) | Timing signal? Low-frequency sensor? |
+| Byte | Initial Value | Notes |
+|------|---------------|-------|
+| 14 | ~48 | Increments slowly, starts at offset |
+| 32 | 0 | Increments from 0 on connection |
+| 52 | 0 | Increments from 0 on connection |
 
-These periodic bytes likely represent:
-- Battery level updates
-- Connection keepalive/heartbeat signals
-- Temperature or other slow-changing sensors
-- Timing synchronization data
+These are likely connection uptime counters or session timers, not battery status.
 
 ## Known Issues
 
@@ -157,13 +207,31 @@ These periodic bytes likely represent:
    - Disabling the Apple Arcade shortcut
    - Accepting this button is unavailable
 
+2. **Output Reports (Haptics/LEDs)**: DualSense-style output reports do not work over Bluetooth. The PSVR2 Sense controllers may require USB connection or different report format for bidirectional communication.
+
+## Unconfirmed Claims (from other projects)
+
+The following claims from PSVR2-controller-explorer and similar projects were tested but **NOT confirmed**:
+
+| Claim | Bytes | Result |
+|-------|-------|--------|
+| CRC32 checksum | 74-77 | Never matched computed CRC |
+| Trigger feedback motor | 41 | No activity observed |
+| Adaptive trigger mode | 42 | No activity observed |
+| Haptic output reports | - | No effect over Bluetooth |
+| LED control | - | No effect over Bluetooth |
+
+These features may only work when connected via USB or to the VR headset.
+
 ## TODO
 
 - [ ] Determine exact bit positions for buttons in bytes 9 and 10
-- [ ] Map accelerometer data bytes
+- [x] Map accelerometer data bytes - **CONFIRMED at bytes 23-28**
+- [x] Map gyroscope data bytes - **CONFIRMED at bytes 17-22**
 - [ ] Investigate bytes 31-77 for additional features
 - [ ] Test with both left and right controllers
 - [ ] Document any differences between left/right controller reports
+- [ ] Investigate output reports for haptics/LEDs (not working over Bluetooth)
 
 ## References
 

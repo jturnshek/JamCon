@@ -49,6 +49,34 @@ class MouseController {
         event.post(tap: .cghidEventTap)
     }
 
+    // MARK: - Scroll
+
+    /// Scroll the content under the cursor
+    /// - Parameters:
+    ///   - dx: Horizontal scroll amount (positive = right)
+    ///   - dy: Vertical scroll amount (positive = down)
+    func scroll(dx: CGFloat, dy: CGFloat) {
+        // Scale factor to make scroll feel natural
+        // Gyro values are in screen pixels, scroll needs smaller values
+        let scrollScale: CGFloat = 0.5
+
+        let scrollX = Int32(dx * scrollScale)
+        let scrollY = Int32(-dy * scrollScale)  // Negate: positive dy = tilt down = scroll content up
+
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: Self.eventSource,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: scrollY,  // Vertical scroll
+            wheel2: scrollX,  // Horizontal scroll
+            wheel3: 0
+        ) else {
+            return
+        }
+
+        event.post(tap: .cghidEventTap)
+    }
+
     // MARK: - Helpers
 
     private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
