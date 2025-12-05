@@ -12,162 +12,274 @@ VR controllers solve the core problems with consumer air mice:
 4. **Good ergonomics** - Designed for extended use
 5. **Rich inputs** - Triggers, thumbsticks, buttons, touchpads
 
-## Paths Explored
+## Requirements for Our Use Case
 
-| Path | Status | Pros | Cons |
-|------|--------|------|------|
-| [Index + Lighthouse](#valve-index--lighthouse) | Available now | Best tracking, proven | Needs base station, expensive |
-| [Steam Frame Controllers](#steam-frame-controllers) | Q1 2026 | Gamepad layout, modern | Not released yet |
-
----
-
-## Valve Index + Lighthouse
-
-Use Index "Knuckles" controllers with Lighthouse base stations and libsurvive.
-
-### How It Works
-
-```
-Base Station (wall) ──IR laser sweeps──► Index Controller (hand)
-                                              │
-        No PC connection needed               │ 2.4GHz wireless
-        Just emits IR light                   │
-                                              ▼
-                                         USB Dongle ──► Mac
-```
-
-- Base stations emit IR laser sweeps (standalone, just need power)
-- Controller photodiodes detect sweeps, calculate position
-- Controller sends pose + inputs via 2.4GHz to USB dongle
-- **libsurvive** reads from dongle without SteamVR
-
-### Sensors
-
-| Sensor | Purpose | Rate |
-|--------|---------|------|
-| Gyroscope | Fast rotation tracking | ~1000Hz |
-| Accelerometer | Gravity reference | ~1000Hz |
-| Lighthouse photodiodes | Absolute position | ~60-120Hz |
-
-Sensor fusion combines all three: IMU provides fast response, Lighthouse corrects drift.
-
-### Software Stack
-
-- [libsurvive](https://github.com/collabora/libsurvive) - Open source Lighthouse tracking (no SteamVR needed)
-- Custom app to convert pose → mouse input
-- Or: SteamVR + Steam Input for gyro-to-mouse
-
-### Hardware Required
-
-| Item | New Price | Used Price | Notes |
-|------|-----------|------------|-------|
-| Base Station 2.0 | $150 | ~$100 | Only 1 needed for basic tracking |
-| Index Controller (single) | N/A (pairs only) | ~$100-150 | Either hand works |
-| USB Dongle | Included | Included | Comes with controller |
-
-**Total: ~$200-300 used**
-
-### Purchasing
-
-- **eBay**: [Index Controllers](https://www.ebay.com/shop/valve-index-controller) - Single controllers available
-- **Tundra Labs**: [Refurbished accessories](https://tundra-labs.com/collections/valve-index-accessories)
-- **r/hardwareswap**: Community marketplace
-
-### Index Controller Inputs
-
-- Trigger (analog)
-- Grip (force-sensing)
-- Thumbstick (clickable)
-- A/B buttons
-- System button
-- Trackpad (touch + click)
-- Finger tracking (capacitive)
-
-### Considerations
-
-- **Pro**: Sub-millimeter tracking, no drift, excellent build quality
-- **Pro**: Finger tracking for additional input possibilities
-- **Con**: Requires line-of-sight to base station
-- **Con**: Not portable (fixed room setup)
-- **Con**: Index discontinued, prices may rise as Steam Frame releases
+| Requirement | Must Have | Nice to Have |
+|-------------|-----------|--------------|
+| Internal IMU (gyro + accel) | Yes | - |
+| Works without VR headset | Yes | - |
+| Connects to PC via dongle/Bluetooth | Yes | - |
+| Exposes gyro data to software | Yes | - |
+| Standard/remappable buttons | Yes | - |
+| Low latency | Yes | - |
+| Good ergonomics for one-handed use | - | Yes |
+| Positional tracking (6DoF) | - | Yes |
+| Finger tracking | - | Yes |
 
 ---
 
-## Steam Frame Controllers
+## Controller Evaluation
 
-Valve's next-generation VR controllers, announced November 2025, launching Q1 2026.
+### ✅ VIABLE - Works for Our Use Case
 
-### Key Features
+#### Valve Index Controllers ("Knuckles")
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (Lighthouse) + IMU |
+| **Connection** | 2.4GHz USB dongle |
+| **Works without headset** | ✅ Yes, via libsurvive |
+| **IMU** | Gyro + Accel (sensor fusion) |
+| **Inputs** | Trigger, grip, thumbstick, A/B, trackpad, finger tracking |
+| **Price** | ~$100-150 used (single) |
+| **Software** | libsurvive (open source) |
+| **Notes** | Requires Lighthouse base station (~$100-150) for 6DoF. Gyro works standalone. |
 
-- **Designed for non-VR games** - Full gamepad layout (D-pad, ABXY, thumbsticks, triggers)
-- **6-DOF tracking** - Via headset cameras (inside-out tracking)
-- **Internal IMU** - Gyro + accelerometer for sensor fusion
-- **Magnetic thumbsticks** - Resistant to drift
-- **Capacitive finger sensing**
-- **40-hour battery** - AA batteries
-- **Four programmable grip buttons**
+#### HTC Vive Wand Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (Lighthouse) + IMU |
+| **Connection** | 2.4GHz USB dongle |
+| **Works without headset** | ✅ Yes, via libsurvive |
+| **IMU** | Gyro + Accel |
+| **Inputs** | Trigger, grip, trackpad, menu buttons |
+| **Price** | ~$50-80 used (single) |
+| **Software** | libsurvive (open source) |
+| **Notes** | Older design, less ergonomic. Cheaper than Index. |
 
-### Form Factor
+#### Vive Tracker (Puck)
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (Lighthouse) + IMU |
+| **Connection** | 2.4GHz USB dongle or USB direct |
+| **Works without headset** | ✅ Yes, via libsurvive |
+| **IMU** | Gyro + Accel |
+| **Inputs** | None (tracking only) |
+| **Price** | ~$80-130 |
+| **Software** | libsurvive, ROS packages |
+| **Notes** | No buttons - would need to attach to custom grip with buttons. Good for robotics/DIY. |
 
-```
-      ┌─────────────┐
-      │   D-pad /   │  ← Left: D-pad + thumbstick
-      │   ABXY      │  ← Right: ABXY + thumbstick
-      │  thumbstick │
-      │   ◉    ◉    │  ← Triggers underneath
-      └──────┬──────┘
-             │
-             │  ← Grip handle (wand-style)
-             │
-             └
-```
+#### Tundra Tracker
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (Lighthouse) + IMU |
+| **Connection** | 2.4GHz USB dongle |
+| **Works without headset** | ✅ Yes, via libsurvive |
+| **IMU** | Gyro + Accel (18 optical sensors) |
+| **Inputs** | None (tracking only) |
+| **Price** | ~$100 |
+| **Software** | libsurvive, SteamVR |
+| **Notes** | Smaller than Vive Tracker. 9-hour battery. No buttons. |
 
-Ergonomic "lollipop" shape - perfect for one-handed wand use.
+#### Pimax Sword Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (Lighthouse) + IMU |
+| **Connection** | 2.4GHz (SteamVR compatible) |
+| **Works without headset** | ✅ Yes, via libsurvive (likely) |
+| **IMU** | Gyro + Accel |
+| **Inputs** | Trigger, grip, thumbstick, buttons |
+| **Price** | ~$269 (often out of stock) |
+| **Software** | SteamVR, likely libsurvive |
+| **Notes** | Compatible with Lighthouse ecosystem. Limited availability. |
 
-### For Desktop Use (Speculation)
-
-If Steam Frame controllers work like Steam Controller:
-
-1. Connect via 2.4GHz USB dongle (likely included or sold separately)
-2. Appear as standard gamepad to system
-3. Gyro exposed via Steam Input
-4. Use JoyShockMapper or Steam Input for gyro-to-mouse
-
-**This would be ideal** - standard gamepad with high-quality gyro, no weird button mappings, Valve's proven gyro implementation.
-
-### Unknown Factors
-
-- Will controllers be sold separately?
-- Will they work without the headset for 6DOF? (Probably not - inside-out tracking needs headset cameras)
-- Will gyro work standalone? (Almost certainly yes - IMU is onboard)
-- Price?
-
-### Recommendation
-
-**Wait for Q1 2026 launch details.** If controllers work standalone with gyro, this is likely the cleanest solution.
+#### etee Controllers (3DoF mode)
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 3DoF (IMU only) or 6DoF (with Lighthouse) |
+| **Connection** | USB dongle |
+| **Works without headset** | ✅ Yes, in 3DoF mode |
+| **IMU** | Gyro + Accel |
+| **Inputs** | Finger tracking, configurable thumbpad (trackpad/joystick/D-pad) |
+| **Price** | ~$300-400 (kit) |
+| **Software** | eteeConnect, SteamVR |
+| **Notes** | Button-free design with full finger tracking. Can work standalone for "virtual mouse" use case. |
 
 ---
 
-## Comparison
+### ⏳ UPCOMING - Potentially Viable
 
-| Factor | Index + Lighthouse | Steam Frame | DIY Gyro Wand |
-|--------|-------------------|-------------|---------------|
-| **Availability** | Now (used) | Q1 2026 | Build yourself |
-| **Cost** | ~$200-300 | TBD | ~$84 |
-| **Tracking** | 6DOF (optical + IMU) | 6DOF w/ headset, 3DOF without | 3DOF (gyro only) |
-| **Drift** | None (optical corrects) | None w/ headset, minimal w/o | Needs recalibration |
-| **Portability** | Fixed room | Unknown | Anywhere |
-| **Inputs** | Excellent | Excellent (gamepad layout) | Custom |
-| **Software** | libsurvive + custom | Steam Input (likely) | Custom firmware |
-| **Setup Complexity** | Medium (mount base station) | Low (expected) | High (build + code) |
+#### Steam Frame Controllers (Q1 2026)
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) + IMU |
+| **Connection** | Likely 2.4GHz dongle for non-VR use |
+| **Works without headset** | ⏳ Unknown - likely yes for gyro/3DoF |
+| **IMU** | Gyro + Accel (confirmed) |
+| **Inputs** | D-pad, ABXY, thumbstick, triggers, bumpers, grip buttons |
+| **Price** | TBD |
+| **Software** | Steam Input (expected) |
+| **Notes** | Designed explicitly for non-VR games. Best button layout. Wait for launch details. |
 
 ---
 
-## Next Steps
+### ❌ NOT VIABLE - Doesn't Meet Requirements
 
-1. **Monitor Steam Frame launch** (Q1 2026) for controller standalone functionality
-2. **Consider Index controller** if immediate solution needed
-3. **Continue DIY wand** as fallback / portable option
+#### Meta Quest Controllers (Touch, Touch Plus)
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset cameras) |
+| **Connection** | Bluetooth to headset only |
+| **Works without headset** | ❌ No |
+| **IMU** | Gyro + Accel (but not exposed standalone) |
+| **Why Not** | Controllers pair to headset via Bluetooth. Headset cameras required for tracking. No PC dongle mode. Cannot access gyro data without headset. |
+
+#### Meta Quest Pro Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (self-tracking via onboard cameras) |
+| **Connection** | Bluetooth to headset |
+| **Works without headset** | ❌ No (pairs to headset only) |
+| **IMU** | Gyro + Accel |
+| **Why Not** | Despite self-tracking capability, still requires headset pairing. No standalone PC mode. |
+
+#### Pico 4 Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) |
+| **Connection** | Bluetooth to headset |
+| **Works without headset** | ❌ No |
+| **IMU** | Gyro + Accel |
+| **Why Not** | Same as Quest - requires headset cameras for tracking, pairs to headset only. |
+
+#### PlayStation VR2 Sense Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) |
+| **Connection** | Bluetooth |
+| **Works without headset** | ❌ No (requires SteamVR + PSVR2 headset) |
+| **IMU** | 6-axis (3-axis gyro, 3-axis accel) |
+| **Why Not** | Can pair via Bluetooth to PC but requires full VR stack. Gyro not exposed as gamepad input. Pairing issues reported. |
+
+#### Windows Mixed Reality Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) |
+| **Connection** | Bluetooth 4.0 |
+| **Works without headset** | ❌ No (tracking requires headset cameras) |
+| **IMU** | Gyro + Accel (used when out of camera view) |
+| **Why Not** | Requires headset for positional tracking. Platform deprecated by Microsoft (removed in Windows 11 24H2). No standalone gyro access. |
+
+#### HTC Vive Focus 3 Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out, needs headset) |
+| **Connection** | Proprietary to headset |
+| **Works without headset** | ❌ No |
+| **IMU** | Gyro + Accel |
+| **Why Not** | Enterprise standalone headset - controllers only work with Focus 3 headset. |
+
+#### HTC Vive XR Elite Controllers
+| Attribute | Value |
+|-----------|-------|
+| **Tracking** | 6DoF (inside-out) |
+| **Connection** | Proprietary to headset |
+| **Works without headset** | ❌ No |
+| **IMU** | Gyro + Accel |
+| **Why Not** | Controllers designed for XR Elite headset only. No standalone mode. |
+
+---
+
+## Summary Comparison
+
+| Controller | Standalone Gyro? | 6DoF without Headset? | Has Buttons? | Price (used) | Recommended? |
+|------------|------------------|----------------------|--------------|--------------|--------------|
+| **Valve Index** | ✅ | ✅ (needs base station) | ✅ Excellent | ~$100-150 | ⭐ **Best Option** |
+| **HTC Vive Wand** | ✅ | ✅ (needs base station) | ✅ Good | ~$50-80 | ✅ Budget option |
+| **Vive Tracker** | ✅ | ✅ (needs base station) | ❌ None | ~$80-130 | For DIY only |
+| **Tundra Tracker** | ✅ | ✅ (needs base station) | ❌ None | ~$100 | For DIY only |
+| **Pimax Sword** | ✅ | ✅ (needs base station) | ✅ Good | ~$269 | Limited availability |
+| **etee** | ✅ | Optional | ✅ Finger tracking | ~$300-400 | Unique but expensive |
+| **Steam Frame** | ⏳ TBD | ❌ (needs headset) | ✅ Excellent | TBD | Wait for Q1 2026 |
+| Meta Quest | ❌ | ❌ | ✅ | N/A | **Not viable** |
+| Pico 4 | ❌ | ❌ | ✅ | N/A | **Not viable** |
+| PSVR2 Sense | ❌ | ❌ | ✅ | N/A | **Not viable** |
+| WMR | ❌ | ❌ | ✅ | N/A | **Not viable** (deprecated) |
+
+---
+
+## Recommendations
+
+### Best Overall: Valve Index Controller + Lighthouse
+- **Why**: Proven ecosystem, excellent ergonomics, finger tracking, works with libsurvive
+- **Cost**: ~$200-300 total (1 controller + 1 base station, used)
+- **Tradeoff**: Requires base station setup, not portable
+
+### Best Budget: HTC Vive Wand + Lighthouse
+- **Why**: Cheaper, same ecosystem, libsurvive support
+- **Cost**: ~$150-200 total (1 wand + 1 base station, used)
+- **Tradeoff**: Less ergonomic, older design
+
+### Best Potential: Steam Frame Controller (Wait for Q1 2026)
+- **Why**: Designed for non-VR, excellent button layout, Valve gyro implementation
+- **Cost**: TBD
+- **Tradeoff**: Not released yet, may require headset for full functionality
+
+### For DIY Projects: Vive/Tundra Tracker
+- **Why**: Pure tracking puck, attach to custom hardware
+- **Cost**: ~$100 + custom grip/buttons
+- **Tradeoff**: No built-in buttons
+
+---
+
+## Key Insight: Inside-Out vs Outside-In Tracking
+
+**Inside-Out (Quest, Pico, WMR, PSVR2):**
+- Cameras on headset track controllers
+- Controllers cannot work without headset
+- ❌ Not viable for our use case
+
+**Outside-In / Lighthouse (Index, Vive, Pimax):**
+- External base stations emit IR
+- Controllers track themselves using photodiodes
+- Controllers connect directly to PC via dongle
+- ✅ Works without headset via libsurvive
+
+This is the key differentiator. Only Lighthouse-based controllers can work standalone.
+
+---
+
+## Software Stack for Viable Controllers
+
+### libsurvive (Recommended)
+- Open source Lighthouse tracking
+- Works without SteamVR
+- Provides pose data + button inputs
+- GitHub: [collabora/libsurvive](https://github.com/collabora/libsurvive)
+
+### SteamVR + Steam Input
+- Official Valve stack
+- Gyro-to-mouse via Steam Input
+- Requires SteamVR running
+
+### Custom Integration
+- Read from libsurvive
+- Convert pose → mouse movement
+- Map buttons → clicks/actions
+- Similar to existing JamCon InputProcessor
+
+---
+
+## Hardware Sources
+
+| Item | Where to Buy |
+|------|--------------|
+| Index Controller (single) | [eBay](https://www.ebay.com/shop/valve-index-controller), r/hardwareswap |
+| Vive Wand | [eBay](https://www.ebay.com/sch/i.html?_nkw=htc+vive+controller), [Amazon](https://www.amazon.com/HTC-Vive-Controller-PC/dp/B01LYELB1S) |
+| Base Station 2.0 | [Steam Store](https://store.steampowered.com/app/1059570/Valve_Index_Base_Station/), eBay |
+| Vive Tracker | [Vive Store](https://www.vive.com/us/accessory/tracker3/), eBay |
+| Tundra Tracker | [Tundra Labs](https://tundra-labs.com/) |
+| SteamVR Dongle | [VRDongles](https://vrdongles.com/), [Tundra Labs](https://tundra-labs.com/products/steamvr-dongle) |
+| etee Controllers | [eteexr.com](https://eteexr.com/products/etee-steamvr) |
 
 ---
 
@@ -175,9 +287,11 @@ If Steam Frame controllers work like Steam Controller:
 
 - [libsurvive - GitHub](https://github.com/collabora/libsurvive)
 - [Valve Index Controllers](https://www.valvesoftware.com/en/index/controllers)
-- [Steam Frame Announcement - PC Gamer](https://www.pcgamer.com/hardware/vr-hardware/steam-frame-specs-availability/)
-- [Steam Frame Controllers - UploadVR](https://www.uploadvr.com/valve-steam-frame-official-announcement-features-details/)
-- [How to Use Vive Tracker Without Headset - Road to VR](https://www.roadtovr.com/how-to-use-the-htc-vive-tracker-without-a-vive-headset/)
+- [Steam Frame Announcement](https://www.pcgamer.com/hardware/vr-hardware/steam-frame-specs-availability/)
+- [VRDongles - SteamVR Dongles](https://vrdongles.com/)
+- [Tundra Labs](https://tundra-labs.com/)
+- [etee Controllers](https://eteexr.com/)
+- [Road to VR - Vive Tracker Without Headset](https://www.roadtovr.com/how-to-use-the-htc-vive-tracker-without-a-vive-headset/)
 
 ---
 
@@ -186,3 +300,4 @@ If Steam Frame controllers work like Steam Controller:
 | Date | Change |
 |------|--------|
 | 2025-12-04 | Initial exploration document |
+| 2025-12-04 | Added comprehensive controller evaluation |
