@@ -3,7 +3,18 @@ import IOKit
 import IOKit.hid
 import QuartzCore
 
-/// Represents a discovered PSVR2 controller
+/// UI-safe controller info (no IOHIDDevice reference - safe for SwiftUI)
+struct ControllerInfo: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let productID: Int
+
+    var isLeft: Bool { productID == 0x0E45 }
+    var isRight: Bool { productID == 0x0E46 }
+    var side: String { isLeft ? "Left" : "Right" }
+}
+
+/// Represents a discovered PSVR2 controller (internal use only - contains IOHIDDevice)
 struct DiscoveredController: Identifiable, Equatable {
     let id: String  // Unique identifier
     let name: String
@@ -13,6 +24,11 @@ struct DiscoveredController: Identifiable, Equatable {
     var isLeft: Bool { productID == 0x0E45 }
     var isRight: Bool { productID == 0x0E46 }
     var side: String { isLeft ? "Left" : "Right" }
+
+    /// Convert to UI-safe info struct
+    var info: ControllerInfo {
+        ControllerInfo(id: id, name: name, productID: productID)
+    }
 
     static func == (lhs: DiscoveredController, rhs: DiscoveredController) -> Bool {
         lhs.id == rhs.id
@@ -52,8 +68,8 @@ class PSVR2Controller {
     /// Callback for full report data
     var onReportData: ((_ bytes: [UInt8], _ length: Int) -> Void)?
 
-    /// Callback for connection state changes
-    var onConnectionChange: ((_ connected: Bool, _ name: String?) -> Void)?
+    /// Callback for connection state changes (includes controller ID to avoid data races)
+    var onConnectionChange: ((_ connected: Bool, _ name: String?, _ controllerID: String?) -> Void)?
 
     /// Callback when available controllers list changes
     var onControllersChanged: (() -> Void)?
@@ -206,8 +222,11 @@ class PSVR2Controller {
 
         log("Activated: \(controllerName ?? "Unknown")")
 
+        // Capture values before dispatching to avoid data races
+        let name = self.controllerName
+        let controllerID = self.selectedControllerID
         DispatchQueue.main.async {
-            self.onConnectionChange?(true, self.controllerName)
+            self.onConnectionChange?(true, name, controllerID)
         }
     }
 
@@ -218,10 +237,11 @@ class PSVR2Controller {
         activeDevice = nil
         isConnected = false
         let name = controllerName
+        let controllerID = selectedControllerID
         controllerName = nil
 
         DispatchQueue.main.async {
-            self.onConnectionChange?(false, name)
+            self.onConnectionChange?(false, name, controllerID)
         }
     }
 

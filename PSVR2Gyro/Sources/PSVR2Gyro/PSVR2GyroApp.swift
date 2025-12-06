@@ -6,6 +6,16 @@ struct PSVR2GyroApp: App {
     @StateObject private var appState = AppState()
     @Environment(\.openWindow) private var openWindow
 
+    init() {
+        // Install crash reporter to log crashes to ~/Library/Logs/PSVR2Gyro/crash.log
+        CrashReporter.install()
+
+        // Check for previous crash and log it
+        if let previousCrash = CrashReporter.checkForPreviousCrash() {
+            print("Previous crash detected:\n\(previousCrash)")
+        }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(appState: appState) {

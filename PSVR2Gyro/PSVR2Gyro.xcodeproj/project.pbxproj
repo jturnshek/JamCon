@@ -8,20 +8,22 @@
 
 /* Begin PBXBuildFile section */
 		06FF10005AF5AFE021A0382C /* ByteInspectorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7521EC9996B5B9FBC85D2C /* ByteInspectorViews.swift */; };
-		1512193F01393C7F3CB4EE20 /* OutputTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5CC4D61DE24CFBAF47A62D6 /* OutputTestView.swift */; };
 		1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */; };
 		1D208477339776C070FD51A9 /* StickTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22AD63AE3B53820633D37B7 /* StickTab.swift */; };
 		1E66660B33CC19683578D222 /* SharedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02DB0D20C8DA96C40FAD2A1 /* SharedComponents.swift */; };
 		2B2766F7C5A99674E46AC1DC /* SensorValidationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A3B37B863DCDA922D5E1DCA /* SensorValidationViews.swift */; };
+		346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */; };
 		3544991E17CB20B0F04DC505 /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CAE859D72F3378922F7505 /* MouseController.swift */; };
 		469B6A76BAD375A5FB09A34F /* MouseControlTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */; };
+		5032A182AE6FDF15E48CA952 /* OneEuroFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C45955B0EB50B861CCC7364 /* OneEuroFilter.swift */; };
 		521E885557B7E0BBF7DFF146 /* ButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDF905E808D615EDD61691D /* ButtonMapping.swift */; };
 		60D59DE415EC63B1823280BA /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69264866137391FFF73D2D71 /* AppState.swift */; };
 		621873D4E44DDECB264B423B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F97C724915CBE0E65952CD /* SettingsView.swift */; };
-		8382FC5D5ECB7DB0A13DBC57 /* GyroDebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AE7D99A960616C5B74CB17 /* GyroDebugViews.swift */; };
 		8593D817D288745B442B46C9 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */; };
 		8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F358F393D1578D77696C6D70 /* MenuBarView.swift */; };
 		8B668672AB44630B18EA68E2 /* PSVR2HIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */; };
+		8C26F0B8161DCF12BEB449A4 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AC0D19572DADBF6645B676 /* CrashReporter.swift */; };
+		8E420292D45BCC9D3A61F656 /* TabHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EE758747108FD2A3CBEE281 /* TabHeader.swift */; };
 		A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0D944F62A7696169616814 /* GyroProcessor.swift */; };
 		A0EA8BB51029D1783902AA4E /* ButtonsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953B2055C5B47244AE77056E /* ButtonsTab.swift */; };
 		A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */; };
@@ -44,22 +46,24 @@
 		1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2Controller.swift; sourceTree = "<group>"; };
 		20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseControlTab.swift; sourceTree = "<group>"; };
 		27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderWithLabel.swift; sourceTree = "<group>"; };
-		28AE7D99A960616C5B74CB17 /* GyroDebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroDebugViews.swift; sourceTree = "<group>"; };
 		3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2HIDProtocol.swift; sourceTree = "<group>"; };
+		3EE758747108FD2A3CBEE281 /* TabHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabHeader.swift; sourceTree = "<group>"; };
 		461E1062B3962AE7DDD99273 /* PSVR2Gyro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PSVR2Gyro.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4C45955B0EB50B861CCC7364 /* OneEuroFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneEuroFilter.swift; sourceTree = "<group>"; };
 		62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
 		6703F972821135CB1CC8D6C6 /* ControllerTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTab.swift; sourceTree = "<group>"; };
 		69264866137391FFF73D2D71 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroSettings.swift; sourceTree = "<group>"; };
 		7C0D944F62A7696169616814 /* GyroProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroProcessor.swift; sourceTree = "<group>"; };
 		8F7521EC9996B5B9FBC85D2C /* ByteInspectorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ByteInspectorViews.swift; sourceTree = "<group>"; };
 		953B2055C5B47244AE77056E /* ButtonsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonsTab.swift; sourceTree = "<group>"; };
 		9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2GyroApp.swift; sourceTree = "<group>"; };
-		A5CC4D61DE24CFBAF47A62D6 /* OutputTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputTestView.swift; sourceTree = "<group>"; };
 		A9F97C724915CBE0E65952CD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AA566CD4FBF183EA2AFA48A6 /* StatusIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicators.swift; sourceTree = "<group>"; };
 		B02DB0D20C8DA96C40FAD2A1 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
 		B1CAE859D72F3378922F7505 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
 		C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaptureManager.swift; sourceTree = "<group>"; };
+		D3AC0D19572DADBF6645B676 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
 		DBDF905E808D615EDD61691D /* ButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMapping.swift; sourceTree = "<group>"; };
 		DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
 		F0EB72E24A3172F56DE5AC6A /* ButtonAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonAction.swift; sourceTree = "<group>"; };
@@ -104,8 +108,6 @@
 			isa = PBXGroup;
 			children = (
 				8F7521EC9996B5B9FBC85D2C /* ByteInspectorViews.swift */,
-				28AE7D99A960616C5B74CB17 /* GyroDebugViews.swift */,
-				A5CC4D61DE24CFBAF47A62D6 /* OutputTestView.swift */,
 				0A3B37B863DCDA922D5E1DCA /* SensorValidationViews.swift */,
 			);
 			path = Debug;
@@ -120,10 +122,13 @@
 				69264866137391FFF73D2D71 /* AppState.swift */,
 				F0EB72E24A3172F56DE5AC6A /* ButtonAction.swift */,
 				DBDF905E808D615EDD61691D /* ButtonMapping.swift */,
+				D3AC0D19572DADBF6645B676 /* CrashReporter.swift */,
 				7C0D944F62A7696169616814 /* GyroProcessor.swift */,
+				77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */,
 				C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */,
 				F358F393D1578D77696C6D70 /* MenuBarView.swift */,
 				B1CAE859D72F3378922F7505 /* MouseController.swift */,
+				4C45955B0EB50B861CCC7364 /* OneEuroFilter.swift */,
 				1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */,
 				9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */,
 				3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */,
@@ -155,6 +160,7 @@
 				B02DB0D20C8DA96C40FAD2A1 /* SharedComponents.swift */,
 				27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */,
 				AA566CD4FBF183EA2AFA48A6 /* StatusIndicators.swift */,
+				3EE758747108FD2A3CBEE281 /* TabHeader.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -237,16 +243,17 @@
 				A0EA8BB51029D1783902AA4E /* ButtonsTab.swift in Sources */,
 				06FF10005AF5AFE021A0382C /* ByteInspectorViews.swift in Sources */,
 				FE52C5775B836FB1372BE29E /* ControllerTab.swift in Sources */,
+				8C26F0B8161DCF12BEB449A4 /* CrashReporter.swift in Sources */,
 				AE1A960E5C1AD7E04D4C5D88 /* DebugTab.swift in Sources */,
-				8382FC5D5ECB7DB0A13DBC57 /* GyroDebugViews.swift in Sources */,
 				A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */,
+				346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */,
 				A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */,
 				B3352B5D8C0DD0B41880CA3E /* KeyCaptureManager.swift in Sources */,
 				B4E64456D08B8F44315CB341 /* LogTab.swift in Sources */,
 				8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */,
 				469B6A76BAD375A5FB09A34F /* MouseControlTab.swift in Sources */,
 				3544991E17CB20B0F04DC505 /* MouseController.swift in Sources */,
-				1512193F01393C7F3CB4EE20 /* OutputTestView.swift in Sources */,
+				5032A182AE6FDF15E48CA952 /* OneEuroFilter.swift in Sources */,
 				FB325B128C3D10B039511ADD /* PSVR2Controller.swift in Sources */,
 				1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */,
 				8B668672AB44630B18EA68E2 /* PSVR2HIDProtocol.swift in Sources */,
@@ -256,6 +263,7 @@
 				F64DC113CB942C24EAC8CDE1 /* SliderWithLabel.swift in Sources */,
 				D9153EBBF9024EEB8ADE5D3F /* StatusIndicators.swift in Sources */,
 				1D208477339776C070FD51A9 /* StickTab.swift in Sources */,
+				8E420292D45BCC9D3A61F656 /* TabHeader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

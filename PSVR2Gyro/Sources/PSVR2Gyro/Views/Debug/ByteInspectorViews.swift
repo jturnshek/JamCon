@@ -61,7 +61,8 @@ struct ButtonLabView: View {
                             BitIndicator(
                                 bit: bit,
                                 isSet: (safeReportByte(byteIndex) >> bit) & 1 == 1,
-                                lastChanged: bitLastChanged.count > byteIndex ? bitLastChanged[byteIndex][bit] : Date.distantPast,
+                                lastChanged: (bitLastChanged.count > byteIndex && bitLastChanged[byteIndex].count > bit)
+                                    ? bitLastChanged[byteIndex][bit] : Date.distantPast,
                                 currentTime: currentTime,
                                 decaySeconds: decaySeconds
                             )

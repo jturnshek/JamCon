@@ -5,79 +5,64 @@ import SwiftUI
 struct ControllerTab: View {
     @ObservedObject var appState: AppState
 
-    private var batteryLevel: Int {
-        BatteryHelper.level(from: appState.safeReportByte(PSVR2HIDProtocol.Offset.battery))
-    }
-
     var body: some View {
-        Form {
-            Section {
-                if appState.availableControllers.isEmpty {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(.orange)
-                        Text("No PSVR2 controllers found")
+        VStack(spacing: 0) {
+            TabHeader(appState: appState)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if appState.availableControllers.isEmpty {
+                        // Empty state
+                        VStack(spacing: 12) {
+                            Image(systemName: "gamecontroller")
+                                .font(.system(size: 48))
+                                .foregroundColor(.secondary.opacity(0.5))
+                            Text("No controllers found")
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                            Text("Press the PlayStation button to connect")
+                                .font(.caption)
+                                .foregroundColor(.secondary.opacity(0.7))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    } else {
+                        // Controller list with cards
+                        ForEach(appState.availableControllers) { controller in
+                            ControllerCard(
+                                controller: controller,
+                                isSelected: controller.id == appState.selectedControllerID,
+                                onSelect: { appState.selectController(id: controller.id) }
+                            )
+                        }
+
+                        Text("Select the controller to use for gyro mouse control.")
+                            .font(.caption)
                             .foregroundColor(.secondary)
                     }
-                    .padding(.vertical, 8)
-
-                    Text("Press the PlayStation button on your controller to connect via Bluetooth.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(appState.availableControllers) { controller in
-                        ControllerRow(
-                            controller: controller,
-                            isSelected: controller.id == appState.selectedControllerID,
-                            onSelect: {
-                                appState.selectController(id: controller.id)
-                            }
-                        )
-                    }
                 }
-            } header: {
-                Text("Available Controllers")
-            } footer: {
-                if !appState.availableControllers.isEmpty {
-                    Text("Select the controller to use for gyro mouse control.")
-                }
-            }
-
-            Section("Status") {
-                LabeledContent("Connection") {
-                    ConnectionIndicator(isConnected: appState.isConnected)
-                }
-
-                if appState.isConnected {
-                    LabeledContent("Active Controller") {
-                        Text(appState.controllerName)
-                    }
-
-                    LabeledContent("Battery") {
-                        BatteryIndicatorWithBar(level: batteryLevel)
-                    }
-                }
+                .padding()
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 }
 
-struct ControllerRow: View {
-    let controller: DiscoveredController
+// MARK: - Controller Card
+
+private struct ControllerCard: View {
+    let controller: ControllerInfo
     let isSelected: Bool
     let onSelect: () -> Void
 
     var body: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Image(systemName: controller.isLeft ? "l.joystick" : "r.joystick")
-                        .foregroundColor(.blue)
-                    Text(controller.side)
-                        .font(.headline)
-                }
+            Image(systemName: controller.isLeft ? "l.joystick" : "r.joystick")
+                .font(.title2)
+                .foregroundColor(.blue)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(controller.side)
+                    .font(.headline)
                 Text(controller.name)
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -87,21 +72,15 @@ struct ControllerRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
                     .font(.title2)
+                    .foregroundColor(.green)
             } else {
-                Button("Select") {
-                    onSelect()
-                }
-                .buttonStyle(.bordered)
+                Button("Select", action: onSelect)
+                    .buttonStyle(.bordered)
             }
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if !isSelected {
-                onSelect()
-            }
-        }
+        .padding()
+        .background(isSelected ? Color.blue.opacity(0.1) : Color.secondary.opacity(0.05))
+        .cornerRadius(8)
     }
 }
