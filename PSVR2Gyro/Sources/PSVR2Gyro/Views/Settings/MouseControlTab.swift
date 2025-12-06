@@ -20,7 +20,6 @@ struct MouseControlTab: View {
                     // Collapsible sections
                     FilteringSection(appState: appState)
                     AccelerationSection(appState: appState)
-                    DeadzoneSection(appState: appState)
 
                     // Reset button
                     Button(action: { appState.resetGyroSettings() }) {
@@ -109,7 +108,7 @@ private struct FilteringSection: View {
                                 .font(.caption.monospacedDigit())
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $appState.minCutoff, in: 0.01...10.0, step: 0.01)
+                        Slider(value: $appState.minCutoff, in: 0.5...10.0, step: 0.5)
                         DescriptionText(text: "The base cutoff frequency in Hz. This controls how much smoothing is applied when you're moving slowly or holding still. Lower values = more smoothing = less jitter but more perceived lag. Higher values = less smoothing = more responsive but potentially jittery. Typical range: 0.5-3.0 Hz.")
                     }
 
@@ -123,7 +122,7 @@ private struct FilteringSection: View {
                                 .font(.caption.monospacedDigit())
                                 .foregroundColor(.secondary)
                         }
-                        Slider(value: $appState.beta, in: 0.0...2.0, step: 0.01)
+                        Slider(value: $appState.beta, in: 0.0...2.0, step: 0.1)
                         DescriptionText(text: "Controls how much the filter 'opens up' when you move fast. Higher values mean the filter will reduce smoothing more aggressively during quick movements, reducing lag during flicks and fast aiming. Lower values keep more consistent smoothing regardless of speed. 0 = static smoothing, 1+ = very reactive.")
                     }
 
@@ -176,49 +175,54 @@ private struct AccelerationSection: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 16) {
-                // Curve type
+                // Curve visualization
+                AccelerationCurveView(
+                    exponent: appState.curveExponent,
+                    rampSpeed: appState.rampSpeed,
+                    cap: appState.sensitivityCap
+                )
+                .frame(height: 120)
+
+                // Exponent
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Curve Type")
-                        .font(.caption.weight(.medium))
-                    Picker("", selection: $appState.accelerationCurve) {
-                        ForEach(AccelerationCurve.allCases, id: \.self) { curve in
-                            Text(curve.displayName).tag(curve)
-                        }
+                    HStack {
+                        Text("Curve Shape (Exponent)")
+                            .font(.caption.weight(.medium))
+                        Spacer()
+                        Text(String(format: "%.2f", appState.curveExponent))
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
                     }
-                    .pickerStyle(.segmented)
-                    DescriptionText(text: appState.accelerationCurve.description)
+                    Slider(value: $appState.curveExponent, in: 0.1...5.0, step: 0.05)
+                    DescriptionText(text: curveShapeDescription)
                 }
 
-                if appState.accelerationCurve != .off {
-                    Divider()
-
-                    // Strength
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Acceleration Strength")
-                                .font(.caption.weight(.medium))
-                            Spacer()
-                            Text(String(format: "%.1fx", appState.accelerationStrength))
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                        }
-                        Slider(value: $appState.accelerationStrength, in: 0.0...20.0, step: 0.1)
-                        DescriptionText(text: "Multiplier for the acceleration curve's effect. At 0, the curve is effectively disabled (acts like 'Off'). At 1.0, the curve behaves as designed. Values above 1.0 exaggerate the curve's effect, making acceleration kick in earlier and more aggressively. Useful for tuning how quickly you reach the sensitivity cap.")
+                // Ramp Speed
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Ramp Speed")
+                            .font(.caption.weight(.medium))
+                        Spacer()
+                        Text(String(format: "%.0f °/s", appState.rampSpeed))
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
                     }
+                    Slider(value: $appState.rampSpeed, in: 10...500, step: 5)
+                    DescriptionText(text: "Speed at which gain reaches the cap. Lower = reaches cap faster, higher = more gradual ramp.")
+                }
 
-                    // Sensitivity Cap
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Sensitivity Cap")
-                                .font(.caption.weight(.medium))
-                            Spacer()
-                            Text(String(format: "%.1fx", appState.sensitivityCap))
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                        }
-                        Slider(value: $appState.sensitivityCap, in: 1.0...100.0, step: 0.5)
-                        DescriptionText(text: "The maximum gain multiplier that acceleration can reach. A cap of 2.0x means fast movements can be up to twice as fast as slow movements. A cap of 100x means extreme flicks can move the cursor 100 times faster than precise micro-adjustments. Higher caps give you more dynamic range but require more muscle memory to master.")
+                // Cap
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Cap (Max Gain)")
+                            .font(.caption.weight(.medium))
+                        Spacer()
+                        Text(String(format: "%.0fx", appState.sensitivityCap))
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
                     }
+                    Slider(value: $appState.sensitivityCap, in: 1...1000, step: 1)
+                    DescriptionText(text: "Maximum gain multiplier at high speeds. Higher = faster flicks possible.")
                 }
             }
             .padding(.vertical, 8)
@@ -234,123 +238,124 @@ private struct AccelerationSection: View {
         .background(Color.secondary.opacity(0.05))
         .cornerRadius(8)
     }
-}
 
-// MARK: - Deadzone Section
-
-private struct DeadzoneSection: View {
-    @ObservedObject var appState: AppState
-    @State private var isExpanded = false
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 16) {
-                // Cutoff Threshold
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Cutoff Threshold")
-                            .font(.caption.weight(.medium))
-                        Spacer()
-                        Text(String(format: "%.2f °/s", appState.softCutoffThreshold))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                    }
-                    Slider(value: $appState.softCutoffThreshold, in: 0.0...5.0, step: 0.05)
-                    DescriptionText(text: "The angular velocity (in degrees per second) below which NO cursor movement occurs. This eliminates drift from sensor noise and hand tremor when you're trying to hold still. Set this just above your natural hand shake level. Too high = cursor feels 'sticky' and hard to start moving.")
-                }
-
-                // Recovery Threshold
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Recovery Threshold")
-                            .font(.caption.weight(.medium))
-                        Spacer()
-                        Text(String(format: "%.2f °/s", appState.recoveryThreshold))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
-                    }
-                    Slider(value: $appState.recoveryThreshold, in: 0.1...10.0, step: 0.1)
-                    DescriptionText(text: "The angular velocity at which full sensitivity is restored. Between the cutoff and recovery thresholds, sensitivity ramps up linearly (soft cutoff). This creates a smooth transition instead of an abrupt jump. Set this higher than cutoff to create a gentle 'easing in' zone.")
-                }
-
-                // Visual indicator
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Deadzone Visualization")
-                        .font(.caption.weight(.medium))
-                    DeadzoneVisualizer(
-                        cutoff: appState.softCutoffThreshold,
-                        recovery: appState.recoveryThreshold
-                    )
-                }
-            }
-            .padding(.vertical, 8)
-        } label: {
-            HStack {
-                Image(systemName: "circle.dashed")
-                    .foregroundColor(.green)
-                Text("Deadzone")
-                    .font(.subheadline.weight(.medium))
-            }
+    private var curveShapeDescription: String {
+        if appState.curveExponent < 0.9 {
+            return "Concave curve - ramps up quickly at low speeds, then levels off. Good for precise control with fast flick capability."
+        } else if appState.curveExponent > 1.1 {
+            return "Convex curve - slow at low speeds, steep at high speeds. Maximum precision at low speeds, aggressive at high."
+        } else {
+            return "Linear curve - constant rate of acceleration. Predictable and easy to learn."
         }
-        .padding()
-        .background(Color.secondary.opacity(0.05))
-        .cornerRadius(8)
     }
 }
 
-// MARK: - Deadzone Visualizer
+// MARK: - Acceleration Curve View
 
-private struct DeadzoneVisualizer: View {
-    let cutoff: Double
-    let recovery: Double
+private struct AccelerationCurveView: View {
+    let exponent: Double
+    let rampSpeed: Double
+    let cap: Double
 
     var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            let maxSpeed = 10.0
-            let cutoffX = cutoff / maxSpeed * width
-            let recoveryX = recovery / maxSpeed * width
+        Canvas { context, size in
+            let width = size.width
+            let height = size.height
+            let padding: CGFloat = 24
 
-            ZStack(alignment: .leading) {
-                // Background
-                Rectangle()
-                    .fill(Color.secondary.opacity(0.1))
+            let plotWidth = width - padding * 2
+            let plotHeight = height - padding * 2
+            let plotOrigin = CGPoint(x: padding, y: padding)
 
-                // Dead zone (red)
-                Rectangle()
-                    .fill(Color.red.opacity(0.3))
-                    .frame(width: max(0, cutoffX))
+            // Background
+            context.fill(
+                Path(CGRect(x: plotOrigin.x, y: plotOrigin.y, width: plotWidth, height: plotHeight)),
+                with: .color(.secondary.opacity(0.05))
+            )
 
-                // Transition zone (yellow)
-                Rectangle()
-                    .fill(Color.yellow.opacity(0.3))
-                    .frame(width: max(0, recoveryX - cutoffX))
-                    .offset(x: cutoffX)
+            // X-axis: 0 to rampSpeed (input speed)
+            // Y-axis: 1 to cap (gain)
+            let effectiveRamp = max(1.0, rampSpeed)
+            let effectiveCap = max(1.0, cap)
 
-                // Active zone (green)
-                Rectangle()
-                    .fill(Color.green.opacity(0.3))
-                    .frame(width: max(0, width - recoveryX))
-                    .offset(x: recoveryX)
-
-                // Labels
-                HStack {
-                    Text("Dead")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("Transition")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("Full")
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.horizontal, 4)
+            // Helper to convert data coords to canvas coords
+            func toCanvas(speed: Double, gain: Double) -> CGPoint {
+                let x = plotOrigin.x + (speed / effectiveRamp) * plotWidth
+                let y = plotOrigin.y + plotHeight - ((gain - 1) / (effectiveCap - 1)) * plotHeight
+                return CGPoint(x: x, y: y)
             }
+
+            // Draw curve
+            var path = Path()
+            let steps = 100
+            for i in 0...steps {
+                let speed = Double(i) / Double(steps) * effectiveRamp
+                let gain = computeGain(speed: speed)
+                let point = toCanvas(speed: speed, gain: gain)
+
+                if i == 0 {
+                    path.move(to: point)
+                } else {
+                    path.addLine(to: point)
+                }
+            }
+            context.stroke(path, with: .color(.orange), lineWidth: 2)
+
+            // Draw axes
+            var axisPath = Path()
+            // Y-axis
+            axisPath.move(to: CGPoint(x: plotOrigin.x, y: plotOrigin.y))
+            axisPath.addLine(to: CGPoint(x: plotOrigin.x, y: plotOrigin.y + plotHeight))
+            // X-axis
+            axisPath.addLine(to: CGPoint(x: plotOrigin.x + plotWidth, y: plotOrigin.y + plotHeight))
+            context.stroke(axisPath, with: .color(.secondary), lineWidth: 1)
+
+            // Labels
+            let labelFont = Font.system(size: 9)
+
+            // Y-axis labels (gain)
+            context.draw(
+                Text("1.0").font(labelFont).foregroundColor(.secondary),
+                at: CGPoint(x: plotOrigin.x - 12, y: plotOrigin.y + plotHeight),
+                anchor: .trailing
+            )
+            context.draw(
+                Text(String(format: "%.0f", effectiveCap)).font(labelFont).foregroundColor(.secondary),
+                at: CGPoint(x: plotOrigin.x - 12, y: plotOrigin.y),
+                anchor: .trailing
+            )
+            context.draw(
+                Text("Gain").font(labelFont).foregroundColor(.secondary),
+                at: CGPoint(x: plotOrigin.x - 12, y: plotOrigin.y + plotHeight / 2),
+                anchor: .trailing
+            )
+
+            // X-axis labels (speed)
+            context.draw(
+                Text("0").font(labelFont).foregroundColor(.secondary),
+                at: CGPoint(x: plotOrigin.x, y: plotOrigin.y + plotHeight + 10),
+                anchor: .top
+            )
+            context.draw(
+                Text(String(format: "%.0f", effectiveRamp)).font(labelFont).foregroundColor(.secondary),
+                at: CGPoint(x: plotOrigin.x + plotWidth, y: plotOrigin.y + plotHeight + 10),
+                anchor: .top
+            )
+            context.draw(
+                Text("Speed (°/s)").font(labelFont).foregroundColor(.secondary),
+                at: CGPoint(x: plotOrigin.x + plotWidth / 2, y: plotOrigin.y + plotHeight + 10),
+                anchor: .top
+            )
         }
-        .frame(height: 24)
-        .cornerRadius(4)
+        .background(Color.secondary.opacity(0.02))
+        .cornerRadius(8)
+    }
+
+    private func computeGain(speed: Double) -> Double {
+        let effectiveRamp = max(1.0, rampSpeed)
+        let effectiveCap = max(1.0, cap)
+        let normalized = min(1.0, speed / effectiveRamp)
+        let curved = pow(normalized, exponent)
+        return 1.0 + curved * (effectiveCap - 1.0)
     }
 }

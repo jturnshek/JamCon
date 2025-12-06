@@ -210,31 +210,30 @@ struct ActionPickerMenu: View {
             if includeGyroModes {
                 Divider()
 
-                Menu("Gyro Mode") {
-                    Button("Drag (hold to move)") {
-                        onActionSelected(.drag)
-                    }
-                    Button("Scroll (hold to scroll)") {
-                        onActionSelected(.scroll)
-                    }
+                Button("Drag (hold to move)") {
+                    onActionSelected(.drag)
+                }
+                Button("Scroll (hold to scroll)") {
+                    onActionSelected(.scroll)
+                }
+                Button("Radial Menu") {
+                    onActionSelected(.radialMenu)
                 }
             }
 
             Divider()
 
-            Menu("Mouse") {
-                ForEach(MouseButton.allCases, id: \.self) { mouseButton in
-                    Button(mouseButton.displayName) {
-                        onActionSelected(.mouseClick(mouseButton))
-                    }
+            ForEach(MouseButton.allCases, id: \.self) { mouseButton in
+                Button(mouseButton.displayName) {
+                    onActionSelected(.mouseClick(mouseButton))
                 }
             }
 
-            Menu("System") {
-                ForEach(SystemAction.allCases, id: \.self) { systemAction in
-                    Button(systemAction.displayName) {
-                        onActionSelected(.systemAction(systemAction))
-                    }
+            Divider()
+
+            ForEach(SystemAction.allCases, id: \.self) { systemAction in
+                Button(systemAction.displayName) {
+                    onActionSelected(.systemAction(systemAction))
                 }
             }
 

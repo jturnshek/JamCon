@@ -12,8 +12,6 @@ struct DebugTab: View {
     private var isLeft: Bool { appState.isLeftController }
     private var side: String { isLeft ? "Left" : "Right" }
 
-    @State private var cachedBatteryLevel: Int = 0
-
     private var byte11: UInt8 { appState.safeReportByte(PSVR2HIDProtocol.Offset.touchStates) }
     private var faceTopTouch: Bool { (byte11 & 0x01) != 0 }
     private var faceBottomTouch: Bool { (byte11 & 0x02) != 0 }
@@ -33,18 +31,13 @@ struct DebugTab: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 if appState.isConnected {
-                    BatteryIndicator(level: cachedBatteryLevel)
+                    BatteryIndicator(level: appState.batteryLevel)
                 }
                 ConnectionIndicator(isConnected: appState.isConnected)
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
             .background(Color.secondary.opacity(0.05))
-            .onAppear {
-                cachedBatteryLevel = BatteryHelper.level(
-                    from: appState.safeReportByte(PSVR2HIDProtocol.Offset.battery)
-                )
-            }
 
             if appState.debugRenderingEnabled && appState.isConnected {
                 TimelineView(.periodic(from: .now, by: 0.1)) { timeline in

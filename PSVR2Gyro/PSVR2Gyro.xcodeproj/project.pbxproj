@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		06FF10005AF5AFE021A0382C /* ByteInspectorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F7521EC9996B5B9FBC85D2C /* ByteInspectorViews.swift */; };
+		107DDF1203F04B4C4833DB5C /* RadialMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70C4C83D9E31D73FACA74980 /* RadialMenuState.swift */; };
 		1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */; };
 		1D208477339776C070FD51A9 /* StickTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F22AD63AE3B53820633D37B7 /* StickTab.swift */; };
 		1E66660B33CC19683578D222 /* SharedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B02DB0D20C8DA96C40FAD2A1 /* SharedComponents.swift */; };
@@ -15,6 +16,7 @@
 		346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */; };
 		3544991E17CB20B0F04DC505 /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CAE859D72F3378922F7505 /* MouseController.swift */; };
 		469B6A76BAD375A5FB09A34F /* MouseControlTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */; };
+		4DE5044B500B243710E412F7 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46C891F5C795B5DB61C1CC9 /* RadialMenuView.swift */; };
 		5032A182AE6FDF15E48CA952 /* OneEuroFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C45955B0EB50B861CCC7364 /* OneEuroFilter.swift */; };
 		521E885557B7E0BBF7DFF146 /* ButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDF905E808D615EDD61691D /* ButtonMapping.swift */; };
 		60D59DE415EC63B1823280BA /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69264866137391FFF73D2D71 /* AppState.swift */; };
@@ -29,8 +31,10 @@
 		A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */; };
 		ADEEEE8FF19BC569C3A63AFD /* BatteryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */; };
 		AE1A960E5C1AD7E04D4C5D88 /* DebugTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F713D09A4AD0DDDF693F4320 /* DebugTab.swift */; };
+		AF0A8605A4E60F6C47B42BBE /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD9ED2BD41428F453AF50099 /* RadialMenu.swift */; };
 		B3352B5D8C0DD0B41880CA3E /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */; };
 		B4E64456D08B8F44315CB341 /* LogTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD63314D6C110B20553D3C90 /* LogTab.swift */; };
+		C70A2981F27B3D56D2C6BFCF /* RadialMenuTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E224AAB1F78A14E97E0DB8 /* RadialMenuTab.swift */; };
 		C8362FD92B51994D5B0CAC7A /* ButtonMappingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079E91B184CDF891D5A15F40 /* ButtonMappingViews.swift */; };
 		D2F26DD1DE3373271EE5FB48 /* ButtonAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EB72E24A3172F56DE5AC6A /* ButtonAction.swift */; };
 		D9153EBBF9024EEB8ADE5D3F /* StatusIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA566CD4FBF183EA2AFA48A6 /* StatusIndicators.swift */; };
@@ -53,6 +57,7 @@
 		62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
 		6703F972821135CB1CC8D6C6 /* ControllerTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTab.swift; sourceTree = "<group>"; };
 		69264866137391FFF73D2D71 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		70C4C83D9E31D73FACA74980 /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroSettings.swift; sourceTree = "<group>"; };
 		7C0D944F62A7696169616814 /* GyroProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroProcessor.swift; sourceTree = "<group>"; };
 		8F7521EC9996B5B9FBC85D2C /* ByteInspectorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ByteInspectorViews.swift; sourceTree = "<group>"; };
@@ -60,9 +65,12 @@
 		9D0DB2BB29A2A6F060D6A462 /* PSVR2GyroApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2GyroApp.swift; sourceTree = "<group>"; };
 		A9F97C724915CBE0E65952CD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		AA566CD4FBF183EA2AFA48A6 /* StatusIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicators.swift; sourceTree = "<group>"; };
+		AD9ED2BD41428F453AF50099 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
 		B02DB0D20C8DA96C40FAD2A1 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
 		B1CAE859D72F3378922F7505 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
+		B46C891F5C795B5DB61C1CC9 /* RadialMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuView.swift; sourceTree = "<group>"; };
 		C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaptureManager.swift; sourceTree = "<group>"; };
+		D0E224AAB1F78A14E97E0DB8 /* RadialMenuTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuTab.swift; sourceTree = "<group>"; };
 		D3AC0D19572DADBF6645B676 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
 		DBDF905E808D615EDD61691D /* ButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMapping.swift; sourceTree = "<group>"; };
 		DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
@@ -90,6 +98,7 @@
 				F713D09A4AD0DDDF693F4320 /* DebugTab.swift */,
 				FD63314D6C110B20553D3C90 /* LogTab.swift */,
 				20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */,
+				D0E224AAB1F78A14E97E0DB8 /* RadialMenuTab.swift */,
 				A9F97C724915CBE0E65952CD /* SettingsView.swift */,
 				F22AD63AE3B53820633D37B7 /* StickTab.swift */,
 			);
@@ -113,9 +122,19 @@
 			path = Debug;
 			sourceTree = "<group>";
 		};
+		6F687A9152D341D00669EE1D /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AD9ED2BD41428F453AF50099 /* RadialMenu.swift */,
+				70C4C83D9E31D73FACA74980 /* RadialMenuState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
 		A4F71F056A1A63EC1B67D8E2 /* PSVR2Gyro */ = {
 			isa = PBXGroup;
 			children = (
+				6F687A9152D341D00669EE1D /* Models */,
 				A6DDF8264E69E94E46873EF2 /* Utilities */,
 				FB9C5477C28F14A2E7F15AEF /* Views */,
 				DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */,
@@ -172,6 +191,7 @@
 				FB1C6EAD428A85321AF92E35 /* Components */,
 				631FA1C1FDDF210890A7F29F /* Debug */,
 				3E398A442EF67E36DB7B7E2D /* Settings */,
+				B46C891F5C795B5DB61C1CC9 /* RadialMenuView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -257,6 +277,10 @@
 				FB325B128C3D10B039511ADD /* PSVR2Controller.swift in Sources */,
 				1AEBF54B62AE968C7BCF074F /* PSVR2GyroApp.swift in Sources */,
 				8B668672AB44630B18EA68E2 /* PSVR2HIDProtocol.swift in Sources */,
+				AF0A8605A4E60F6C47B42BBE /* RadialMenu.swift in Sources */,
+				107DDF1203F04B4C4833DB5C /* RadialMenuState.swift in Sources */,
+				C70A2981F27B3D56D2C6BFCF /* RadialMenuTab.swift in Sources */,
+				4DE5044B500B243710E412F7 /* RadialMenuView.swift in Sources */,
 				2B2766F7C5A99674E46AC1DC /* SensorValidationViews.swift in Sources */,
 				621873D4E44DDECB264B423B /* SettingsView.swift in Sources */,
 				1E66660B33CC19683578D222 /* SharedComponents.swift in Sources */,

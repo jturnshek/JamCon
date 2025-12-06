@@ -4,10 +4,6 @@ struct MenuBarView: View {
     @ObservedObject var appState: AppState
     let openSettings: () -> Void
 
-    private var batteryLevel: Int {
-        BatteryHelper.level(from: appState.safeReportByte(PSVR2HIDProtocol.Offset.battery))
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Connection status
@@ -17,9 +13,9 @@ struct MenuBarView: View {
                     .font(.headline)
                 Spacer()
                 if appState.isConnected {
-                    Image(systemName: BatteryHelper.icon(for: batteryLevel))
-                        .foregroundColor(BatteryHelper.color(for: batteryLevel))
-                    Text("\(batteryLevel)%")
+                    Image(systemName: BatteryHelper.icon(for: appState.batteryLevel))
+                        .foregroundColor(BatteryHelper.color(for: appState.batteryLevel))
+                    Text("\(appState.batteryLevel)%")
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(.secondary)
                 }

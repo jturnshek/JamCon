@@ -200,6 +200,24 @@ Some bytes increment slowly and reset when Bluetooth reconnects:
 
 These are likely connection uptime counters or session timers, not battery status.
 
+## Timestamps
+
+The HID driver exposes a vendor-defined input element that carries the 0x31 IMU report:
+- Usage page: `0xFF00`
+- Usage: `0x003B`
+- Report ID: `0x31`
+- Length: 77 bytes
+
+Registering an input value callback (`IOHIDDeviceRegisterInputValueCallback`) surfaces this element with a kernel-provided monotonic timestamp via `IOHIDValueGetTimeStamp(value)`. Converting with `Double(ts) / Double(NSEC_PER_SEC)` yields per-report timing (~60 Hz) independent of main-run-loop jitter. Use this timestamp for `dt` in gyro processing instead of host arrival time.
+
+Time conversion: `IOHIDValueGetTimeStamp` returns mach absolute ticks. Convert using `mach_timebase_info` (e.g., numer=125, denom=3 on Apple Silicon) and `ticksToSeconds = ticks * numer/denom / 1e9` for accurate per-report timing.
+
+### Raw report bytes vs timestamps
+
+- Bytes 0–1: fast 16-bit counter (~265k ticks/sec inferred when reconstructed across wraps). Wraps every ~15 ms and is noisy; not suitable as a `dt` source without heavy reconstruction. We prefer the HID timestamp.
+- Bytes 14/32/52 and other “unknown” bytes (29–31, 74–77, 49–64) show noisy deltas and frequent wraps; no clean per-report sequence or timer found.
+- Conclusion: rely on the HID driver timestamp for `dt`; treat byte-level counters as diagnostic only.
+
 ## Known Issues
 
 1. **PlayStation Button**: Opens Apple Arcade on macOS instead of being available to the application. May require:

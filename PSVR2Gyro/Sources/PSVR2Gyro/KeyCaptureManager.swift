@@ -131,14 +131,6 @@ class KeyCaptureManager: ObservableObject {
         if type == .keyDown {
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
-            // Check for Escape to cancel
-            if keyCode == 53 && flags.intersection([.maskShift, .maskControl, .maskAlternate, .maskCommand]).isEmpty {
-                Task { @MainActor in
-                    self.cancelCapture()
-                }
-                return nil
-            }
-
             // Create the key combo with only modifier flags
             let modifierFlags = flags.intersection([.maskShift, .maskControl, .maskAlternate, .maskCommand])
             let combo = KeyCombo(keyCode: keyCode, modifiers: modifierFlags)

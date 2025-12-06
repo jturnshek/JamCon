@@ -5,16 +5,19 @@ import AppKit
 /// Executes button actions (mouse clicks, key presses, system actions)
 class ActionExecutor {
 
-    static let shared = ActionExecutor()
+    /// Mouse controller for click/drag operations - must be the same instance used for gyro movement
+    private let mouseController: MouseController
 
-    private init() {}
+    init(mouseController: MouseController) {
+        self.mouseController = mouseController
+    }
 
     // MARK: - Execute Action
 
     func execute(_ action: ButtonAction, isPressed: Bool) {
         switch action {
-        case .none, .drag, .scroll:
-            // No-op: drag/scroll are handled by AppState gyro routing
+        case .none, .drag, .scroll, .radialMenu:
+            // No-op: drag/scroll/radialMenu are handled by AppState gyro routing
             break
         case .mouseClick(let button):
             if isPressed {
@@ -35,64 +38,61 @@ class ActionExecutor {
         }
     }
 
+    /// Execute a system action (public for radial menu use)
+    func executeSystemAction(_ action: SystemAction) {
+        performSystemAction(action)
+    }
+
     // MARK: - Mouse Actions
 
     private func performMouseDown(_ button: MouseButton) {
-        let location = CGEvent(source: nil)?.location ?? .zero
-        let eventType: CGEventType
-        let mouseButton: CGMouseButton
-
-        switch button {
-        case .left:
-            eventType = .leftMouseDown
-            mouseButton = .left
-        case .right:
-            eventType = .rightMouseDown
-            mouseButton = .right
-        case .middle:
-            eventType = .otherMouseDown
-            mouseButton = .center
-        }
-
-        if let event = CGEvent(mouseEventSource: nil, mouseType: eventType, mouseCursorPosition: location, mouseButton: mouseButton) {
-            event.post(tap: .cghidEventTap)
-        }
+        // Delegate to MouseController for proper drag state tracking
+        mouseController.mouseDown(button: button)
     }
 
     private func performMouseUp(_ button: MouseButton) {
-        let location = CGEvent(source: nil)?.location ?? .zero
-        let eventType: CGEventType
-        let mouseButton: CGMouseButton
-
-        switch button {
-        case .left:
-            eventType = .leftMouseUp
-            mouseButton = .left
-        case .right:
-            eventType = .rightMouseUp
-            mouseButton = .right
-        case .middle:
-            eventType = .otherMouseUp
-            mouseButton = .center
-        }
-
-        if let event = CGEvent(mouseEventSource: nil, mouseType: eventType, mouseCursorPosition: location, mouseButton: mouseButton) {
-            event.post(tap: .cghidEventTap)
-        }
+        // Delegate to MouseController for proper drag state tracking
+        mouseController.mouseUp(button: button)
     }
 
     // MARK: - Keyboard Actions
 
     private func performKeyDown(_ combo: KeyCombo) {
+        var flags = combo.eventFlags
+
+        // Arrow keys need numeric pad flag for macOS to recognize them
+        let arrowKeys: [UInt16] = [123, 124, 125, 126]  // left, right, down, up
+        if arrowKeys.contains(combo.keyCode) {
+            flags.insert(.maskNumericPad)
+        }
+
+        // Control+Arrow needs secondary Fn flag for desktop switching shortcuts
+        if flags.contains(.maskControl) && arrowKeys.contains(combo.keyCode) {
+            flags.insert(.maskSecondaryFn)
+        }
+
         if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: true) {
-            event.flags = combo.eventFlags
+            event.flags = flags
             event.post(tap: .cghidEventTap)
         }
     }
 
     private func performKeyUp(_ combo: KeyCombo) {
+        var flags = combo.eventFlags
+
+        // Arrow keys need numeric pad flag for macOS to recognize them
+        let arrowKeys: [UInt16] = [123, 124, 125, 126]  // left, right, down, up
+        if arrowKeys.contains(combo.keyCode) {
+            flags.insert(.maskNumericPad)
+        }
+
+        // Control+Arrow needs secondary Fn flag for desktop switching shortcuts
+        if flags.contains(.maskControl) && arrowKeys.contains(combo.keyCode) {
+            flags.insert(.maskSecondaryFn)
+        }
+
         if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: false) {
-            event.flags = combo.eventFlags
+            event.flags = flags
             event.post(tap: .cghidEventTap)
         }
     }

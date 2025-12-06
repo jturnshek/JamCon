@@ -2,6 +2,7 @@ import Foundation
 import IOKit
 import IOKit.hid
 import QuartzCore
+import MachO
 
 /// UI-safe controller info (no IOHIDDevice reference - safe for SwiftUI)
 struct ControllerInfo: Identifiable, Equatable, Sendable {
@@ -50,12 +51,19 @@ class PSVR2Controller {
     private var hidManager: IOHIDManager?
     private var activeDevice: IOHIDDevice?
     private var reportBuffer = [UInt8](repeating: 0, count: 256)
+    private var hidRunLoop: CFRunLoop?
+    private var hidThread: Thread?
+    private let hidRunLoopReady = DispatchSemaphore(value: 0)
 
     /// All discovered PSVR2 controllers
     private(set) var discoveredControllers: [DiscoveredController] = []
 
     /// Currently selected controller ID
     private(set) var selectedControllerID: String?
+
+    /// Preferred controller ID (persisted from last user selection)
+    /// Used to auto-select only previously selected controllers
+    var preferredControllerID: String?
 
     /// Callback for gyro data (x, y, z in raw units, timestamp)
     var onGyroData: ((_ x: Int16, _ y: Int16, _ z: Int16, _ timestamp: TimeInterval) -> Void)?
@@ -65,8 +73,20 @@ class PSVR2Controller {
                      _ accelX: Int16, _ accelY: Int16, _ accelZ: Int16,
                      _ timestamp: TimeInterval) -> Void)?
 
-    /// Callback for full report data
-    var onReportData: ((_ bytes: [UInt8], _ length: Int) -> Void)?
+    struct InputReport {
+        let bytes: [UInt8]
+        let length: Int
+        let gyroX: Int16
+        let gyroY: Int16
+        let gyroZ: Int16
+        let accelX: Int16
+        let accelY: Int16
+        let accelZ: Int16
+        let timestamp: TimeInterval
+    }
+
+    /// Callback for full report data (reuses internal buffer, includes decoded IMU)
+    var onReportData: ((_ report: InputReport) -> Void)?
 
     /// Callback for connection state changes (includes controller ID to avoid data races)
     var onConnectionChange: ((_ connected: Bool, _ name: String?, _ controllerID: String?) -> Void)?
@@ -82,6 +102,32 @@ class PSVR2Controller {
 
     /// Name of the connected controller
     private(set) var controllerName: String?
+
+    // MARK: - Timestamped Value Handling
+
+    /// Report ID for IMU input reports (vendor-defined usage)
+    private static let imuReportID: UInt32 = PSVR2HIDProtocol.inputReportID
+    /// Cached last timestamp from device (seconds, monotonic)
+    private var lastDeviceTimestamp: TimeInterval?
+    /// Last raw device ticks to detect duplicates
+    private var lastDeviceTicks: UInt64?
+    /// Timebase for converting mach absolute ticks to seconds (device timestamps)
+    private let timebase: mach_timebase_info_data_t = {
+        var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
+        mach_timebase_info(&tb)
+        return tb
+    }()
+
+    /// Convert mach absolute ticks to seconds using system timebase
+    private func ticksToSeconds(_ ticks: UInt64) -> TimeInterval {
+        let nanos = (Double(ticks) * Double(timebase.numer)) / Double(timebase.denom)
+        return nanos / 1_000_000_000.0
+    }
+
+    /// Last known gyro timestamp in seconds (device if available, else host time)
+    var lastGyroTimestamp: TimeInterval {
+        lastDeviceTimestamp ?? CACurrentMediaTime()
+    }
 
     // MARK: - IMU Decoding
 
@@ -116,9 +162,45 @@ class PSVR2Controller {
     // MARK: - Public Methods
 
     func start() {
+        startHIDThreadIfNeeded()
+    }
+
+    private func startHIDThreadIfNeeded() {
+        guard hidThread == nil else { return }
+
+        let thread = Thread { [weak self] in
+            autoreleasepool {
+                self?.runHIDThread()
+            }
+        }
+        thread.name = "PSVR2Gyro.HID"
+        thread.qualityOfService = .userInteractive
+        hidThread = thread
+        thread.start()
+
+        // Wait until the HID run loop is ready so callers know callbacks are active
+        hidRunLoopReady.wait()
+    }
+
+    private func runHIDThread() {
+        hidRunLoop = CFRunLoopGetCurrent()
+        hidRunLoopReady.signal()
+
+        configureHIDManager(on: hidRunLoop ?? CFRunLoopGetCurrent())
+
+        // Keep the HID run loop alive until explicitly stopped
+        CFRunLoopRun()
+
+        // Cleanup after the run loop stops
+        hidRunLoop = nil
+        hidThread = nil
+    }
+
+    private func configureHIDManager(on runLoop: CFRunLoop) {
         guard hidManager == nil else { return }
 
         log("Creating HID manager...")
+        // Use kIOHIDOptionsTypeNone for the manager - we'll seize individual PSVR2 devices in handleDeviceConnected
         hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         guard let manager = hidManager else {
             log("Failed to create HID manager")
@@ -145,9 +227,9 @@ class PSVR2Controller {
         }, context)
 
         // Schedule with run loop
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerScheduleWithRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
 
-        // Open the manager
+        // Open the manager (individual devices will be seized in handleDeviceConnected)
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
             log("Failed to open HID manager: \(result)")
@@ -157,20 +239,48 @@ class PSVR2Controller {
     }
 
     func stop() {
-        if let device = activeDevice {
-            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            activeDevice = nil
+        guard let runLoop = hidRunLoop else {
+            // Fallback cleanup if the HID thread was never started
+            if let device = activeDevice {
+                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+                activeDevice = nil
+            }
+            if let manager = hidManager {
+                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+                hidManager = nil
+            }
+            discoveredControllers.removeAll()
+            selectedControllerID = nil
+            isConnected = false
+            controllerName = nil
+            return
         }
 
-        if let manager = hidManager {
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-            hidManager = nil
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
+            guard let self else { return }
+
+            if let device = self.activeDevice {
+                IOHIDDeviceRegisterInputReportCallback(device, &self.reportBuffer, self.reportBuffer.count, nil, nil)
+                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+                self.activeDevice = nil
+            }
+
+            if let manager = self.hidManager {
+                IOHIDManagerUnscheduleFromRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
+                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+                self.hidManager = nil
+            }
+
+            self.discoveredControllers.removeAll()
+            self.selectedControllerID = nil
+            self.isConnected = false
+            self.controllerName = nil
+
+            CFRunLoopStop(runLoop)
         }
 
-        discoveredControllers.removeAll()
-        selectedControllerID = nil
-        isConnected = false
-        controllerName = nil
+        // Wake the run loop so the stop block executes promptly
+        CFRunLoopWakeUp(runLoop)
     }
 
     // MARK: - Controller Selection
@@ -194,8 +304,8 @@ class PSVR2Controller {
     private func activateController(_ controller: DiscoveredController) {
         let device = controller.device
 
-        // Open the device if not already open
-        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Open the device with exclusive access (prevents macOS Game Controller from seeing inputs)
+        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         if result != kIOReturnSuccess && result != -536870201 { // Already open is OK
             log("Failed to open device: \(result)")
             return
@@ -216,6 +326,17 @@ class PSVR2Controller {
                 guard let ctx = context else { return }
                 let psvr2 = Unmanaged<PSVR2Controller>.fromOpaque(ctx).takeUnretainedValue()
                 psvr2.handleInputReport(report: report, length: length, reportID: reportID)
+            },
+            context
+        )
+
+        // Register value callback to get device timestamps for IMU reports
+        IOHIDDeviceRegisterInputValueCallback(
+            device,
+            { context, result, sender, value in
+                guard let ctx = context else { return }
+                let psvr2 = Unmanaged<PSVR2Controller>.fromOpaque(ctx).takeUnretainedValue()
+                psvr2.handleInputValue(value)
             },
             context
         )
@@ -265,6 +386,15 @@ class PSVR2Controller {
             return
         }
 
+        // Seize this specific device to prevent macOS Game Controller framework
+        // from intercepting button presses and mapping them to keyboard keys
+        let seizeResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        if seizeResult != kIOReturnSuccess {
+            log("Warning: Could not seize device exclusively: \(seizeResult)")
+        } else {
+            log("Device seized for exclusive access")
+        }
+
         // Create unique ID from device properties
         let serialNumber = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
         let locationID = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int ?? 0
@@ -289,8 +419,10 @@ class PSVR2Controller {
             self.onControllersChanged?()
         }
 
-        // Auto-select if this is the first/only controller, or if we had a previous selection
-        if selectedControllerID == nil || selectedControllerID == uniqueID {
+        // Only auto-select if this controller was previously selected by user
+        // (matches saved preference) or is reconnecting current session's selection
+        if selectedControllerID == uniqueID ||
+           (selectedControllerID == nil && preferredControllerID == uniqueID) {
             activateController(controller)
         }
     }
@@ -301,6 +433,9 @@ class PSVR2Controller {
             let controller = discoveredControllers[index]
             log("PSVR2 \(controller.side) Controller disconnected")
 
+            // Close the seized device to release exclusive access
+            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+
             discoveredControllers.remove(at: index)
 
             DispatchQueue.main.async {
@@ -310,11 +445,7 @@ class PSVR2Controller {
             // If this was the active controller, deactivate
             if controller.id == selectedControllerID {
                 deactivateCurrentController()
-
-                // Auto-select another if available
-                if let next = discoveredControllers.first {
-                    activateController(next)
-                }
+                // Don't auto-select another - user must manually select
             }
         }
     }
@@ -328,33 +459,84 @@ class PSVR2Controller {
 
         let timestamp = CACurrentMediaTime()
 
-        // Extract gyro data as signed 16-bit little-endian values
-        func readInt16LE(_ offset: Int) -> Int16 {
-            guard offset + 1 < length else { return 0 }
-            return Int16(bitPattern: UInt16(report[offset]) | (UInt16(report[offset + 1]) << 8))
+        // Extract gyro/accel only if callbacks are present
+        let needsGyro = onGyroData != nil || onIMUData != nil || onReportData != nil
+        var gyroX: Int16 = 0
+        var gyroY: Int16 = 0
+        var gyroZ: Int16 = 0
+        var accelX: Int16 = 0
+        var accelY: Int16 = 0
+        var accelZ: Int16 = 0
+
+        if needsGyro {
+            func readInt16LE(_ offset: Int) -> Int16 {
+                guard offset + 1 < length else { return 0 }
+                return Int16(bitPattern: UInt16(report[offset]) | (UInt16(report[offset + 1]) << 8))
+            }
+
+            gyroX = readInt16LE(gyroOffsetX)
+            gyroY = readInt16LE(gyroOffsetY)
+            gyroZ = readInt16LE(gyroOffsetZ)
+
+            // Extract accelerometer data
+            accelX = readInt16LE(accelOffsetX)
+            accelY = readInt16LE(accelOffsetY)
+            accelZ = readInt16LE(accelOffsetZ)
         }
 
-        let gyroX = readInt16LE(gyroOffsetX)
-        let gyroY = readInt16LE(gyroOffsetY)
-        let gyroZ = readInt16LE(gyroOffsetZ)
-
-        // Extract accelerometer data
-        let accelX = readInt16LE(accelOffsetX)
-        let accelY = readInt16LE(accelOffsetY)
-        let accelZ = readInt16LE(accelOffsetZ)
-
-        // Call the gyro callback (on the HID thread for low latency)
-        onGyroData?(gyroX, gyroY, gyroZ, timestamp)
+        // Call the gyro callback (on the HID thread for low latency) using device timestamp if available
+        let effectiveTimestamp = lastDeviceTimestamp ?? timestamp
+        if let onGyroData {
+            onGyroData(gyroX, gyroY, gyroZ, effectiveTimestamp)
+        }
 
         // Call the combined IMU callback for sensor fusion
-        onIMUData?(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, timestamp)
-
-        // Extract full report for debug display
-        var reportBytes = [UInt8](repeating: 0, count: PSVR2HIDProtocol.reportLength)
-        for i in 0..<min(PSVR2HIDProtocol.reportLength, length) {
-            reportBytes[i] = report[i]
+        if let onIMUData {
+            onIMUData(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, effectiveTimestamp)
         }
-        onReportData?(reportBytes, length)
+
+        // Copy full report into reused buffer for debug display
+        let maxLength = min(PSVR2HIDProtocol.reportLength, min(length, reportBuffer.count))
+        for i in 0..<maxLength {
+            reportBuffer[i] = report[i]
+        }
+
+        if let onReportData {
+            onReportData(
+                InputReport(
+                    bytes: reportBuffer,
+                    length: maxLength,
+                    gyroX: gyroX,
+                    gyroY: gyroY,
+                    gyroZ: gyroZ,
+                    accelX: accelX,
+                    accelY: accelY,
+                    accelZ: accelZ,
+                    timestamp: effectiveTimestamp
+                )
+            )
+        }
+    }
+
+    /// Handle input values to capture device timestamps for IMU reports
+    private func handleInputValue(_ value: IOHIDValue) {
+        let element = IOHIDValueGetElement(value)
+        let reportID = IOHIDElementGetReportID(element)
+
+        // We only care about the main IMU report (0x31). Values for other report IDs are ignored.
+        guard reportID == Self.imuReportID else { return }
+
+        // Convert kernel tick to seconds
+        let ts = IOHIDValueGetTimeStamp(value)
+        // Avoid duplicate timestamps; fall back to host if they repeat
+        if let lastTicks = lastDeviceTicks, lastTicks == ts {
+            lastDeviceTimestamp = nil
+            return
+        }
+        lastDeviceTicks = ts
+        if (lastDeviceTicks ?? 0) == ts { lastDeviceTimestamp = nil; return }
+        lastDeviceTicks = ts
+        lastDeviceTimestamp = ticksToSeconds(ts)
     }
 
     // MARK: - Output Reports (EXPERIMENTAL - based on DualSense protocol)

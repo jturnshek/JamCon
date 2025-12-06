@@ -2,46 +2,76 @@ import Foundation
 import CoreGraphics
 import AppKit
 
-/// Minimal mouse controller using CGEvent
+/// Mouse controller using CGEvent with proper drag support
 class MouseController {
 
     // MARK: - Properties
 
+    /// Shared event source for mouse events - uses private state to avoid inheriting system modifier flags
     private static let eventSource: CGEventSource? = CGEventSource(stateID: .privateState)
 
-    private var currentPosition: CGPoint {
-        NSEvent.mouseLocation
+    /// Track which mouse button is currently held (for drag events)
+    private var heldMouseButton: MouseButton? = nil
+
+    /// Track click timing for double/triple click detection
+    private var lastClickTime: Date = .distantPast
+    private var lastClickPosition: CGPoint = .zero
+    private var clickCount: Int64 = 0
+
+    private var cachedBounds: CGRect
+    private let notificationCenter: NotificationCenter
+    private var cachedPosition: CGPoint
+
+    // MARK: - Initialization
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+        self.cachedBounds = MouseController.computeScreenBounds()
+        self.cachedPosition = NSEvent.mouseLocation
+        observeScreenChanges()
+        startPeriodicResync()
     }
 
-    private var screenBounds: CGRect {
-        let screens = NSScreen.screens
-        guard var union = screens.first?.frame else {
-            return CGRect(x: 0, y: 0, width: 1920, height: 1080)
-        }
-        for screen in screens.dropFirst() {
-            union = union.union(screen.frame)
-        }
-        return union
+    deinit {
+        notificationCenter.removeObserver(self)
     }
 
-    // MARK: - Mouse Movement
-
-    /// Move the mouse by a relative amount
+    /// Move the mouse by a relative amount, clamped to screen bounds
     func moveRelative(dx: CGFloat, dy: CGFloat) {
-        let current = currentPosition
-        let bounds = screenBounds
+        // Update cached position in Cocoa coords (origin bottom-left)
+        cachedPosition.x += dx
+        cachedPosition.y -= dy  // input dy is screen-down; Cocoa Y increases upward
+        cachedPosition = clamp(cachedPosition, to: cachedBounds)
+        let quartzPoint = toQuartzSpace(point: cachedPosition, in: cachedBounds)
 
-        // Calculate new position in Cocoa coords (origin bottom-left)
-        // dy from input is "screen down"; Cocoa Y increases upward, so subtract
-        let proposed = CGPoint(x: current.x + dx, y: current.y - dy)
-        let clamped = clamp(proposed, to: bounds)
-        let quartzPoint = toQuartzSpace(point: clamped, in: bounds)
+        // Determine event type based on whether a mouse button is held
+        let mouseType: CGEventType
+        let mouseButton: CGMouseButton
+
+        if let held = heldMouseButton {
+            // Button is held - send drag event for proper drag-and-drop support
+            switch held {
+            case .left:
+                mouseType = .leftMouseDragged
+                mouseButton = .left
+            case .right:
+                mouseType = .rightMouseDragged
+                mouseButton = .right
+            case .middle:
+                mouseType = .otherMouseDragged
+                mouseButton = .center
+            }
+        } else {
+            // No button held - send regular move event
+            mouseType = .mouseMoved
+            mouseButton = .left
+        }
 
         guard let event = CGEvent(
             mouseEventSource: Self.eventSource,
-            mouseType: .mouseMoved,
+            mouseType: mouseType,
             mouseCursorPosition: quartzPoint,
-            mouseButton: .left
+            mouseButton: mouseButton
         ) else {
             return
         }
@@ -77,7 +107,123 @@ class MouseController {
         event.post(tap: .cghidEventTap)
     }
 
+    // MARK: - Mouse Clicks
+
+    /// Press mouse button down
+    func mouseDown(button: MouseButton) {
+        let currentPos = currentPosition()
+        let bounds = cachedBounds
+        let point = toQuartzSpace(point: currentPos, in: bounds)
+
+        let eventType: CGEventType
+        let cgButton: CGMouseButton
+
+        switch button {
+        case .left:
+            eventType = .leftMouseDown
+            cgButton = .left
+        case .right:
+            eventType = .rightMouseDown
+            cgButton = .right
+        case .middle:
+            eventType = .otherMouseDown
+            cgButton = .center
+        }
+
+        guard let event = CGEvent(
+            mouseEventSource: Self.eventSource,
+            mouseType: eventType,
+            mouseCursorPosition: point,
+            mouseButton: cgButton
+        ) else {
+            return
+        }
+
+        // Clear any inherited modifier flags - controller mouse clicks should be "clean"
+        event.flags = []
+
+        // Detect double/triple click based on timing and position
+        let now = Date()
+        let timeSinceLastClick = now.timeIntervalSince(lastClickTime)
+        let doubleClickInterval = NSEvent.doubleClickInterval
+        let maxClickDistance: CGFloat = 4.0  // pixels
+
+        let distance = hypot(currentPos.x - lastClickPosition.x, currentPos.y - lastClickPosition.y)
+
+        if timeSinceLastClick <= doubleClickInterval && distance <= maxClickDistance {
+            // Rapid click near same position - increment click count (max 3 for triple-click)
+            clickCount = min(clickCount + 1, 3)
+        } else {
+            // New click sequence
+            clickCount = 1
+        }
+
+        lastClickTime = now
+        lastClickPosition = currentPos
+
+        // Set click state for proper recognition in all applications
+        event.setIntegerValueField(.mouseEventClickState, value: clickCount)
+
+        // Track this button as held (for drag events)
+        heldMouseButton = button
+
+        event.post(tap: .cghidEventTap)
+    }
+
+    /// Release mouse button
+    func mouseUp(button: MouseButton) {
+        let currentPos = currentPosition()
+        let bounds = cachedBounds
+        let point = toQuartzSpace(point: currentPos, in: bounds)
+
+        let eventType: CGEventType
+        let cgButton: CGMouseButton
+
+        switch button {
+        case .left:
+            eventType = .leftMouseUp
+            cgButton = .left
+        case .right:
+            eventType = .rightMouseUp
+            cgButton = .right
+        case .middle:
+            eventType = .otherMouseUp
+            cgButton = .center
+        }
+
+        guard let event = CGEvent(
+            mouseEventSource: Self.eventSource,
+            mouseType: eventType,
+            mouseCursorPosition: point,
+            mouseButton: cgButton
+        ) else {
+            return
+        }
+
+        // Clear any inherited modifier flags
+        event.flags = []
+
+        // Set click state to match the mouseDown (for double/triple click recognition)
+        event.setIntegerValueField(.mouseEventClickState, value: clickCount)
+
+        // Clear held button state (drag ended)
+        heldMouseButton = nil
+
+        event.post(tap: .cghidEventTap)
+    }
+
+    /// Perform a click (down + up)
+    func click(button: MouseButton) {
+        mouseDown(button: button)
+        mouseUp(button: button)
+    }
+
     // MARK: - Helpers
+
+    private func currentPosition() -> CGPoint {
+        // Use NSEvent to stay in the same (Cocoa) coordinate space as cached bounds
+        return NSEvent.mouseLocation
+    }
 
     private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
         let x = min(max(point.x, bounds.minX), bounds.maxX)
@@ -89,5 +235,84 @@ class MouseController {
         let relativeY = point.y - bounds.minY
         let quartzY = bounds.maxY - relativeY
         return CGPoint(x: point.x, y: quartzY)
+    }
+
+    private func observeScreenChanges() {
+        notificationCenter.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.cachedBounds = MouseController.computeScreenBounds()
+            self.cachedPosition = NSEvent.mouseLocation
+        }
+    }
+
+    private static func computeScreenBounds() -> CGRect {
+        let screens = NSScreen.screens
+        guard var union = screens.first?.frame else {
+            return CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        }
+        for screen in screens.dropFirst() {
+            union = union.union(screen.frame)
+        }
+        return union
+    }
+
+    private func startPeriodicResync() {
+        // Resync on activation/launch to catch external warps
+        notificationCenter.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.resyncPosition()
+        }
+        notificationCenter.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            self?.resyncPosition()
+        }
+        // Periodic safety resync to align with external cursor moves
+        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.resyncPosition()
+        }
+    }
+
+    private func resyncPosition() {
+        cachedPosition = NSEvent.mouseLocation
+        cachedBounds = MouseController.computeScreenBounds()
+    }
+
+    // MARK: - Cursor Visibility
+
+    /// Track cursor hide/show balance
+    private var cursorHideCount: Int = 0
+
+    /// Hide the system cursor
+    func hideCursor() {
+        if cursorHideCount == 0 {
+            CGDisplayHideCursor(CGMainDisplayID())
+        }
+        cursorHideCount += 1
+    }
+
+    /// Show the system cursor (must match previous hide calls)
+    func showCursor() {
+        cursorHideCount = max(cursorHideCount - 1, 0)
+        if cursorHideCount == 0 {
+            CGDisplayShowCursor(CGMainDisplayID())
+        }
+    }
+
+    /// Force show cursor regardless of hide count (for cleanup)
+    func forceShowCursor() {
+        while cursorHideCount > 0 {
+            CGDisplayShowCursor(CGMainDisplayID())
+            cursorHideCount -= 1
+        }
     }
 }

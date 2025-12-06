@@ -10,6 +10,19 @@ enum LogicalButton: String, CaseIterable {
     case menuButton   // Create (L) / Options (R)
     case playStation
 
+    /// Stable index for array-backed hot-path storage
+    var index: Int {
+        switch self {
+        case .faceTop: return 0
+        case .faceBottom: return 1
+        case .bumper: return 2
+        case .trigger: return 3
+        case .stickClick: return 4
+        case .menuButton: return 5
+        case .playStation: return 6
+        }
+    }
+
     /// PlayStation name for left controller
     func leftName() -> String {
         switch self {

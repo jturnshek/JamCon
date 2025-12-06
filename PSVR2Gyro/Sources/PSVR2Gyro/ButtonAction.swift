@@ -153,8 +153,9 @@ enum ButtonAction: Codable, Hashable {
     case mouseClick(MouseButton)
     case keyPress(KeyCombo)
     case systemAction(SystemAction)
-    case drag    // Gyro moves cursor only when this button is held
-    case scroll  // Gyro scrolls content when this button is held
+    case drag       // Gyro moves cursor only when this button is held
+    case scroll     // Gyro scrolls content when this button is held
+    case radialMenu // Opens radial menu while held, gyro selects segment
 
     var displayName: String {
         switch self {
@@ -170,13 +171,15 @@ enum ButtonAction: Codable, Hashable {
             return "Drag (hold to move)"
         case .scroll:
             return "Scroll (hold to scroll)"
+        case .radialMenu:
+            return "Radial Menu"
         }
     }
 
     /// Whether this action is a gyro override mode
     var isGyroMode: Bool {
         switch self {
-        case .drag, .scroll: return true
+        case .drag, .scroll, .radialMenu: return true
         default: return false
         }
     }
@@ -188,7 +191,7 @@ enum ButtonAction: Codable, Hashable {
     }
 
     private enum ActionType: String, Codable {
-        case none, mouseClick, keyPress, systemAction, drag, scroll
+        case none, mouseClick, keyPress, systemAction, drag, scroll, radialMenu
     }
 
     init(from decoder: Decoder) throws {
@@ -211,6 +214,8 @@ enum ButtonAction: Codable, Hashable {
             self = .drag
         case .scroll:
             self = .scroll
+        case .radialMenu:
+            self = .radialMenu
         }
     }
 
@@ -233,6 +238,8 @@ enum ButtonAction: Codable, Hashable {
             try container.encode(ActionType.drag, forKey: .type)
         case .scroll:
             try container.encode(ActionType.scroll, forKey: .type)
+        case .radialMenu:
+            try container.encode(ActionType.radialMenu, forKey: .type)
         }
     }
 }
@@ -259,16 +266,46 @@ struct ButtonActions: Codable, Hashable {
 // MARK: - Button Mapping Profile
 
 struct PSVR2ButtonMappingProfile: Codable {
-    var mappings: [String: ButtonActions]  // LogicalButton.rawValue -> actions
+    private(set) var mappings: [String: ButtonActions]  // LogicalButton.rawValue -> actions
+    private var actionsCache: [ButtonActions] = Array(repeating: ButtonActions(), count: LogicalButton.allCases.count)
     var triggerThreshold: UInt8
     var holdThreshold: Double  // Seconds before hold action fires
 
+    // Cached gyro-mode mapping flags to avoid per-frame dictionary scans
+    private var dragMapped: Bool = false
+    private var scrollMapped: Bool = false
+    private var radialMenuMapped: Bool = false
+
     static let userDefaultsKey = "PSVR2ButtonMappingProfile_v2"  // New key for new format
+
+    private enum CodingKeys: String, CodingKey {
+        case mappings
+        case triggerThreshold
+        case holdThreshold
+    }
 
     init(mappings: [String: ButtonActions] = [:], triggerThreshold: UInt8 = 128, holdThreshold: Double = 0.3) {
         self.mappings = mappings
         self.triggerThreshold = triggerThreshold
         self.holdThreshold = holdThreshold
+        rebuildActionsCache()
+        recomputeMappingFlags()
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.mappings = try container.decodeIfPresent([String: ButtonActions].self, forKey: .mappings) ?? [:]
+        self.triggerThreshold = try container.decodeIfPresent(UInt8.self, forKey: .triggerThreshold) ?? 128
+        self.holdThreshold = try container.decodeIfPresent(Double.self, forKey: .holdThreshold) ?? 0.3
+        rebuildActionsCache()
+        recomputeMappingFlags()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mappings, forKey: .mappings)
+        try container.encode(triggerThreshold, forKey: .triggerThreshold)
+        try container.encode(holdThreshold, forKey: .holdThreshold)
     }
 
     static var `default`: Self {
@@ -279,15 +316,19 @@ struct PSVR2ButtonMappingProfile: Codable {
         profile.mappings[LogicalButton.stickClick.rawValue] = ButtonActions(press: .mouseClick(.middle))
         profile.mappings[LogicalButton.menuButton.rawValue] = ButtonActions(press: .systemAction(.playPause))
         profile.mappings[LogicalButton.playStation.rawValue] = ButtonActions(press: .systemAction(.missionControl))
+        profile.rebuildActionsCache()
+        profile.recomputeMappingFlags()
         return profile
     }
 
     func actions(for button: LogicalButton) -> ButtonActions {
-        mappings[button.rawValue] ?? ButtonActions()
+        actionsCache[button.index]
     }
 
     mutating func setActions(_ actions: ButtonActions, for button: LogicalButton) {
         mappings[button.rawValue] = actions
+        actionsCache[button.index] = actions
+        recomputeMappingFlags()
     }
 
     mutating func setPressAction(_ action: ButtonAction, for button: LogicalButton) {
@@ -298,22 +339,32 @@ struct PSVR2ButtonMappingProfile: Codable {
             current.hold = .none
         }
         mappings[button.rawValue] = current
+        actionsCache[button.index] = current
+        recomputeMappingFlags()
     }
 
     mutating func setHoldAction(_ action: ButtonAction, for button: LogicalButton) {
         var current = actions(for: button)
         current.hold = action
         mappings[button.rawValue] = current
+        actionsCache[button.index] = current
+        // Hold does not affect gyro-mode flags, but recompute defensively in case of future changes
+        recomputeMappingFlags()
     }
 
     /// Check if any button is mapped to drag mode (in press action)
     var hasDragMapping: Bool {
-        mappings.values.contains { $0.press == .drag }
+        dragMapped
     }
 
     /// Check if any button is mapped to scroll mode (in press action)
     var hasScrollMapping: Bool {
-        mappings.values.contains { $0.press == .scroll }
+        scrollMapped
+    }
+
+    /// Check if any button is mapped to radial menu mode (in press action)
+    var hasRadialMenuMapping: Bool {
+        radialMenuMapped
     }
 
     func save() {
@@ -340,12 +391,40 @@ struct PSVR2ButtonMappingProfile: Codable {
                 newProfile.mappings[key] = ButtonActions(press: action)
             }
             // Save in new format and clean up old
+            newProfile.rebuildActionsCache()
+            newProfile.recomputeMappingFlags()
             newProfile.save()
             UserDefaults.standard.removeObject(forKey: oldKey)
             return newProfile
         }
 
         return .default
+    }
+
+    private mutating func rebuildActionsCache() {
+        for button in LogicalButton.allCases {
+            actionsCache[button.index] = mappings[button.rawValue] ?? ButtonActions()
+        }
+    }
+
+    private mutating func recomputeMappingFlags() {
+        var drag = false
+        var scroll = false
+        var radial = false
+
+        for actions in mappings.values {
+            switch actions.press {
+            case .drag: drag = true
+            case .scroll: scroll = true
+            case .radialMenu: radial = true
+            default: break
+            }
+            if drag && scroll && radial { break }
+        }
+
+        dragMapped = drag
+        scrollMapped = scroll
+        radialMenuMapped = radial
     }
 
     /// Old profile format for migration

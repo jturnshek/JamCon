@@ -34,13 +34,14 @@ final class OneEuroFilter: @unchecked Sendable {
     private var previousValue: Double?
     private var previousDerivative: Double = 0
     private var previousTime: TimeInterval?
+    private static let twoPi: Double = 2.0 * Double.pi
 
     // MARK: - Core Algorithm
 
     /// Compute smoothing factor alpha for a given cutoff frequency and time delta
     /// α = 1 / (1 + τ/dt) where τ = 1/(2πf)
     private func alpha(cutoff: Double, dt: Double) -> Double {
-        let tau = 1.0 / (2.0 * Double.pi * cutoff)
+        let tau = 1.0 / (Self.twoPi * cutoff)
         return 1.0 / (1.0 + tau / dt)
     }
 

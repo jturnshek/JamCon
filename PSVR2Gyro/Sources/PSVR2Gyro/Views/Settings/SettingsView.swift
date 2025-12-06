@@ -27,11 +27,17 @@ struct SettingsView: View {
                 }
                 .tag(AppState.ActiveTab.buttons)
 
-            StickTab(appState: appState)
+            JoystickTab(appState: appState)
                 .tabItem {
-                    Label("Stick", systemImage: "l.joystick")
+                    Label("Joystick", systemImage: "l.joystick")
                 }
-                .tag(AppState.ActiveTab.stick)
+                .tag(AppState.ActiveTab.joystick)
+
+            RadialMenuTab(appState: appState)
+                .tabItem {
+                    Label("Radial", systemImage: "circle.hexagongrid")
+                }
+                .tag(AppState.ActiveTab.radial)
 
             DebugTab(appState: appState)
                 .tabItem {

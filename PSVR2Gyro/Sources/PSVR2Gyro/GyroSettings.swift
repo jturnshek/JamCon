@@ -1,6 +1,21 @@
 import Foundation
 import os.lock
 
+// MARK: - Acceleration Mode
+
+/// Simple vs Advanced acceleration configuration mode
+enum AccelerationMode: String, CaseIterable, Codable {
+    case simple
+    case advanced
+
+    var displayName: String {
+        switch self {
+        case .simple: return "Simple"
+        case .advanced: return "Advanced"
+        }
+    }
+}
+
 // MARK: - Acceleration Curve
 
 /// Preset acceleration curve types for gyro-to-mouse translation
@@ -57,13 +72,26 @@ struct GyroSettingsState: Equatable {
     var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speed
 
     // MARK: Acceleration
-    var accelerationCurve: AccelerationCurve = .power
-    var accelerationStrength: Double = 10.0  // 0-20 multiplier
-    var sensitivityCap: Double = 20.0        // Max gain (1.0 = no acceleration)
+    var accelerationMode: AccelerationMode = .simple
+    var simpleAcceleration: Double = 5.0     // 1-10 slider for simple mode
 
-    // MARK: Deadzone
-    var softCutoffThreshold: Double = 0.5    // Below this = zero (°/s)
-    var recoveryThreshold: Double = 1.5      // Above this = full sensitivity (°/s)
+    // Advanced mode parameters (custom parametric curve)
+    var curveExponent: Double = 1.0          // < 1 = concave, 1 = linear, > 1 = convex
+    var rampSpeed: Double = 150.0            // Speed at which gain reaches cap (°/s)
+    var sensitivityCap: Double = 20.0        // Max gain multiplier
+
+    // Legacy (kept for compatibility but not used in new parametric curve)
+    var accelerationCurve: AccelerationCurve = .power
+    var accelerationStrength: Double = 10.0
+
+    /// Direct curve parameters (simple mode removed)
+    var effectiveCurveExponent: Double { curveExponent }
+    var effectiveRampSpeed: Double { rampSpeed }
+    var effectiveSensitivityCap: Double { sensitivityCap }
+
+    // MARK: Deadzone (kept for backwards compatibility, but not used in processing)
+    var softCutoffThreshold: Double = 0.5
+    var recoveryThreshold: Double = 1.5
 
     // MARK: Defaults
 
@@ -103,6 +131,10 @@ final class GyroSettings: @unchecked Sendable {
         static let minCutoff = "gyro.minCutoff"
         static let beta = "gyro.beta"
         static let adaptiveSmoothingMode = "gyro.adaptiveSmoothingMode"
+        static let accelerationMode = "gyro.accelerationMode"
+        static let simpleAcceleration = "gyro.simpleAcceleration"
+        static let curveExponent = "gyro.curveExponent"
+        static let rampSpeed = "gyro.rampSpeed"
         static let accelerationCurve = "gyro.accelerationCurve"
         static let accelerationStrength = "gyro.accelerationStrength"
         static let sensitivityCap = "gyro.sensitivityCap"
@@ -123,9 +155,13 @@ final class GyroSettings: @unchecked Sendable {
         defaults.set(state.minCutoff, forKey: Keys.minCutoff)
         defaults.set(state.beta, forKey: Keys.beta)
         defaults.set(state.adaptiveSmoothingMode.rawValue, forKey: Keys.adaptiveSmoothingMode)
+        defaults.set(state.accelerationMode.rawValue, forKey: Keys.accelerationMode)
+        defaults.set(state.simpleAcceleration, forKey: Keys.simpleAcceleration)
         defaults.set(state.accelerationCurve.rawValue, forKey: Keys.accelerationCurve)
         defaults.set(state.accelerationStrength, forKey: Keys.accelerationStrength)
         defaults.set(state.sensitivityCap, forKey: Keys.sensitivityCap)
+        defaults.set(state.curveExponent, forKey: Keys.curveExponent)
+        defaults.set(state.rampSpeed, forKey: Keys.rampSpeed)
         defaults.set(state.softCutoffThreshold, forKey: Keys.softCutoffThreshold)
         defaults.set(state.recoveryThreshold, forKey: Keys.recoveryThreshold)
     }
@@ -155,6 +191,13 @@ final class GyroSettings: @unchecked Sendable {
                let mode = AdaptiveSmoothingMode(rawValue: v) {
                 state.adaptiveSmoothingMode = mode
             }
+            if let v = defaults.string(forKey: Keys.accelerationMode),
+               let mode = AccelerationMode(rawValue: v) {
+                state.accelerationMode = mode
+            }
+            if let v = defaults.object(forKey: Keys.simpleAcceleration) as? Double {
+                state.simpleAcceleration = v
+            }
             if let v = defaults.string(forKey: Keys.accelerationCurve),
                let curve = AccelerationCurve(rawValue: v) {
                 state.accelerationCurve = curve
@@ -164,6 +207,12 @@ final class GyroSettings: @unchecked Sendable {
             }
             if let v = defaults.object(forKey: Keys.sensitivityCap) as? Double {
                 state.sensitivityCap = v
+            }
+            if let v = defaults.object(forKey: Keys.curveExponent) as? Double {
+                state.curveExponent = v
+            }
+            if let v = defaults.object(forKey: Keys.rampSpeed) as? Double {
+                state.rampSpeed = v
             }
             if let v = defaults.object(forKey: Keys.softCutoffThreshold) as? Double {
                 state.softCutoffThreshold = v

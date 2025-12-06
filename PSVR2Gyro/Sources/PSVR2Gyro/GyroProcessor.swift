@@ -7,7 +7,7 @@ import CoreGraphics
 ///
 /// Processing Pipeline:
 /// ```
-/// Raw Gyro → Bias Calibration → Soft Cutoff → One Euro Filter → Acceleration Curve → Sensitivity Scale → Mouse Delta
+/// Raw Gyro → Bias Calibration → One Euro Filter → Acceleration Curve → Sensitivity Scale → Mouse Delta
 /// ```
 final class GyroProcessor: @unchecked Sendable {
 
@@ -16,7 +16,10 @@ final class GyroProcessor: @unchecked Sendable {
     private var biasX: Double = 0
     private var biasY: Double = 0
     private var biasZ: Double = 0
-    private var biasSamples: [(x: Double, y: Double, z: Double)] = []
+    private var biasBuffer: [(x: Double, y: Double, z: Double)]
+    private var biasCount: Int = 0
+    private var biasIndex: Int = 0
+    private var biasSum: (x: Double, y: Double, z: Double) = (0, 0, 0)
     private let maxBiasSamples = 64
     private let motionThreshold: Double = 50.0  // Raw units
 
@@ -32,6 +35,13 @@ final class GyroProcessor: @unchecked Sendable {
     private var lastSpeedEMA: Double = 0
     private var lastJerkEMA: Double = 0
 
+    /// Current smoothed speed (°/s) for UI visualization
+    private(set) var currentSpeed: Double = 0
+
+    init() {
+        biasBuffer = Array(repeating: (0, 0, 0), count: maxBiasSamples)
+    }
+
     // MARK: - Processing
 
     /// Process raw gyro data and return mouse deltas
@@ -39,7 +49,7 @@ final class GyroProcessor: @unchecked Sendable {
     ///   - rawX: Raw X-axis gyro value (pitch)
     ///   - rawY: Raw Y-axis gyro value (roll)
     ///   - rawZ: Raw Z-axis gyro value (yaw)
-    ///   - timestamp: Monotonic timestamp
+    ///   - timestamp: Monotonic timestamp (seconds)
     ///   - settings: Thread-safe settings snapshot
     /// - Returns: (dx, dy) mouse movement, or nil if no movement
     func process(
@@ -55,10 +65,19 @@ final class GyroProcessor: @unchecked Sendable {
         let y = Double(rawY)
         let z = Double(rawZ)
 
-        // 2. Calculate dt
+        // 2. Calculate dt with clamping to reduce jitter impact
+        // Expected sample period ~1/60s from the device
+        let expectedDt = 1.0 / 60.0
+        let maxDt = expectedDt * 4.0  // tolerate brief stalls but cap spikes
         let dt: Double
         if let last = lastTimestamp {
-            dt = max(0.001, timestamp - last)
+            let rawDt = timestamp - last
+            dt = min(max(0.001, rawDt), maxDt)
+            // If we clamped heavily, reset filters to avoid smearing after a stall
+            if rawDt > maxDt {
+                yawFilter.reset()
+                pitchFilter.reset()
+            }
         } else {
             dt = 1.0 / 60.0
         }
@@ -79,33 +98,19 @@ final class GyroProcessor: @unchecked Sendable {
         let degreesPitch = calibratedX * settings.gyroScale
 
         // Apply axis inversions for natural direction
-        var yaw = -degreesYaw    // Invert for natural left/right
-        var pitch = -degreesPitch  // Invert for natural up/down
+        let yaw = -degreesYaw    // Invert for natural left/right
+        let pitch = -degreesPitch  // Invert for natural up/down
 
-        // 6. Apply soft cutoff (smooth deadzone)
-        yaw = applySoftCutoff(
-            value: yaw,
-            cutoff: settings.softCutoffThreshold,
-            recovery: settings.recoveryThreshold
-        )
-        pitch = applySoftCutoff(
-            value: pitch,
-            cutoff: settings.softCutoffThreshold,
-            recovery: settings.recoveryThreshold
-        )
-
-        // Skip if no movement after cutoff
-        if yaw == 0 && pitch == 0 {
-            return nil
-        }
-
-        // 7. Apply One Euro filter (if enabled)
+        // 6. Apply One Euro filter (if enabled)
         var filteredYaw = yaw
         var filteredPitch = pitch
 
         if settings.filterEnabled {
             // Update filter parameters
+            let speedSquared = yaw * yaw + pitch * pitch
+            let speed = sqrt(speedSquared)
             let adaptiveBeta = computeAdaptiveBeta(
+                speed: speed,
                 yaw: yaw,
                 pitch: pitch,
                 baseBeta: settings.beta,
@@ -123,15 +128,16 @@ final class GyroProcessor: @unchecked Sendable {
         }
 
         // 8. Calculate speed for acceleration curve
-        let speed = sqrt(filteredYaw * filteredYaw + filteredPitch * filteredPitch)
-        let smoothedSpeed = smoothSpeed(speed)
+        let filteredSpeed = sqrt(filteredYaw * filteredYaw + filteredPitch * filteredPitch)
+        let smoothedSpeed = smoothSpeed(filteredSpeed)
+        currentSpeed = smoothedSpeed  // Store for UI visualization
 
-        // 9. Apply acceleration curve
-        let accelGain = computeAccelerationGain(
+        // 9. Apply acceleration curve (parametric formula)
+        let accelGain = computeParametricGain(
             speed: smoothedSpeed,
-            curve: settings.accelerationCurve,
-            strength: settings.accelerationStrength,
-            cap: settings.sensitivityCap
+            rampSpeed: settings.effectiveRampSpeed,
+            exponent: settings.effectiveCurveExponent,
+            cap: settings.effectiveSensitivityCap
         )
 
         // 10. Convert to mouse deltas
@@ -145,42 +151,35 @@ final class GyroProcessor: @unchecked Sendable {
     // MARK: - Bias Estimation
 
     private func updateBias(x: Double, y: Double, z: Double) {
-        let magnitude = sqrt(x * x + y * y + z * z)
+        let magnitudeSquared = x * x + y * y + z * z
 
-        if magnitude < motionThreshold {
-            biasSamples.append((x, y, z))
-            if biasSamples.count > maxBiasSamples {
-                biasSamples.removeFirst()
+        if magnitudeSquared < motionThreshold * motionThreshold {
+            let old = biasBuffer[biasIndex]
+            biasBuffer[biasIndex] = (x, y, z)
+            biasIndex = (biasIndex + 1) % maxBiasSamples
+            if biasCount < maxBiasSamples {
+                biasCount += 1
+                biasSum.x += x
+                biasSum.y += y
+                biasSum.z += z
+            } else {
+                // Rolling sum: subtract old, add new
+                biasSum.x += x - old.x
+                biasSum.y += y - old.y
+                biasSum.z += z - old.z
             }
-            if biasSamples.count >= maxBiasSamples / 2 {
-                biasX = biasSamples.map { $0.x }.reduce(0, +) / Double(biasSamples.count)
-                biasY = biasSamples.map { $0.y }.reduce(0, +) / Double(biasSamples.count)
-                biasZ = biasSamples.map { $0.z }.reduce(0, +) / Double(biasSamples.count)
+
+            if biasCount >= maxBiasSamples / 2 {
+                let count = Double(biasCount)
+                biasX = biasSum.x / count
+                biasY = biasSum.y / count
+                biasZ = biasSum.z / count
             }
         } else {
-            biasSamples.removeAll()
-        }
-    }
-
-    // MARK: - Soft Cutoff (Smooth Deadzone)
-
-    /// Apply soft cutoff: gradual transition instead of hard deadzone
-    /// - Parameters:
-    ///   - value: Input angular velocity
-    ///   - cutoff: Speed below which output is zero
-    ///   - recovery: Speed above which output is full
-    /// - Returns: Scaled value with smooth transition
-    private func applySoftCutoff(value: Double, cutoff: Double, recovery: Double) -> Double {
-        let absValue = abs(value)
-
-        if absValue <= cutoff {
-            return 0  // Below cutoff - no movement
-        } else if absValue >= recovery {
-            return value  // Above recovery - full movement
-        } else {
-            // Linear interpolation in transition zone
-            let t = (absValue - cutoff) / (recovery - cutoff)
-            return value * t
+            // Clear buffer when motion exceeds threshold
+            biasCount = 0
+            biasIndex = 0
+            biasSum = (0, 0, 0)
         }
     }
 
@@ -188,6 +187,7 @@ final class GyroProcessor: @unchecked Sendable {
 
     /// Compute adaptive beta based on motion characteristics
     private func computeAdaptiveBeta(
+        speed: Double,
         yaw: Double,
         pitch: Double,
         baseBeta: Double,
@@ -199,13 +199,11 @@ final class GyroProcessor: @unchecked Sendable {
             return baseBeta
 
         case .speed:
-            let speed = sqrt(yaw * yaw + pitch * pitch)
             let speedTerm = min(1.0, speed / 150.0)
             let boost = speedTerm * 0.2
             return min(1.0, baseBeta + boost)
 
         case .speedAndJerk:
-            let speed = sqrt(yaw * yaw + pitch * pitch)
             let jerk = abs(speed - lastSpeed) / max(dt, 0.001)
             lastSpeed = speed
 
@@ -227,66 +225,33 @@ final class GyroProcessor: @unchecked Sendable {
         return lastSpeedEMA
     }
 
-    // MARK: - Acceleration Curves
+    // MARK: - Acceleration Curve
 
-    /// Compute acceleration gain based on curve type
-    private func computeAccelerationGain(
+    /// Compute acceleration gain using parametric curve formula
+    /// - Parameters:
+    ///   - speed: Current angular velocity (°/s)
+    ///   - rampSpeed: Speed at which gain reaches cap (°/s)
+    ///   - exponent: Curve shape (< 1 = concave, 1 = linear, > 1 = convex)
+    ///   - cap: Maximum gain multiplier
+    /// - Returns: Gain multiplier (1.0 to cap)
+    private func computeParametricGain(
         speed: Double,
-        curve: AccelerationCurve,
-        strength: Double,
+        rampSpeed: Double,
+        exponent: Double,
         cap: Double
     ) -> Double {
-        // Ensure cap is at least 1.0
+        // Ensure valid parameters
         let effectiveCap = max(1.0, cap)
-        let maxExtra = effectiveCap - 1.0
+        let effectiveRamp = max(1.0, rampSpeed)
 
-        switch curve {
-        case .off:
-            return 1.0
+        // Normalize speed to 0-1 range (0 to rampSpeed)
+        let normalized = min(1.0, speed / effectiveRamp)
 
-        case .natural:
-            // Smooth concave curve: gain = 1 + (cap - 1) * (1 - exp(-speed * strength / 50))
-            // Approaches cap asymptotically - most comfortable for most users
-            let normalized = speed * strength / 50.0
-            let factor = 1.0 - exp(-normalized)
-            return 1.0 + maxExtra * factor
+        // Apply power curve
+        let curved = pow(normalized, exponent)
 
-        case .linear:
-            // Straight line: gain = 1 + min(cap - 1, speed * strength / 150)
-            // Predictable, consistent ramp
-            let normalized = speed * strength / 150.0
-            return 1.0 + min(maxExtra, normalized * maxExtra)
-
-        case .power:
-            // Power curve: gain = 1 + min(cap - 1, pow(speed / 150, 1.2) * (cap - 1) * strength)
-            // More aggressive at high speeds
-            let normalized = max(0, speed / 150.0)
-            let powered = pow(normalized, 1.2)
-            return 1.0 + min(maxExtra, powered * maxExtra * strength)
-
-        case .classic:
-            // Traditional 3-zone approach (precision/ramp/ballistic)
-            // Zone A: 0-20°/s = precision (no acceleration)
-            // Zone B: 20-90°/s = gentle ramp
-            // Zone C: 90-180°/s = ballistic ramp to cap
-            let speedA = 20.0
-            let speedB = 90.0
-            let speedC = 180.0
-
-            if speed <= speedA {
-                return 1.0  // Precision zone
-            } else if speed <= speedB {
-                let t = (speed - speedA) / (speedB - speedA)
-                let midGain = maxExtra * 0.5 * strength
-                return 1.0 + t * midGain
-            } else {
-                let clamped = min(speed, speedC)
-                let t = (clamped - speedB) / (speedC - speedB)
-                let midGain = maxExtra * 0.5 * strength
-                let fullGain = maxExtra * strength
-                return 1.0 + midGain + t * (fullGain - midGain)
-            }
-        }
+        // Scale to gain range
+        return 1.0 + curved * (effectiveCap - 1.0)
     }
 
     // MARK: - Reset
@@ -296,7 +261,10 @@ final class GyroProcessor: @unchecked Sendable {
         biasX = 0
         biasY = 0
         biasZ = 0
-        biasSamples.removeAll()
+        biasBuffer = Array(repeating: (0, 0, 0), count: maxBiasSamples)
+        biasCount = 0
+        biasIndex = 0
+        biasSum = (0, 0, 0)
         lastTimestamp = nil
         yawFilter.reset()
         pitchFilter.reset()
@@ -307,6 +275,6 @@ final class GyroProcessor: @unchecked Sendable {
 
     /// Whether bias calibration is complete
     var isCalibrated: Bool {
-        biasSamples.count >= maxBiasSamples / 2
+        biasCount >= maxBiasSamples / 2
     }
 }
