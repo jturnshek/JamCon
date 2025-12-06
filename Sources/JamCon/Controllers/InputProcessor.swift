@@ -4,41 +4,65 @@ import QuartzCore
 
 // MARK: - Gyro Bias Estimator
 
-/// Automatically calibrates gyro bias when controller is stationary
+/// Automatically calibrates gyro bias when controller is stationary.
+/// Uses a ring buffer with O(1) operations and preserves the last valid bias
+/// when motion is detected (backported from PSVR2Gyro for improved responsiveness).
 class GyroBiasEstimator {
-    private var samples: [(x: Double, y: Double, z: Double)] = []
-    private let maxSamples = 64  // ~1 second at 66Hz
+    // Ring buffer storage (O(1) operations)
+    private var biasBuffer: [(x: Double, y: Double, z: Double)]
+    private var biasIndex: Int = 0
+    private var biasCount: Int = 0
+    private var biasSum: (x: Double, y: Double, z: Double) = (0, 0, 0)
+    private let maxSamples = 64  // ~0.24s at 266Hz (Joy-Con bundled rate)
     private let motionThreshold = 3.0  // °/s - if magnitude exceeds this, we're moving
 
-    /// Current estimated bias (subtract from raw readings)
+    /// Current estimated bias (PRESERVED when motion detected)
     private(set) var bias: (x: Double, y: Double, z: Double) = (0, 0, 0)
+
+    init() {
+        biasBuffer = Array(repeating: (0, 0, 0), count: maxSamples)
+    }
 
     /// Whether we have a valid calibration
     var isCalibrated: Bool {
-        return samples.count >= maxSamples / 2
+        return biasCount >= maxSamples / 2
     }
 
     /// Update bias estimate with new gyro sample
     func update(gyro: GyroData) {
-        // Only collect samples when controller appears stationary
         let magnitude = sqrt(gyro.x * gyro.x + gyro.y * gyro.y + gyro.z * gyro.z)
 
         if magnitude < motionThreshold {
-            samples.append((gyro.x, gyro.y, gyro.z))
-            if samples.count > maxSamples {
-                samples.removeFirst()
+            // Stationary: update ring buffer with O(1) rolling sum
+            let old = biasBuffer[biasIndex]
+            biasBuffer[biasIndex] = (gyro.x, gyro.y, gyro.z)
+            biasIndex = (biasIndex + 1) % maxSamples
+
+            if biasCount < maxSamples {
+                // Still filling buffer
+                biasCount += 1
+                biasSum.x += gyro.x
+                biasSum.y += gyro.y
+                biasSum.z += gyro.z
+            } else {
+                // Rolling sum: subtract oldest, add newest
+                biasSum.x += gyro.x - old.x
+                biasSum.y += gyro.y - old.y
+                biasSum.z += gyro.z - old.z
             }
 
             // Update bias estimate if we have enough samples
-            if samples.count >= maxSamples / 2 {
-                let avgX = samples.map { $0.x }.reduce(0, +) / Double(samples.count)
-                let avgY = samples.map { $0.y }.reduce(0, +) / Double(samples.count)
-                let avgZ = samples.map { $0.z }.reduce(0, +) / Double(samples.count)
-                bias = (avgX, avgY, avgZ)
+            if biasCount >= maxSamples / 2 {
+                let count = Double(biasCount)
+                bias = (biasSum.x / count, biasSum.y / count, biasSum.z / count)
             }
         } else {
-            // Moving - clear samples to avoid contamination
-            samples.removeAll()
+            // Moving: reset accumulation BUT PRESERVE CURRENT BIAS
+            // This is the key fix - we don't clear the bias, only the accumulation state
+            biasCount = 0
+            biasIndex = 0
+            biasSum = (0, 0, 0)
+            // NOTE: bias is intentionally NOT reset here!
         }
     }
 
@@ -53,14 +77,24 @@ class GyroBiasEstimator {
 
     /// Reset calibration (for manual recalibration)
     func reset() {
-        samples.removeAll()
+        biasBuffer = Array(repeating: (0, 0, 0), count: maxSamples)
+        biasCount = 0
+        biasIndex = 0
+        biasSum = (0, 0, 0)
         bias = (0, 0, 0)
     }
 
     /// Force-set the bias (used when clutch captures a fresh neutral)
-    func forceBias(_ bias: (x: Double, y: Double, z: Double)) {
-        samples = Array(repeating: bias, count: maxSamples / 2)
-        self.bias = bias
+    func forceBias(_ newBias: (x: Double, y: Double, z: Double)) {
+        // Fill buffer with new bias value to establish baseline
+        for i in 0..<maxSamples {
+            biasBuffer[i] = newBias
+        }
+        biasCount = maxSamples / 2  // Mark as calibrated
+        biasIndex = 0
+        let count = Double(biasCount)
+        biasSum = (newBias.x * count, newBias.y * count, newBias.z * count)
+        bias = newBias
     }
 }
 
@@ -145,9 +179,6 @@ class InputProcessor {
     private let yawFilter = OneEuroFilter()
     private let pitchFilter = OneEuroFilter()
 
-    /// Soft cutoff speed - below this, no movement (°/s)
-    var cutoffSpeed: Double = 0.5
-
     /// Tracks the last sample time to compute dt
     private var lastTimestamp: TimeInterval?
     private var lastReportedCalibration: Bool?
@@ -187,58 +218,40 @@ class InputProcessor {
 
     // MARK: - Gyro Processing
 
-    /// Apply soft cutoff: gradual transition to zero instead of hard deadzone
-    private func applySoftCutoff(value: Double, cutoffSpeed: Double, recoverySpeed: Double) -> Double {
-        let absValue = abs(value)
-
-        if absValue <= cutoffSpeed {
-            return 0  // Below cutoff - no movement
-        } else if absValue >= recoverySpeed {
-            return value  // Above recovery - full movement
-        } else {
-            // Interpolate between cutoff and recovery for smooth transition
-            let t = (absValue - cutoffSpeed) / (recoverySpeed - cutoffSpeed)
-            return value * t
-        }
+    /// Parametric acceleration curve (backported from PSVR2Gyro)
+    /// - Parameters:
+    ///   - speed: Current angular velocity (°/s)
+    ///   - rampSpeed: Speed at which gain reaches cap (°/s)
+    ///   - exponent: Curve shape (<1 concave, 1 linear, >1 convex)
+    ///   - cap: Maximum gain multiplier
+    /// - Returns: Gain multiplier (1.0 to cap)
+    private func computeParametricGain(
+        speed: Double,
+        rampSpeed: Double,
+        exponent: Double,
+        cap: Double
+    ) -> Double {
+        let effectiveCap = max(1.0, cap)
+        let effectiveRamp = max(1.0, rampSpeed)
+        let normalized = min(1.0, speed / effectiveRamp)
+        let curved = pow(normalized, exponent)
+        return 1.0 + curved * (effectiveCap - 1.0)
     }
 
-    private func pointerAccelerationGain(for speed: Double, maxExtraGain: Double) -> Double {
-        // Pointer-like table:
-        // Zone A: precision linear up to speedA
-        // Zone B: gentle ramp to ~1.5-2x
-        // Zone C: short ballistic ramp to maxExtraGain
-        let effectiveMax = max(0, maxExtraGain)
-        let speedA = 20.0
-        let speedB = 90.0
-        let speedC = 180.0
-
-        if speed <= speedA {
-            return 1.0  // precision zone
-        } else if speed <= speedB {
-            let t = (speed - speedA) / (speedB - speedA)
-            // ramp up to mid gain (half of effectiveMax)
-            let mid = effectiveMax * 0.5
-            return 1.0 + t * mid
-        } else {
-            let clamped = min(speed, speedC)
-            let t = (clamped - speedB) / (speedC - speedB)
-            return 1.0 + min(effectiveMax, effectiveMax * 0.5 + t * effectiveMax * 0.5)
-        }
-    }
-
-    private func updateFilters(for smoothThreshold: Double, beta: Double) {
-        guard lastSmoothThreshold != smoothThreshold || lastFilterBeta != beta else { return }
-        lastSmoothThreshold = smoothThreshold
+    private func updateFilters(minCutoff: Double, beta: Double) {
+        guard lastSmoothThreshold != minCutoff || lastFilterBeta != beta else { return }
+        lastSmoothThreshold = minCutoff
         lastFilterBeta = beta
-        // Map smoothing slider (0-50) to One Euro cutoff range (~0.1 - 4.5 Hz)
-        let cutoff = max(0.1, smoothThreshold / 12.0)
-        yawFilter.minCutoff = cutoff
-        pitchFilter.minCutoff = cutoff
+        yawFilter.minCutoff = minCutoff
+        pitchFilter.minCutoff = minCutoff
         // Keep derivative cutoff modest to avoid lag in fast motion
         yawFilter.derivativeCutoff = 1.0
         pitchFilter.derivativeCutoff = 1.0
         yawFilter.beta = beta
         pitchFilter.beta = beta
+        // Use Joy-Con effective gyro sample rate (~200 Hz bundled into 66 Hz packets)
+        yawFilter.fallbackRate = 200.0
+        pitchFilter.fallbackRate = 200.0
     }
 
     private func smoothedSpeed(_ instantaneous: Double) -> Double {
@@ -272,28 +285,31 @@ class InputProcessor {
     ///   - gyro: Gyroscope values (x, y, z) in degrees per second
     ///   - timestamp: Monotonic timestamp for this sample
     ///   - sensitivity: Mouse movement multiplier
-    ///   - deadzone: Recovery threshold for soft cutoff (°/s)
-    ///   - smoothThreshold: Speed below which smoothing is applied (°/s)
+    ///   - filterEnabled: Whether to apply One Euro filtering
+    ///   - filterMinCutoff: Base cutoff frequency for smoothing (Hz)
+    ///   - filterBeta: Speed coefficient for adaptive smoothing
+    ///   - accelRampSpeed: Speed at which acceleration reaches cap (°/s)
+    ///   - accelExponent: Acceleration curve shape (<1 concave, 1 linear, >1 convex)
+    ///   - accelCap: Maximum acceleration gain multiplier
+    ///   - adaptiveSmoothingMode: Whether to dynamically adjust beta
+    ///   - autoNeutralRefresh: Whether to recalibrate during quiet periods
     func processGyro(
         _ gyro: GyroData,
         timestamp: TimeInterval,
         sensitivity: Double,
-        deadzone: Double,
-        smoothThreshold: Double? = nil,
-        filterBeta: Double = 0.35,
-        accelerationMaxExtra: Double = 2.0,
-        accelerationMode: AccelerationMode = .legacy,
-        precisionZoneEnabled: Bool = false,
-        earlyRampEnabled: Bool = false,
+        filterEnabled: Bool = true,
+        filterMinCutoff: Double = 1.0,
+        filterBeta: Double = 1.0,
+        accelRampSpeed: Double = 150.0,
+        accelExponent: Double = 1.0,
+        accelCap: Double = 3.0,
         adaptiveSmoothingMode: AdaptiveSmoothingMode = .off,
         autoNeutralRefresh: Bool = true
     ) {
         let now = timestamp
 
-        // Update filter tuning if the user changed smoothing
-        if let threshold = smoothThreshold {
-            updateFilters(for: threshold, beta: filterBeta)
-        }
+        // Update filter tuning
+        updateFilters(minCutoff: filterMinCutoff, beta: filterBeta)
 
         // 1. Update bias estimator (runs continuously, learns when stationary)
         biasEstimator.update(gyro: gyro)
@@ -301,12 +317,21 @@ class InputProcessor {
         // 2. Apply calibration to remove drift
         let calibrated = biasEstimator.calibratedGyro(gyro)
 
-        // 3. Compute dt and keep roll integration for grip compensation
+        // 3. Compute dt with stall detection (backported from PSVR2Gyro)
+        // Joy-Con delivers ~200Hz gyro samples (bundled into 66Hz packets)
+        let expectedDt = 1.0 / 200.0
+        let maxDt = expectedDt * 6.0  // tolerate short Bluetooth stalls without smearing
         let dt: Double
         if let last = lastTimestamp {
-            dt = max(1.0 / yawFilter.fallbackRate, now - last)
+            let rawDt = now - last
+            dt = min(max(0.001, rawDt), maxDt)
+            // Reset filters on Bluetooth stall to prevent smearing
+            if rawDt > maxDt {
+                yawFilter.reset()
+                pitchFilter.reset()
+            }
         } else {
-            dt = 1.0 / yawFilter.fallbackRate
+            dt = expectedDt
         }
         lastTimestamp = now
 
@@ -321,41 +346,36 @@ class InputProcessor {
         // 4. Extract axes for pointing-forward grip
         // - Z axis: wrist rotation left/right = horizontal mouse
         // - Y axis: tilting up/down = vertical mouse
-        var yaw = calibrated.z
-        var pitch = -calibrated.y  // Negated for natural direction
+        let yaw = calibrated.z
+        let pitch = -calibrated.y  // Negated for natural direction
 
-        // 4. Apply soft cutoff (replaces hard deadzone)
-        yaw = applySoftCutoff(value: yaw, cutoffSpeed: cutoffSpeed, recoverySpeed: deadzone)
-        pitch = applySoftCutoff(value: pitch, cutoffSpeed: cutoffSpeed, recoverySpeed: deadzone)
+        // 5. Apply One Euro filter (if enabled)
+        var filteredYaw = yaw
+        var filteredPitch = pitch
 
-        // Skip if no movement after cutoff
-        if yaw == 0 && pitch == 0 {
-            reportCalibrationIfNeeded()
-            return
+        if filterEnabled {
+            // Adaptive smoothing: adjust beta based on motion
+            let adaptiveBeta = dynamicFilterBeta(forYaw: yaw, pitch: pitch, baseBeta: filterBeta, dt: dt, mode: adaptiveSmoothingMode)
+            yawFilter.beta = adaptiveBeta
+            pitchFilter.beta = adaptiveBeta
+
+            filteredYaw = yawFilter.filter(value: yaw, timestamp: now)
+            filteredPitch = pitchFilter.filter(value: pitch, timestamp: now)
         }
 
-        // 6. Adaptive smoothing (minimal lag for fast motion)
-        let adaptiveBeta = dynamicFilterBeta(forYaw: yaw, pitch: pitch, baseBeta: filterBeta, dt: dt, mode: adaptiveSmoothingMode)
-        yawFilter.beta = adaptiveBeta
-        pitchFilter.beta = adaptiveBeta
-
-        let filteredYaw = yawFilter.filter(value: yaw, timestamp: now)
-        let filteredPitch = pitchFilter.filter(value: pitch, timestamp: now)
-
-        // 7. Deskew axes if the controller was re-gripped with roll (lock)
+        // 6. Deskew axes if the controller was re-gripped with roll (lock)
         let (compensatedYaw, compensatedPitch) = applyRollCompensation(
             yaw: filteredYaw,
             pitch: filteredPitch
         )
 
-        // 8. Apply acceleration curve on angular speed (mode-dependent)
+        // 7. Apply parametric acceleration curve
         let speed = sqrt(compensatedYaw * compensatedYaw + compensatedPitch * compensatedPitch)
-        let accelGain = accelerationGain(
-            for: smoothedSpeed(speed),
-            maxExtraGain: accelerationMaxExtra,
-            mode: accelerationMode,
-            precisionZoneEnabled: precisionZoneEnabled,
-            earlyRampEnabled: earlyRampEnabled
+        let accelGain = computeParametricGain(
+            speed: smoothedSpeed(speed),
+            rampSpeed: accelRampSpeed,
+            exponent: accelExponent,
+            cap: accelCap
         )
 
         // Scale: sensitivity * 0.1 gives good range with slider
@@ -364,16 +384,24 @@ class InputProcessor {
         let dx = CGFloat(compensatedYaw * dt * baseScale * accelGain * ramp)
         let dy = CGFloat(compensatedPitch * dt * baseScale * accelGain * ramp)
 
+        DiagnosticLatencyProbe.shared.mark(.postProcess, sampleTimestamp: timestamp)
+
         switch currentOverride() {
         case .clutch:
+            DiagnosticLatencyProbe.shared.mark(.preEvent, sampleTimestamp: timestamp)
             onMouseMove?(dx, dy)
+            DiagnosticLatencyProbe.shared.mark(.postEvent, sampleTimestamp: timestamp)
         case .scroll:
+            DiagnosticLatencyProbe.shared.mark(.preEvent, sampleTimestamp: timestamp)
             onScroll?(dx, dy)
+            DiagnosticLatencyProbe.shared.mark(.postEvent, sampleTimestamp: timestamp)
         case .zoom:
             // Convert vertical motion to magnification gesture
             // Scale factor to make zoom feel natural (negative dy = tilt down = zoom out)
             let zoomScale: CGFloat = 0.01
+            DiagnosticLatencyProbe.shared.mark(.preEvent, sampleTimestamp: timestamp)
             onZoom?(dy * zoomScale)
+            DiagnosticLatencyProbe.shared.mark(.postEvent, sampleTimestamp: timestamp)
         case .none:
             reportCalibrationIfNeeded()
             return
@@ -702,21 +730,6 @@ class InputProcessor {
         let compensatedYaw = yaw * cosR + pitch * sinR
         let compensatedPitch = -yaw * sinR + pitch * cosR
         return (compensatedYaw, compensatedPitch)
-    }
-
-    private func accelerationGain(for speed: Double, maxExtraGain: Double, mode: AccelerationMode, precisionZoneEnabled: Bool, earlyRampEnabled: Bool) -> Double {
-        let cappedMax = max(0, maxExtraGain)
-        let precisionMaxSpeed = 20.0
-        if precisionZoneEnabled && speed <= precisionMaxSpeed {
-            let t = speed / precisionMaxSpeed
-            return 1.0 + cappedMax * t * 0.1  // subtle lift only
-        }
-
-        let normDivisor = earlyRampEnabled ? 130.0 : 150.0
-        let exponent = earlyRampEnabled ? 1.15 : 1.2
-        let normalized = max(0, speed / normDivisor)
-        let rawGain = 1.0 + min(cappedMax, pow(normalized, exponent) * cappedMax)
-        return rawGain
     }
 }
 

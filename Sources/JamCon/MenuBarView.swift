@@ -381,102 +381,124 @@ struct MenuBarView: View {
                         .tint(JamConColors.blue)
                 }
 
-                // Acceleration
+                // ─── ACCELERATION ───
+                subHeader("Acceleration")
+
+                // Acceleration Cap (Max Gain)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Acceleration")
+                        Text("Max Gain")
                             .font(.caption)
                         Spacer()
-                        Text(String(format: "%.1fx", 1.0 + appState.accelerationGain))
+                        Text(String(format: "%.1fx", appState.accelCap))
                             .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 52, alignment: .trailing)
                     }
-                    Slider(value: $appState.accelerationGain, in: 0...500, step: 0.1)
+                    Slider(value: $appState.accelCap, in: 1...20, step: 0.5)
                         .tint(JamConColors.blue)
-                    Text("Boosts speed for fast wrist flicks while leaving fine aim unchanged.")
+                    Text("Maximum speed multiplier for fast movements.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
 
-                // ─── SMOOTHING ───
-                subHeader("Smoothing")
-
-                // Jitter Filter
+                // Ramp Speed
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Jitter Filter")
+                        Text("Ramp Speed")
                             .font(.caption)
                         Spacer()
-                        Text(appState.smoothThreshold == 0 ? "Off" : String(format: "%.0f", appState.smoothThreshold))
+                        Text(String(format: "%.0f°/s", appState.accelRampSpeed))
                             .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
-                            .frame(width: 30, alignment: .trailing)
+                            .frame(width: 60, alignment: .trailing)
                     }
-                    Slider(value: $appState.smoothThreshold, in: 0...50, step: 1)
+                    Slider(value: $appState.accelRampSpeed, in: 10...500, step: 10)
                         .tint(JamConColors.blue)
-                    Text("Higher = smoother when moving slowly; too high can feel floaty.")
+                    Text("Speed at which max gain is reached.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
 
-                // Adaptive Smoothing
-                HStack {
-                    Text("Adaptive")
-                        .font(.caption)
-                    Spacer()
-                    Picker("", selection: $appState.adaptiveSmoothingMode) {
-                        ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                }
-
-                // ─── FINE TUNING ───
-                subHeader("Fine Tuning")
-
-                // Precision Zone toggle
-                Toggle(isOn: $appState.precisionZoneEnabled) {
-                    Text("Precision Zone")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Text("Slows cursor at low speeds for fine aiming")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-
-                // Early Ramp toggle
-                Toggle(isOn: $appState.earlyRampEnabled) {
-                    Text("Early Ramp")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Text("Reaches top acceleration gain sooner")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-
-                // Filter Responsiveness
+                // Curve Exponent
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text("Filter Beta")
+                        Text("Curve Shape")
                             .font(.caption)
                         Spacer()
-                        Text(String(format: "%.2f", appState.filterBeta))
+                        Text(String(format: "%.2f", appState.accelExponent))
                             .font(JamConFonts.mono)
                             .foregroundColor(.secondary)
                             .frame(width: 40, alignment: .trailing)
                     }
-                    Slider(value: $appState.filterBeta, in: 0...1.0, step: 0.01)
+                    Slider(value: $appState.accelExponent, in: 0.1...3.0, step: 0.05)
                         .tint(JamConColors.blue)
-                    Text("Higher = drops smoothing sooner during motion; lower = steadier but can add lag.")
+                    Text("<1 = concave (quick start), 1 = linear, >1 = convex (gradual start).")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+                }
+
+                // ─── FILTERING ───
+                subHeader("Filtering")
+
+                // Filter Enabled toggle
+                Toggle(isOn: $appState.filterEnabled) {
+                    Text("Enable Filter")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                if appState.filterEnabled {
+                    // Min Cutoff (Smoothing)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Smoothing")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.1f Hz", appState.filterMinCutoff))
+                                .font(JamConFonts.mono)
+                                .foregroundColor(.secondary)
+                                .frame(width: 55, alignment: .trailing)
+                        }
+                        Slider(value: $appState.filterMinCutoff, in: 0.1...10.0, step: 0.1)
+                            .tint(JamConColors.blue)
+                        Text("Lower = smoother at rest; higher = more responsive.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Beta (Responsiveness)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Responsiveness")
+                                .font(.caption)
+                            Spacer()
+                            Text(String(format: "%.2f", appState.filterBeta))
+                                .font(JamConFonts.mono)
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                        Slider(value: $appState.filterBeta, in: 0...2.0, step: 0.05)
+                            .tint(JamConColors.blue)
+                        Text("Higher = less smoothing during motion (more direct feel).")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    // Adaptive Smoothing
+                    HStack {
+                        Text("Adaptive Mode")
+                            .font(.caption)
+                        Spacer()
+                        Picker("", selection: $appState.adaptiveSmoothingMode) {
+                            ForEach(AdaptiveSmoothingMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                    }
                 }
             }
         }

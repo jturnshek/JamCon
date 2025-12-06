@@ -5,6 +5,7 @@ import SwiftUI
 struct RadialMenuTab: View {
     @ObservedObject var appState: AppState
     @StateObject private var keyCaptureManager = KeyCaptureManager()
+    @StateObject private var previewState = RadialMenuState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,19 +62,18 @@ struct RadialMenuTab: View {
                 Spacer()
                 RadialMenuView(state: previewState)
                     .frame(width: 200, height: 200)
+                    .onChange(of: appState.radialMenuConfiguration) { _, newConfig in
+                        previewState.activeConfiguration = newConfig
+                    }
+                    .onAppear {
+                        previewState.activeConfiguration = appState.radialMenuConfiguration
+                    }
                 Spacer()
             }
             .frame(height: 220)
             .background(Color.secondary.opacity(0.05))
             .cornerRadius(8)
         }
-    }
-
-    /// Preview state that mirrors the current configuration
-    private var previewState: RadialMenuState {
-        let state = RadialMenuState()
-        state.activeConfiguration = appState.radialMenuConfiguration
-        return state
     }
 
     // MARK: - Inner Ring Section

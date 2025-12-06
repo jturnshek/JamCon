@@ -75,9 +75,11 @@ public class Controller {
     private var rumbleData: [UInt8]
     private var lastSensorTimestamp: UInt64?
     private var lastSampleSpacing: TimeInterval?
-    private let defaultSensorSampleSpacing: TimeInterval = 1.0 / 800.0
-    private let minSensorSampleSpacing: TimeInterval = 1.0 / 2000.0
-    private let maxSensorSampleSpacing: TimeInterval = 1.0 / 200.0
+    // Gyro samples are bundled in triplets; typical spacing is ~1/200s (5ms).
+    // Allow a wide range so we can surface real Bluetooth stalls instead of clamping to 5ms.
+    private let defaultSensorSampleSpacing: TimeInterval = 1.0 / 200.0
+    private let minSensorSampleSpacing: TimeInterval = 1.0 / 4000.0
+    private let maxSensorSampleSpacing: TimeInterval = 1.0 / 20.0
     
     private var subcommandQueue: [Subcommand]
     private var processingSubcommand: Subcommand?
@@ -158,9 +160,13 @@ public class Controller {
     public var rightStickHandler: ((JoyCon.StickDirection, JoyCon.StickDirection) -> Void)?
     public var leftStickPosHandler: ((_ pos: CGPoint) -> Void)?
     public var rightStickPosHandler: ((_ pos: CGPoint) -> Void)?
+    /// Called once per decoded IMU sample; timestamp is monotonic seconds
     public var sensorHandler: ((_ timestamp: TimeInterval) -> Void)?
     public var batteryChangeHandler: ((JoyCon.BatteryStatus, JoyCon.BatteryStatus) -> Void)?
     public var isChargingChangeHandler: ((Bool) -> Void)?
+    /// When false, only the most recent sample in a 3-sample HID packet is delivered.
+    /// Default true to preserve legacy behavior.
+    public var deliverAllSensorSamples: Bool = true
     
     /// Initialize the controller
     /// - Parameter device: IOHIDDevice data of the controller
@@ -270,6 +276,7 @@ public class Controller {
         if let lastTicks = self.lastSensorTimestamp, packetTicks > lastTicks {
             let deltaTicks = packetTicks - lastTicks
             let spacingSeconds = MachTicksToSeconds(deltaTicks) / 3.0
+            // Clamp only to guard against pathological values; don't force 5ms on late packets.
             let clamped = min(max(spacingSeconds, self.minSensorSampleSpacing), self.maxSensorSampleSpacing)
             sampleSpacing = clamped
             self.lastSampleSpacing = clamped
@@ -327,13 +334,13 @@ public class Controller {
         let hasHandler = self.sensorHandler != nil
         let stamps = timestamps ?? []
 
-        if hasHandler {
+        if hasHandler && deliverAllSensorSamples {
             let t0 = stamps.count > 0 ? stamps[0] : nil
             let t1 = stamps.count > 1 ? stamps[1] : nil
             self.readSensorData(at: ptr + 12, timestamp: t0)
             self.readSensorData(at: ptr + 24, timestamp: t1)
         }
-        let t2 = stamps.count > 2 ? stamps[2] : nil
+        let t2 = stamps.count > 2 ? stamps[2] : stamps.last
         self.readSensorData(at: ptr + 36, timestamp: t2)
     }
     

@@ -62,14 +62,14 @@ enum AccelerationCurve: String, CaseIterable, Codable {
 /// All gyro processing settings in a single struct for atomic access
 struct GyroSettingsState: Equatable {
     // MARK: Core
-    var sensitivity: Double = 50.0
+    var sensitivity: Double = 40.0
     var gyroScale: Double = 1.0 / 16.0
 
     // MARK: Filtering
     var filterEnabled: Bool = true
-    var minCutoff: Double = 0.5           // One Euro: base smoothing (Hz)
+    var minCutoff: Double = 2.5           // One Euro: base smoothing (Hz)
     var beta: Double = 1.0                // One Euro: speed reactivity
-    var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speed
+    var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
 
     // MARK: Acceleration
     var accelerationMode: AccelerationMode = .simple

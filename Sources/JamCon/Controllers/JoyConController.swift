@@ -51,6 +51,13 @@ class JoyConController {
     /// Minimum gyro magnitude (deg/s) to count as user activity
     private let gyroActivityThreshold: Double = 5.0
 
+    /// Queue + state to time-slice bundled gyro samples (~200Hz) instead of posting them in bursts
+    private let gyroDispatchQueue = DispatchQueue(label: "JoyConController.gyroQueue", qos: .userInteractive)
+    private let gyroScheduleLock = OSAllocatedUnfairLock(initialState: [UUID: (timestamp: TimeInterval?, wall: TimeInterval?)]())
+    private let maxGyroCatchupDelay: TimeInterval = 0.02
+    /// Leave the time-slicing machinery in place but keep it disabled for lowest latency
+    private let useGyroTimeSlicing: Bool = false
+
     /// Thread-safe storage for connected controllers
     private let controllersLock = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: ConnectedController]())
 
@@ -174,6 +181,9 @@ class JoyConController {
         print("[JoyConController] Controller disconnected")
 
         let key = ObjectIdentifier(controller)
+        if let disconnected = getController(for: key) {
+            _ = gyroScheduleLock.withLock { $0.removeValue(forKey: disconnected.id) }
+        }
         removeController(for: key)
 
         DispatchQueue.main.async { [weak self] in
@@ -190,7 +200,10 @@ class JoyConController {
 
         // Sensor (gyro/accelerometer) updates
         controller.sensorHandler = { [weak self, weak controller] timestamp in
-            guard let controller else { return }
+            guard let self, let controller else { return }
+
+            DiagnosticLatencyProbe.shared.mark(.hid, sampleTimestamp: timestamp)
+            DiagnosticLatencyProbe.shared.mark(.postDecode, sampleTimestamp: timestamp)
 
             // JoyConSwift provides gyro as simd_float3 in degrees per second
             let gyro = controller.gyro
@@ -199,10 +212,22 @@ class JoyConController {
                 y: Double(gyro.y),
                 z: Double(gyro.z)
             )
-            if let isActive = self?.isGyroSignificant(gyroData), isActive {
-                self?.markActivity(for: controller)
+
+            if self.useGyroTimeSlicing {
+                let delay = self.computeGyroDelay(for: controllerId, sampleTimestamp: timestamp)
+                self.gyroDispatchQueue.asyncAfter(deadline: .now() + delay) { [weak self, weak controller] in
+                    guard let self, let controller else { return }
+                    if self.isGyroSignificant(gyroData) {
+                        self.markActivity(for: controller)
+                    }
+                    self.onGyroUpdate?(controllerId, gyroData, timestamp)
+                }
+            } else {
+                if self.isGyroSignificant(gyroData) {
+                    self.markActivity(for: controller)
+                }
+                self.onGyroUpdate?(controllerId, gyroData, timestamp)
             }
-            self?.onGyroUpdate?(controllerId, gyroData, timestamp)
         }
 
         // Button press
@@ -306,6 +331,27 @@ class JoyConController {
     }
 
     // MARK: - Activity Tracking
+
+    /// Space out bundled gyro samples in real time based on their timestamps
+    private func computeGyroDelay(for controllerId: UUID, sampleTimestamp: TimeInterval) -> TimeInterval {
+        gyroScheduleLock.withLock {
+            let now = CACurrentMediaTime()
+            let state = $0[controllerId] ?? (timestamp: nil, wall: nil)
+            if let lastTs = state.timestamp, let lastWall = state.wall {
+                let desiredDelta = max(0, sampleTimestamp - lastTs)
+                // Cap delay so we do not hold already-late samples even longer
+                let clampedDelta = min(desiredDelta, maxGyroCatchupDelay)
+                let targetWall = lastWall + clampedDelta
+                let scheduledWall = max(targetWall, now)
+                let delay = max(0, scheduledWall - now)
+                $0[controllerId] = (timestamp: sampleTimestamp, wall: scheduledWall)
+                return delay
+            } else {
+                $0[controllerId] = (timestamp: sampleTimestamp, wall: now)
+                return 0
+            }
+        }
+    }
 
     private func isGyroSignificant(_ gyro: GyroData) -> Bool {
         let maxAxis = max(abs(gyro.x), abs(gyro.y), abs(gyro.z))

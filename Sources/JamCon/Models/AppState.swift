@@ -6,14 +6,6 @@ import Foundation
 
 // MARK: - Tuning Modes
 
-enum AccelerationMode: String, Codable, Hashable, CaseIterable {
-    case legacy
-
-    var displayName: String {
-        return "Legacy (Raw Gain)"
-    }
-}
-
 enum AdaptiveSmoothingMode: String, Codable, Hashable, CaseIterable {
     case off
     case speed
@@ -32,31 +24,46 @@ enum AdaptiveSmoothingMode: String, Codable, Hashable, CaseIterable {
 /// Thread-safe settings cache for input processing
 /// Avoids main thread dispatch for high-frequency gyro updates
 final class InputSettings: @unchecked Sendable {
+    struct GyroSnapshot {
+        let isEnabled: Bool
+        let primaryControllerId: UUID?
+        let sensitivity: Double
+        let filterEnabled: Bool
+        let filterMinCutoff: Double
+        let filterBeta: Double
+        let accelRampSpeed: Double
+        let accelExponent: Double
+        let accelCap: Double
+        let adaptiveSmoothingMode: AdaptiveSmoothingMode
+        let autoNeutralRefresh: Bool
+    }
+
     private let lock = OSAllocatedUnfairLock()
 
     private var _isEnabled: Bool = true
-    private var _gyroSensitivity: Double = 30.0
+    private var _gyroSensitivity: Double = 40.0
     private var _scrollSensitivity: Double = 10.0
-    private var _gyroDeadzone: Double = 1.0
     private var _stickDeadzone: Double = 0.15
-    private var _smoothThreshold: Double = 20.0
     private var _controllerType: ControllerType = .none
     private var _primaryMapping: ButtonMappingProfile = .defaultPrimary
     private var _secondaryMapping: ButtonMappingProfile = .defaultSecondary
     private var _primaryControllerId: UUID? = nil
     private var _mirrorFaceButtons: Bool = true
     private var _holdThreshold: Double = 0.6
-    private var _filterBeta: Double = 0.5
-    private var _accelerationGain: Double = 80.0
-    private var _precisionZoneEnabled: Bool = false
-    private var _earlyRampEnabled: Bool = false
+    // Filter settings (backported from PSVR2Gyro)
+    private var _filterEnabled: Bool = true
+    private var _filterMinCutoff: Double = 8.0
+    private var _filterBeta: Double = 1.0
+    // Parametric acceleration curve settings (backported from PSVR2Gyro)
+    private var _accelRampSpeed: Double = 150.0
+    private var _accelExponent: Double = 1.0
+    private var _accelCap: Double = 3.0
     private var _primaryClutchButtons: Set<LogicalButton> = []
     private var _secondaryClutchButtons: Set<LogicalButton> = []
     private var _primaryScrollButtons: Set<LogicalButton> = []
     private var _secondaryScrollButtons: Set<LogicalButton> = []
     private var _primaryZoomButtons: Set<LogicalButton> = []
     private var _secondaryZoomButtons: Set<LogicalButton> = []
-    private var _accelerationMode: AccelerationMode = .legacy
     private var _adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
     private var _autoNeutralRefresh: Bool = true
     private var _idleTimeoutMinutes: Double = 15.0
@@ -78,19 +85,9 @@ final class InputSettings: @unchecked Sendable {
         set { lock.withLock { _scrollSensitivity = newValue } }
     }
 
-    var gyroDeadzone: Double {
-        get { lock.withLock { _gyroDeadzone } }
-        set { lock.withLock { _gyroDeadzone = newValue } }
-    }
-
     var stickDeadzone: Double {
         get { lock.withLock { _stickDeadzone } }
         set { lock.withLock { _stickDeadzone = newValue } }
-    }
-
-    var smoothThreshold: Double {
-        get { lock.withLock { _smoothThreshold } }
-        set { lock.withLock { _smoothThreshold = newValue } }
     }
 
     var controllerType: ControllerType {
@@ -123,27 +120,34 @@ final class InputSettings: @unchecked Sendable {
         set { lock.withLock { _holdThreshold = newValue } }
     }
 
+    var filterEnabled: Bool {
+        get { lock.withLock { _filterEnabled } }
+        set { lock.withLock { _filterEnabled = newValue } }
+    }
+
+    var filterMinCutoff: Double {
+        get { lock.withLock { _filterMinCutoff } }
+        set { lock.withLock { _filterMinCutoff = newValue } }
+    }
+
     var filterBeta: Double {
         get { lock.withLock { _filterBeta } }
         set { lock.withLock { _filterBeta = newValue } }
     }
 
-    var accelerationGain: Double {
-        get { lock.withLock { _accelerationGain } }
-        set { lock.withLock { _accelerationGain = newValue } }
-    }
-    var precisionZoneEnabled: Bool {
-        get { lock.withLock { _precisionZoneEnabled } }
-        set { lock.withLock { _precisionZoneEnabled = newValue } }
-    }
-    var earlyRampEnabled: Bool {
-        get { lock.withLock { _earlyRampEnabled } }
-        set { lock.withLock { _earlyRampEnabled = newValue } }
+    var accelRampSpeed: Double {
+        get { lock.withLock { _accelRampSpeed } }
+        set { lock.withLock { _accelRampSpeed = newValue } }
     }
 
-    var accelerationMode: AccelerationMode {
-        get { lock.withLock { _accelerationMode } }
-        set { lock.withLock { _accelerationMode = newValue } }
+    var accelExponent: Double {
+        get { lock.withLock { _accelExponent } }
+        set { lock.withLock { _accelExponent = newValue } }
+    }
+
+    var accelCap: Double {
+        get { lock.withLock { _accelCap } }
+        set { lock.withLock { _accelCap = newValue } }
     }
 
     var adaptiveSmoothingMode: AdaptiveSmoothingMode {
@@ -154,6 +158,25 @@ final class InputSettings: @unchecked Sendable {
     var autoNeutralRefresh: Bool {
         get { lock.withLock { _autoNeutralRefresh } }
         set { lock.withLock { _autoNeutralRefresh = newValue } }
+    }
+
+    /// Capture all gyro-processing settings under a single lock for the hot path.
+    func gyroSnapshot() -> GyroSnapshot {
+        lock.withLock {
+            GyroSnapshot(
+                isEnabled: _isEnabled,
+                primaryControllerId: _primaryControllerId,
+                sensitivity: _gyroSensitivity,
+                filterEnabled: _filterEnabled,
+                filterMinCutoff: _filterMinCutoff,
+                filterBeta: _filterBeta,
+                accelRampSpeed: _accelRampSpeed,
+                accelExponent: _accelExponent,
+                accelCap: _accelCap,
+                adaptiveSmoothingMode: _adaptiveSmoothingMode,
+                autoNeutralRefresh: _autoNeutralRefresh
+            )
+        }
     }
 
     var primaryClutchButtons: Set<LogicalButton> {
@@ -276,20 +299,14 @@ class AppState: ObservableObject {
     @AppStorage("isEnabled") var isEnabled: Bool = true {
         didSet { inputSettings.isEnabled = isEnabled }
     }
-    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 15.0 {
+    @AppStorage("gyroSensitivity") var gyroSensitivity: Double = 40.0 {
         didSet { inputSettings.gyroSensitivity = gyroSensitivity }
     }
     @AppStorage("scrollSensitivity") var scrollSensitivity: Double = 10.0 {
         didSet { inputSettings.scrollSensitivity = scrollSensitivity }
     }
-    @AppStorage("gyroDeadzone") var gyroDeadzone: Double = 1.0 {
-        didSet { inputSettings.gyroDeadzone = gyroDeadzone }
-    }
     @AppStorage("stickDeadzone") var stickDeadzone: Double = 0.15 {
         didSet { inputSettings.stickDeadzone = stickDeadzone }
-    }
-    @AppStorage("smoothThreshold") var smoothThreshold: Double = 0.0 {
-        didSet { inputSettings.smoothThreshold = smoothThreshold }
     }
     @AppStorage("mirrorFaceButtons") var mirrorFaceButtons: Bool = false {
         didSet { inputSettings.mirrorFaceButtons = mirrorFaceButtons }
@@ -297,20 +314,25 @@ class AppState: ObservableObject {
     @AppStorage("holdThreshold") var holdThreshold: Double = 0.6 {
         didSet { inputSettings.holdThreshold = holdThreshold }
     }
-    @AppStorage("filterBeta") var filterBeta: Double = 0.0 {
+    // Filter settings (backported from PSVR2Gyro)
+    @AppStorage("filterEnabled") var filterEnabled: Bool = true {
+        didSet { inputSettings.filterEnabled = filterEnabled }
+    }
+    @AppStorage("filterMinCutoff") var filterMinCutoff: Double = 8.0 {
+        didSet { inputSettings.filterMinCutoff = filterMinCutoff }
+    }
+    @AppStorage("filterBeta") var filterBeta: Double = 1.0 {
         didSet { inputSettings.filterBeta = filterBeta }
     }
-    @AppStorage("accelerationGain") var accelerationGain: Double = 175.0 {
-        didSet { inputSettings.accelerationGain = accelerationGain }
+    // Parametric acceleration curve (backported from PSVR2Gyro)
+    @AppStorage("accelRampSpeed") var accelRampSpeed: Double = 150.0 {
+        didSet { inputSettings.accelRampSpeed = accelRampSpeed }
     }
-    @AppStorage("precisionZoneEnabled") var precisionZoneEnabled: Bool = true {
-        didSet { inputSettings.precisionZoneEnabled = precisionZoneEnabled }
+    @AppStorage("accelExponent") var accelExponent: Double = 1.0 {
+        didSet { inputSettings.accelExponent = accelExponent }
     }
-    @AppStorage("earlyRampEnabled") var earlyRampEnabled: Bool = true {
-        didSet { inputSettings.earlyRampEnabled = earlyRampEnabled }
-    }
-    @AppStorage("accelerationMode") var accelerationMode: AccelerationMode = .legacy {
-        didSet { inputSettings.accelerationMode = accelerationMode }
+    @AppStorage("accelCap") var accelCap: Double = 3.0 {
+        didSet { inputSettings.accelCap = accelCap }
     }
     @AppStorage("adaptiveSmoothingMode") var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk {
         didSet { inputSettings.adaptiveSmoothingMode = adaptiveSmoothingMode }
@@ -434,19 +456,18 @@ class AppState: ObservableObject {
         inputSettings.isEnabled = isEnabled
         inputSettings.gyroSensitivity = gyroSensitivity
         inputSettings.scrollSensitivity = scrollSensitivity
-        inputSettings.gyroDeadzone = gyroDeadzone
         inputSettings.stickDeadzone = stickDeadzone
-        inputSettings.smoothThreshold = smoothThreshold
         inputSettings.primaryMapping = loadedPrimary
         inputSettings.secondaryMapping = loadedSecondary
         inputSettings.primaryControllerId = nil  // Will be set when first controller connects
         inputSettings.mirrorFaceButtons = mirrorFaceButtons
         inputSettings.holdThreshold = holdThreshold
+        inputSettings.filterEnabled = filterEnabled
+        inputSettings.filterMinCutoff = filterMinCutoff
         inputSettings.filterBeta = filterBeta
-        inputSettings.accelerationGain = accelerationGain
-        inputSettings.precisionZoneEnabled = precisionZoneEnabled
-        inputSettings.earlyRampEnabled = earlyRampEnabled
-        inputSettings.accelerationMode = accelerationMode
+        inputSettings.accelRampSpeed = accelRampSpeed
+        inputSettings.accelExponent = accelExponent
+        inputSettings.accelCap = accelCap
         inputSettings.adaptiveSmoothingMode = adaptiveSmoothingMode
         inputSettings.autoNeutralRefresh = autoNeutralRefresh
         inputSettings.primaryClutchButtons = parseButtons(from: primaryClutchButtonsRaw)
@@ -542,28 +563,28 @@ class AppState: ObservableObject {
         // Gyro: only process from primary controller
         joyConController?.onGyroUpdate = { [weak self] controllerId, gyro, timestamp in
             guard let self = self else { return }
-            let settings = self.inputSettings
             let processor = self.inputProcessor
 
-            guard settings.isEnabled else { return }
+            let snapshot = self.inputSettings.gyroSnapshot()
+            guard snapshot.isEnabled else { return }
 
             // Only process gyro from primary controller
-            guard settings.primaryControllerId == controllerId else { return }
+            guard snapshot.primaryControllerId == controllerId else { return }
 
+            DiagnosticLatencyProbe.shared.mark(.preProcess, sampleTimestamp: timestamp)
             self.recordGyroDiagnostics(timestamp: timestamp, gyro: gyro)
             processor?.processGyro(
                 gyro,
                 timestamp: timestamp,
-                sensitivity: settings.gyroSensitivity,
-                deadzone: settings.gyroDeadzone,
-                smoothThreshold: settings.smoothThreshold,
-                filterBeta: settings.filterBeta,
-                accelerationMaxExtra: settings.accelerationGain,
-                accelerationMode: settings.accelerationMode,
-                precisionZoneEnabled: settings.precisionZoneEnabled,
-                earlyRampEnabled: settings.earlyRampEnabled,
-                adaptiveSmoothingMode: settings.adaptiveSmoothingMode,
-                autoNeutralRefresh: settings.autoNeutralRefresh
+                sensitivity: snapshot.sensitivity,
+                filterEnabled: snapshot.filterEnabled,
+                filterMinCutoff: snapshot.filterMinCutoff,
+                filterBeta: snapshot.filterBeta,
+                accelRampSpeed: snapshot.accelRampSpeed,
+                accelExponent: snapshot.accelExponent,
+                accelCap: snapshot.accelCap,
+                adaptiveSmoothingMode: snapshot.adaptiveSmoothingMode,
+                autoNeutralRefresh: snapshot.autoNeutralRefresh
             )
         }
         processor?.onCalibrationChange = { [weak self] isCalibrated in

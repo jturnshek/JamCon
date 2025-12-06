@@ -190,6 +190,10 @@ class AppState: ObservableObject {
     )
     private var pendingBitCount: Int = 0
 
+    // Battery publish throttling (avoid per-report publishes on main thread)
+    private var lastBatteryUpdate: Date = .distantPast
+    private let batteryUpdateInterval: TimeInterval = 1.0  // seconds
+
     // Thread-safe cached values for HID callback access (avoid data races with @Published properties)
     private let callbackLock = OSAllocatedUnfairLock()
     private var _cachedIsLeftController: Bool = false
@@ -562,6 +566,10 @@ class AppState: ObservableObject {
         controller.onIMUData = { [weak self] gyroX, gyroY, gyroZ, accelX, accelY, accelZ, timestamp in
             guard let self = self, !self.isPaused else { return }
 
+            // Only publish debug accelerometer values when the Debug tab is live
+            let debugActive = self.debugRenderingEnabled && self.activeTab == .debug
+            guard debugActive else { return }
+
             // Update accel values for debug display (throttled with gyro)
             let now = Date()
             guard now.timeIntervalSince(self.lastUIUpdate) >= self.uiUpdateInterval else { return }
@@ -682,9 +690,22 @@ class AppState: ObservableObject {
                 }
             }
 
-            // Throttle UI updates to 30 FPS
-            guard now.timeIntervalSince(self.lastUIUpdate) >= self.uiUpdateInterval else { return }
-            self.lastUIUpdate = now
+            // Decide whether we need to publish to the UI this frame
+            let shouldUpdateDebugUI = debugActive && now.timeIntervalSince(self.lastUIUpdate) >= self.uiUpdateInterval
+
+            // Only read battery if report contains the battery byte (offset 43)
+            let newBatteryLevel: Int? = report.length > PSVR2HIDProtocol.Offset.battery
+                ? BatteryHelper.level(from: byteAt(PSVR2HIDProtocol.Offset.battery))
+                : nil
+
+            // Skip main-thread work if nothing needs to be published
+            if !(shouldUpdateDebugUI || newBatteryLevel != nil) {
+                return
+            }
+
+            if shouldUpdateDebugUI {
+                self.lastUIUpdate = now
+            }
 
             // Batch update UI on main thread
             let byteChanges = self.pendingByteChanges
@@ -692,41 +713,46 @@ class AppState: ObservableObject {
             let reportBytes = report.bytes
             let reportLength = report.length
 
-            if debugActive {
-                self.pendingByteChanges.removeAll(keepingCapacity: true)
-                self.pendingBitCount = 0
+            Task { @MainActor in
+                if shouldUpdateDebugUI {
+                    if debugActive {
+                        self.pendingByteChanges.removeAll(keepingCapacity: true)
+                        self.pendingBitCount = 0
 
-                // Update non-published properties directly (no SwiftUI observation overhead)
-                for (index, date) in byteChanges { self.byteLastChanged[index] = date }
-                for idx in 0..<bitChangesCount {
-                    let (byteIndex, bit, date) = self.pendingBitChanges[idx]
-                    if byteIndex < self.bitLastChanged.count && bit < self.bitLastChanged[byteIndex].count {
-                        self.bitLastChanged[byteIndex][bit] = date
+                        // Update non-published properties directly (no SwiftUI observation overhead)
+                        for (index, date) in byteChanges { self.byteLastChanged[index] = date }
+                        for idx in 0..<bitChangesCount {
+                            let (byteIndex, bit, date) = self.pendingBitChanges[idx]
+                            if byteIndex < self.bitLastChanged.count && bit < self.bitLastChanged[byteIndex].count {
+                                self.bitLastChanged[byteIndex][bit] = date
+                            }
+                        }
+                        self.reportBytes = self.pendingReportBytes
+                        self.reportLength = reportLength
+                    }
+
+                    for button in LogicalButton.allCases {
+                        self.buttonStatesArray[button.index] = mapping.isPressed(button, in: reportBytes)
+                    }
+
+                    // Debug-facing gyro/accel state and counters
+                    self.lastGyroX = report.gyroX
+                    self.lastGyroY = report.gyroY
+                    self.lastGyroZ = report.gyroZ
+                    self.reportCount += 1
+                    if debugActive {
+                        self.debugRefreshTrigger += 1
                     }
                 }
-                self.reportBytes = self.pendingReportBytes
-                self.reportLength = reportLength
-            }
 
-            for button in LogicalButton.allCases {
-                self.buttonStatesArray[button.index] = mapping.isPressed(button, in: reportBytes)
-            }
-
-            // Update debug-facing gyro/accel state, battery, and counters
-            // Only read battery if report contains the battery byte (offset 43)
-            let newBatteryLevel: Int? = report.length > PSVR2HIDProtocol.Offset.battery
-                ? BatteryHelper.level(from: byteAt(PSVR2HIDProtocol.Offset.battery))
-                : nil
-            Task { @MainActor in
-                self.lastGyroX = report.gyroX
-                self.lastGyroY = report.gyroY
-                self.lastGyroZ = report.gyroZ
-                self.reportCount += 1
-                if let newBatteryLevel, self.batteryLevel != newBatteryLevel {
-                    self.batteryLevel = newBatteryLevel
-                }
-                if debugActive {
-                    self.debugRefreshTrigger += 1
+                // Battery changes are independent of debug rendering; throttle to avoid per-report publishes
+                if let newBatteryLevel {
+                    let now = Date()
+                    let batteryStale = now.timeIntervalSince(self.lastBatteryUpdate) >= self.batteryUpdateInterval
+                    if batteryStale || self.batteryLevel != newBatteryLevel {
+                        self.batteryLevel = newBatteryLevel
+                        self.lastBatteryUpdate = now
+                    }
                 }
             }
         }
