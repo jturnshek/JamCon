@@ -19,9 +19,43 @@ struct PSVR2GyroApp: App {
     var body: some Scene {
         Window("PSVR2 Gyro Settings", id: "settings") {
             SettingsView(appState: appState)
+                .onAppear {
+                    // Start engine AFTER SwiftUI is fully initialized
+                    // This prevents crashes during app startup
+                    Task {
+                        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                        await MainActor.run {
+                            appState.startEngine()
+                        }
+                    }
+                }
         }
         .windowStyle(.automatic)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        MenuBarExtra {
+            if appState.isConnected {
+                Text(appState.controllerName)
+                if appState.batteryLevel > 0 {
+                    Text("Battery: \(appState.batteryLevel)%")
+                }
+            } else {
+                Text("No controller selected")
+            }
+
+            Divider()
+
+            Button("Settings...") {
+                openWindow(id: "settings")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
+            }
+        } label: {
+            Image(systemName: "rotate.3d")
+        }
     }
 }

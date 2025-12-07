@@ -32,7 +32,8 @@ struct ControllerTab: View {
                             ControllerCard(
                                 controller: controller,
                                 isSelected: controller.id == appState.selectedControllerID,
-                                onSelect: { appState.selectController(id: controller.id) }
+                                onSelect: { appState.selectController(id: controller.id) },
+                                onDeselect: { appState.deselectController() }
                             )
                         }
 
@@ -53,6 +54,7 @@ private struct ControllerCard: View {
     let controller: ControllerInfo
     let isSelected: Bool
     let onSelect: () -> Void
+    let onDeselect: () -> Void
 
     private var iconName: String {
         switch controller.kind {
@@ -64,32 +66,64 @@ private struct ControllerCard: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
+            // Selection indicator
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.title2)
+                .foregroundColor(isSelected ? .green : .secondary.opacity(0.4))
+
+            // Controller icon
             Image(systemName: iconName)
                 .font(.title2)
-                .foregroundColor(.blue)
+                .foregroundColor(isSelected ? .blue : .secondary)
 
+            // Controller info
             VStack(alignment: .leading, spacing: 2) {
-                Text(controller.side)
-                    .font(.headline)
-                Text("\(controller.name) • \(controller.kind == .joyCon ? "Joy-Con" : "PSVR2")")
+                HStack(spacing: 6) {
+                    Text(controller.name)
+                        .font(.headline)
+                        .foregroundColor(isSelected ? .primary : .secondary)
+                    if isSelected {
+                        Text("Active")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                }
+                Text("\(controller.side) • \(controller.kind == .joyCon ? "Joy-Con" : "PSVR2")")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             Spacer()
 
+            // Action button
             if isSelected {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.green)
+                Button(action: onDeselect) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(8)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(6)
+                .help("Stop using this controller")
             } else {
                 Button("Select", action: onSelect)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
             }
         }
         .padding()
-        .background(isSelected ? Color.blue.opacity(0.1) : Color.secondary.opacity(0.05))
-        .cornerRadius(8)
+        .background(isSelected ? Color.green.opacity(0.08) : Color.secondary.opacity(0.05))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isSelected ? Color.green.opacity(0.3) : Color.clear, lineWidth: 2)
+        )
+        .cornerRadius(10)
     }
 }

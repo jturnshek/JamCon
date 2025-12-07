@@ -53,14 +53,7 @@ struct SettingsView: View {
         }
         .frame(minWidth: 500, minHeight: 450)
         .onChange(of: selectedTab) { _, newTab in
-            // Pause HID callbacks during tab switch to prevent SwiftUI observation thrashing
-            appState.isPaused = true
-
-            // Small delay to let SwiftUI complete the transition
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                appState.activeTab = newTab
-                appState.isPaused = false
-            }
+            appState.activeTab = newTab
         }
         .onAppear {
             appState.activeTab = selectedTab

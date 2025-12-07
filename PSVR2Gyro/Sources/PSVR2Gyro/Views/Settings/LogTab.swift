@@ -9,10 +9,11 @@ struct LogTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Debug Log")
-                    .font(.headline)
-                Spacer()
+            TabHeader(appState: appState) {
+                Toggle("Live", isOn: $appState.liveLogsEnabled)
+                    .toggleStyle(.switch)
+                    .help("Enable live log streaming")
+
                 Button {
                     let logText = appState.debugLog.joined(separator: "\n")
                     NSPasteboard.general.clearContents()
@@ -22,21 +23,19 @@ struct LogTab: View {
                         copyFeedback = false
                     }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: copyFeedback ? "checkmark" : "doc.on.doc")
-                        Text(copyFeedback ? "Copied!" : "Copy")
-                    }
+                    Image(systemName: copyFeedback ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
+                .help(copyFeedback ? "Copied!" : "Copy logs")
 
-                Button("Clear") {
+                Button {
                     appState.debugLog.removeAll()
+                } label: {
+                    Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
+                .help("Clear logs")
             }
-            .padding()
-
-            Divider()
 
             ScrollViewReader { proxy in
                 ScrollView {

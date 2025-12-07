@@ -4,6 +4,7 @@ import SwiftUI
 
 struct DebugTab: View {
     @ObservedObject var appState: AppState
+    @State private var liveRenderingEnabled: Bool = false
 
     private let bytesPerRow = 8
     private let decaySeconds: Double = 5.0
@@ -25,27 +26,19 @@ struct DebugTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with toggle - matches TabHeader style but adds Live toggle
-            HStack {
-                Text("\(side) Controller")
-                    .font(.headline)
-                Spacer()
-                Toggle("Live Rendering", isOn: $appState.debugRenderingEnabled)
+            TabHeader(appState: appState) {
+                Toggle("Live", isOn: $liveRenderingEnabled)
                     .toggleStyle(.switch)
-                    .labelsHidden()
-                Text("Live")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                if appState.isConnected {
-                    BatteryIndicator(level: appState.batteryLevel)
-                }
-                ConnectionIndicator(isConnected: appState.isConnected)
+                    .onChange(of: liveRenderingEnabled) { _, enabled in
+                        if enabled {
+                            appState.startDebugPolling()
+                        } else {
+                            appState.stopDebugPolling()
+                        }
+                    }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
-            .background(Color.secondary.opacity(0.05))
 
-            if appState.debugRenderingEnabled && appState.isConnected {
+            if liveRenderingEnabled && appState.isConnected {
                 if isJoyCon {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         JoyConDebugView(
@@ -184,6 +177,12 @@ struct DebugTab: View {
                         .foregroundColor(.secondary.opacity(0.7))
                 }
                 Spacer()
+            }
+        }
+        .onDisappear {
+            // Stop polling when leaving this tab
+            if liveRenderingEnabled {
+                appState.stopDebugPolling()
             }
         }
     }

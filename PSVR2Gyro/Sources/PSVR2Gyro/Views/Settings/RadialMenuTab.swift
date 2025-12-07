@@ -61,7 +61,7 @@ struct RadialMenuTab: View {
             HStack {
                 Spacer()
                 RadialMenuView(state: previewState)
-                    .frame(width: 200, height: 200)
+                    .frame(width: 275, height: 275)
                     .onChange(of: appState.radialMenuConfiguration) { _, newConfig in
                         previewState.activeConfiguration = newConfig
                     }
@@ -70,7 +70,7 @@ struct RadialMenuTab: View {
                     }
                 Spacer()
             }
-            .frame(height: 220)
+            .frame(height: 300)
             .background(Color.secondary.opacity(0.05))
             .cornerRadius(8)
         }
@@ -85,135 +85,139 @@ struct RadialMenuTab: View {
                 .fontWeight(.medium)
                 .foregroundColor(.secondary)
 
-            // Segments
-            VStack(spacing: 8) {
-                ForEach(Array(appState.radialMenuConfiguration.items.enumerated()), id: \.element.id) { index, item in
-                    segmentRow(index: index, item: item, isOuterRing: false)
-                }
-            }
+            HStack(alignment: .top, spacing: 16) {
+                // Left column: Segments
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(appState.radialMenuConfiguration.items.enumerated()), id: \.element.id) { index, item in
+                        segmentRow(index: index, item: item, isOuterRing: false)
+                    }
 
-            // Add segment button
-            HStack(spacing: 12) {
-                Button {
-                    var config = appState.radialMenuConfiguration
-                    let newItem = RadialMenuItem(
-                        label: "New",
-                        icon: "circle",
-                        action: .none
-                    )
-                    config.addItem(newItem)
-                    appState.radialMenuConfiguration = config
-                } label: {
-                    Label("Add Segment", systemImage: "plus.circle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(appState.radialMenuConfiguration.items.count >= 8)
-
-                Spacer()
-
-                Button("Reset to Default") {
-                    appState.radialMenuConfiguration = .arrowKeys
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
-
-            Divider()
-
-            // Rotation slider
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Rotation")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(String(format: "%.1f", appState.radialMenuConfiguration.innerRingRotation))°")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Slider(
-                    value: Binding(
-                        get: { appState.radialMenuConfiguration.innerRingRotation },
-                        set: { newValue in
+                    // Add segment button
+                    HStack(spacing: 12) {
+                        Button {
                             var config = appState.radialMenuConfiguration
-                            config.innerRingRotation = newValue
+                            let newItem = RadialMenuItem(
+                                label: "New",
+                                icon: "circle",
+                                action: .none
+                            )
+                            config.addItem(newItem)
                             appState.radialMenuConfiguration = config
+                        } label: {
+                            Label("Add Segment", systemImage: "plus.circle")
                         }
-                    ),
-                    in: 0...337.5,
-                    step: 22.5
-                )
-                .controlSize(.small)
-            }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(appState.radialMenuConfiguration.items.count >= 8)
 
-            // Size sliders
-            VStack(alignment: .leading, spacing: 12) {
-                // Deadzone size slider
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Deadzone")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                         Spacer()
-                        Text("\(Int(appState.radialMenuConfiguration.deadzoneSize))px")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
 
-                    Slider(
-                        value: Binding(
-                            get: { appState.radialMenuConfiguration.deadzoneSize },
-                            set: { newValue in
-                                var config = appState.radialMenuConfiguration
-                                config.deadzoneSize = newValue
-                                appState.radialMenuConfiguration = config
-                            }
-                        ),
-                        in: 20...80,
-                        step: 5
-                    )
-                    .controlSize(.small)
-                }
-
-                // Inner ring size slider
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Inner Ring")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(Int(appState.radialMenuConfiguration.innerRingSize))px")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Slider(
-                        value: Binding(
-                            get: { appState.radialMenuConfiguration.innerRingSize },
-                            set: { newValue in
-                                var config = appState.radialMenuConfiguration
-                                config.innerRingSize = newValue
-                                appState.radialMenuConfiguration = config
-                            }
-                        ),
-                        in: 30...100,
-                        step: 5
-                    )
-                    .controlSize(.small)
-                }
-
-                // Total size display
-                HStack {
-                    Text("Total Size")
+                        Button("Reset to Default") {
+                            appState.radialMenuConfiguration = .arrowKeys
+                        }
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(appState.radialMenuConfiguration.menuDiameter))px")
-                        .font(.caption.bold())
-                        .foregroundColor(.primary)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+
+                Divider()
+
+                // Right column: Sliders
+                VStack(alignment: .leading, spacing: 12) {
+                    // Rotation slider
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Rotation")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(String(format: "%.1f", appState.radialMenuConfiguration.innerRingRotation))°")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { appState.radialMenuConfiguration.innerRingRotation },
+                                set: { newValue in
+                                    var config = appState.radialMenuConfiguration
+                                    config.innerRingRotation = newValue
+                                    appState.radialMenuConfiguration = config
+                                }
+                            ),
+                            in: 0...337.5,
+                            step: 22.5
+                        )
+                        .controlSize(.small)
+                    }
+
+                    // Deadzone size slider
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Deadzone")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(appState.radialMenuConfiguration.deadzoneSize))px")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { appState.radialMenuConfiguration.deadzoneSize },
+                                set: { newValue in
+                                    var config = appState.radialMenuConfiguration
+                                    config.deadzoneSize = newValue
+                                    appState.radialMenuConfiguration = config
+                                }
+                            ),
+                            in: 20...80,
+                            step: 5
+                        )
+                        .controlSize(.small)
+                    }
+
+                    // Inner ring size slider
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Ring Size")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(appState.radialMenuConfiguration.innerRingSize))px")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { appState.radialMenuConfiguration.innerRingSize },
+                                set: { newValue in
+                                    var config = appState.radialMenuConfiguration
+                                    config.innerRingSize = newValue
+                                    appState.radialMenuConfiguration = config
+                                }
+                            ),
+                            in: 30...100,
+                            step: 5
+                        )
+                        .controlSize(.small)
+                    }
+
+                    // Total size display
+                    HStack {
+                        Text("Total Size")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(appState.radialMenuConfiguration.menuDiameter))px")
+                            .font(.caption.bold())
+                            .foregroundColor(.primary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
         }
         .padding()
@@ -272,28 +276,6 @@ struct RadialMenuTab: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.white)
             }
-
-            // Label editor
-            TextField("Label", text: Binding(
-                get: {
-                    let currentItems = isOuterRing ? appState.radialMenuConfiguration.outerRingItems : appState.radialMenuConfiguration.items
-                    guard index < currentItems.count else { return "" }
-                    return currentItems[index].label
-                },
-                set: { newLabel in
-                    let currentItems = isOuterRing ? appState.radialMenuConfiguration.outerRingItems : appState.radialMenuConfiguration.items
-                    guard index < currentItems.count else { return }
-                    var config = appState.radialMenuConfiguration
-                    if isOuterRing {
-                        config.outerRingItems[index].label = newLabel
-                    } else {
-                        config.items[index].label = newLabel
-                    }
-                    appState.radialMenuConfiguration = config
-                }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 80)
 
             // Action picker
             let isCapturing = isOuterRing ? (outerRingCaptureIndex == index) : (captureIndex == index)
@@ -428,103 +410,102 @@ struct RadialMenuTab: View {
             .fontWeight(.medium)
 
             if appState.radialMenuConfiguration.outerRingEnabled {
-                // Outer ring segment configuration
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Segments")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                HStack(alignment: .top, spacing: 16) {
+                    // Left column: Segments
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(appState.radialMenuConfiguration.outerRingItems.enumerated()), id: \.element.id) { index, item in
+                            segmentRow(index: index, item: item, isOuterRing: true)
+                        }
 
-                    ForEach(Array(appState.radialMenuConfiguration.outerRingItems.enumerated()), id: \.element.id) { index, item in
-                        segmentRow(index: index, item: item, isOuterRing: true)
+                        // Add outer ring segment button
+                        Button {
+                            var config = appState.radialMenuConfiguration
+                            let newItem = RadialMenuItem(
+                                label: "New",
+                                icon: "circle",
+                                action: .none
+                            )
+                            config.addOuterRingItem(newItem)
+                            appState.radialMenuConfiguration = config
+                        } label: {
+                            Label("Add Segment", systemImage: "plus.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(appState.radialMenuConfiguration.outerRingItems.count >= 8)
                     }
-                }
+                    .frame(maxWidth: .infinity)
 
-                // Add outer ring segment button
-                HStack {
-                    Button {
-                        var config = appState.radialMenuConfiguration
-                        let newItem = RadialMenuItem(
-                            label: "New",
-                            icon: "circle",
-                            action: .none
-                        )
-                        config.addOuterRingItem(newItem)
-                        appState.radialMenuConfiguration = config
-                    } label: {
-                        Label("Add Segment", systemImage: "plus.circle")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(appState.radialMenuConfiguration.outerRingItems.count >= 8)
+                    Divider()
 
-                    Spacer()
-                }
-
-                Divider()
-
-                // Rotation slider
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Rotation")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(String(format: "%.1f", appState.radialMenuConfiguration.outerRingRotation))°")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Slider(
-                        value: Binding(
-                            get: { appState.radialMenuConfiguration.outerRingRotation },
-                            set: { newValue in
-                                var config = appState.radialMenuConfiguration
-                                config.outerRingRotation = newValue
-                                appState.radialMenuConfiguration = config
+                    // Right column: Sliders
+                    VStack(alignment: .leading, spacing: 12) {
+                        // Rotation slider
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Rotation")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("\(String(format: "%.1f", appState.radialMenuConfiguration.outerRingRotation))°")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                        ),
-                        in: 0...337.5,
-                        step: 22.5
-                    )
-                    .controlSize(.small)
-                }
 
-                // Outer ring size slider
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Outer Ring")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(Int(appState.radialMenuConfiguration.outerRingSize))px")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                            Slider(
+                                value: Binding(
+                                    get: { appState.radialMenuConfiguration.outerRingRotation },
+                                    set: { newValue in
+                                        var config = appState.radialMenuConfiguration
+                                        config.outerRingRotation = newValue
+                                        appState.radialMenuConfiguration = config
+                                    }
+                                ),
+                                in: 0...337.5,
+                                step: 22.5
+                            )
+                            .controlSize(.small)
+                        }
 
-                    Slider(
-                        value: Binding(
-                            get: { appState.radialMenuConfiguration.outerRingSize },
-                            set: { newValue in
-                                var config = appState.radialMenuConfiguration
-                                config.outerRingSize = newValue
-                                appState.radialMenuConfiguration = config
+                        // Outer ring size slider
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Ring Size")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("\(Int(appState.radialMenuConfiguration.outerRingSize))px")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                        ),
-                        in: 30...100,
-                        step: 5
-                    )
-                    .controlSize(.small)
-                }
 
-                // Total size display for outer ring section
-                HStack {
-                    Text("Total Size")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(appState.radialMenuConfiguration.menuDiameter))px")
-                        .font(.caption.bold())
-                        .foregroundColor(.primary)
+                            Slider(
+                                value: Binding(
+                                    get: { appState.radialMenuConfiguration.outerRingSize },
+                                    set: { newValue in
+                                        var config = appState.radialMenuConfiguration
+                                        config.outerRingSize = newValue
+                                        appState.radialMenuConfiguration = config
+                                    }
+                                ),
+                                in: 30...100,
+                                step: 5
+                            )
+                            .controlSize(.small)
+                        }
+
+                        // Total size display
+                        HStack {
+                            Text("Total Size")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Text("\(Int(appState.radialMenuConfiguration.menuDiameter))px")
+                                .font(.caption.bold())
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
             }
         }

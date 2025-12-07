@@ -290,6 +290,13 @@ class PSVR2Controller {
         activateController(controller)
     }
 
+    /// Deselect the current controller (stop receiving input)
+    func deselectController() {
+        selectedControllerID = nil
+        preferredControllerID = nil
+        deactivateCurrentController()
+    }
+
     private func activateController(_ controller: DiscoveredController) {
         let device = controller.device
 

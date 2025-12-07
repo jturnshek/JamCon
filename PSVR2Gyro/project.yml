@@ -31,8 +31,6 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Resources/PSVR2Gyro.entitlements
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
         COMBINE_HIDPI_IMAGES: YES
-        # Menu bar app settings
-        LSUIElement: YES
 
 schemes:
   PSVR2Gyro:

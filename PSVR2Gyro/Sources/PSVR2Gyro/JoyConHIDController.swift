@@ -271,6 +271,13 @@ final class JoyConHIDController {
         activateController(controller)
     }
 
+    /// Deselect the current controller (stop receiving input)
+    func deselectController() {
+        selectedControllerID = nil
+        preferredControllerID = nil
+        deactivateCurrentController()
+    }
+
     private func activateController(_ controller: DiscoveredJoyCon) {
         let device = controller.device
         let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
