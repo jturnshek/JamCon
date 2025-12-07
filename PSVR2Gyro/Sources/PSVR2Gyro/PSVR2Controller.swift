@@ -4,17 +4,6 @@ import IOKit.hid
 import QuartzCore
 import MachO
 
-/// UI-safe controller info (no IOHIDDevice reference - safe for SwiftUI)
-struct ControllerInfo: Identifiable, Equatable, Sendable {
-    let id: String
-    let name: String
-    let productID: Int
-
-    var isLeft: Bool { productID == 0x0E45 }
-    var isRight: Bool { productID == 0x0E46 }
-    var side: String { isLeft ? "Left" : "Right" }
-}
-
 /// Represents a discovered PSVR2 controller (internal use only - contains IOHIDDevice)
 struct DiscoveredController: Identifiable, Equatable {
     let id: String  // Unique identifier
@@ -28,7 +17,7 @@ struct DiscoveredController: Identifiable, Equatable {
 
     /// Convert to UI-safe info struct
     var info: ControllerInfo {
-        ControllerInfo(id: id, name: name, productID: productID)
+        ControllerInfo(id: id, name: name, productID: productID, kind: .psvr2)
     }
 
     static func == (lhs: DiscoveredController, rhs: DiscoveredController) -> Bool {

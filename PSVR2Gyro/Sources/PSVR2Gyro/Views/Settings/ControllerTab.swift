@@ -54,16 +54,25 @@ private struct ControllerCard: View {
     let isSelected: Bool
     let onSelect: () -> Void
 
+    private var iconName: String {
+        switch controller.kind {
+        case .psvr2:
+            return controller.isLeft ? "l.joystick" : "r.joystick"
+        case .joyCon:
+            return controller.isLeft ? "l.joystick" : "r.joystick"
+        }
+    }
+
     var body: some View {
         HStack {
-            Image(systemName: controller.isLeft ? "l.joystick" : "r.joystick")
+            Image(systemName: iconName)
                 .font(.title2)
                 .foregroundColor(.blue)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(controller.side)
                     .font(.headline)
-                Text(controller.name)
+                Text("\(controller.name) • \(controller.kind == .joyCon ? "Joy-Con" : "PSVR2")")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

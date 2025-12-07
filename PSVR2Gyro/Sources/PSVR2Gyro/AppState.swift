@@ -9,12 +9,14 @@ class AppState: ObservableObject {
 
     // MARK: - UserDefaults Keys
 
-    private static let lastSelectedControllerKey = "lastSelectedControllerID"
+    private static let lastSelectedPSVR2ControllerKey = "lastSelectedControllerID"
+    private static let lastSelectedJoyConControllerKey = "lastSelectedJoyConControllerID"
 
     // MARK: - Published State
 
     @Published var isConnected: Bool = false
     @Published var controllerName: String = "Not connected"
+    @Published var activeControllerKind: ControllerKind = .psvr2
     @Published var isEnabled: Bool = true {
         didSet { updateCachedIsEnabled() }
     }
@@ -443,6 +445,7 @@ class AppState: ObservableObject {
     // MARK: - Controllers
 
     let controller = PSVR2Controller()
+    let joyConController = JoyConHIDController()
     let gyroProcessor = GyroProcessor()
     let mouseController = MouseController()
     private(set) lazy var actionExecutor = ActionExecutor(mouseController: mouseController)
@@ -466,11 +469,15 @@ class AppState: ObservableObject {
         setupCallbacks()
 
         // Load last selected controller preference before starting HID scanning
-        if let savedID = UserDefaults.standard.string(forKey: Self.lastSelectedControllerKey) {
+        if let savedID = UserDefaults.standard.string(forKey: Self.lastSelectedPSVR2ControllerKey) {
             controller.preferredControllerID = savedID
+        }
+        if let savedJoyCon = UserDefaults.standard.string(forKey: Self.lastSelectedJoyConControllerKey) {
+            joyConController.preferredControllerID = savedJoyCon
         }
 
         controller.start()
+        joyConController.start()
     }
 
     /// Load settings without triggering didSet saves (for init only)
@@ -506,10 +513,21 @@ class AppState: ObservableObject {
         setupGyroCallback()
         setupIMUCallback()
         setupReportCallback()
+        setupJoyConCallbacks()
     }
 
     private func setupDebugCallback() {
         controller.onDebugMessage = { [weak self] message in
+            Task { @MainActor in
+                self?.debugLog.append(message)
+                if (self?.debugLog.count ?? 0) > 10 {
+                    self?.debugLog.removeFirst()
+                }
+                self?.statusMessage = message
+            }
+        }
+
+        joyConController.onDebugMessage = { [weak self] message in
             Task { @MainActor in
                 self?.debugLog.append(message)
                 if (self?.debugLog.count ?? 0) > 10 {
@@ -523,38 +541,43 @@ class AppState: ObservableObject {
     private func setupConnectionCallbacks() {
         controller.onConnectionChange = { [weak self] connected, name, controllerID in
             Task { @MainActor in
-                self?.isConnected = connected
-                self?.controllerName = name ?? "Unknown"
-                self?.selectedControllerID = controllerID
-                self?.statusMessage = connected ? "Connected: \(name ?? "Controller")" : "Disconnected"
-                self?.reportCount = 0
+                guard let self else { return }
+                // Only update connection state if this controller is the active one
+                guard self.activeControllerKind == .psvr2 || self.selectedControllerID == controllerID else { return }
 
-                // Update isLeftController based on selected controller
-                // (didSet will update cached value automatically)
+                self.isConnected = connected
+                self.controllerName = name ?? "Unknown"
+                self.selectedControllerID = controllerID
+                self.activeControllerKind = .psvr2
+                self.statusMessage = connected ? "Connected: \(name ?? "Controller")" : "Disconnected"
+                self.reportCount = 0
+
                 if connected,
                    let selectedID = controllerID,
-                   let selected = self?.availableControllers.first(where: { $0.id == selectedID }) {
-                    self?.isLeftController = selected.isLeft
+                   let selected = self.availableControllers.first(where: { $0.id == selectedID }) {
+                    self.isLeftController = selected.isLeft
                 }
             }
         }
 
         controller.onControllersChanged = { [weak self] in
-            // Capture UI-safe controller info before dispatching to main thread
-            let controllerInfos = self?.controller.discoveredControllers.map { $0.info } ?? []
-            let selectedID = self?.controller.selectedControllerID
-
             Task { @MainActor in
-                self?.availableControllers = controllerInfos
-                self?.selectedControllerID = selectedID
-
-                // Update isLeftController based on selected controller
-                // (didSet will update cached value automatically)
-                if let selectedID = selectedID,
-                   let selected = controllerInfos.first(where: { $0.id == selectedID }) {
-                    self?.isLeftController = selected.isLeft
-                }
+                self?.refreshControllerList()
             }
+        }
+    }
+
+    private func refreshControllerList() {
+        let psvr2Infos = controller.discoveredControllers.map { $0.info }
+        let joyInfos = joyConController.discoveredControllers.map { $0.info }
+        let combined = psvr2Infos + joyInfos
+
+        let currentSelected = selectedControllerID
+        availableControllers = combined
+        if let currentSelected,
+           let selected = combined.first(where: { $0.id == currentSelected }) {
+            isLeftController = selected.isLeft
+            activeControllerKind = selected.kind
         }
     }
 
@@ -585,6 +608,7 @@ class AppState: ObservableObject {
     private func setupReportCallback() {
         controller.onReportData = { [weak self] report in
             guard let self = self else { return }
+            guard self.activeControllerKind == .psvr2 else { return }
 
             let snapshot = self.readCallbackSnapshot()
             guard !snapshot.isPaused else { return }
@@ -758,11 +782,149 @@ class AppState: ObservableObject {
         }
     }
 
+    private func setupJoyConCallbacks() {
+        joyConController.onConnectionChange = { [weak self] connected, name, controllerID in
+            Task { @MainActor in
+                guard let self else { return }
+                // Update if Joy-Con is active, matches selection, or nothing is selected yet
+                guard self.activeControllerKind == .joyCon || self.selectedControllerID == controllerID || self.selectedControllerID == nil else { return }
+
+                self.isConnected = connected
+                self.controllerName = name ?? "Unknown"
+                if let controllerID {
+                    self.selectedControllerID = controllerID
+                }
+                self.activeControllerKind = .joyCon
+                self.statusMessage = connected ? "Connected: \(name ?? "Joy-Con")" : "Disconnected"
+                self.reportCount = 0
+
+                if connected,
+                   let selectedID = controllerID,
+                   let selected = self.availableControllers.first(where: { $0.id == selectedID }) {
+                    self.isLeftController = selected.isLeft
+                }
+            }
+        }
+
+        joyConController.onControllersChanged = { [weak self] in
+            Task { @MainActor in
+                self?.refreshControllerList()
+            }
+        }
+
+        joyConController.onReportData = { [weak self] report in
+            self?.handleJoyConReport(report)
+        }
+    }
+
+    /// Lightweight Joy-Con report handling focused on debug UI.
+    /// Currently no action execution or gyro mouse processing is performed.
+    private func handleJoyConReport(_ report: JoyConHIDController.InputReport) {
+        // Only process for the active Joy-Con selection
+        guard activeControllerKind == .joyCon else { return }
+        guard !isPaused else { return }
+
+        let debugActive = debugRenderingEnabled && activeTab == .debug
+        let now = Date()
+        let length = report.length
+
+        // Track byte/bit changes for debug visualization
+        if debugActive {
+            pendingBitCount = 0
+            let maxIndex = min(length, pendingReportBytes.count)
+            for i in 0..<maxIndex {
+                if report.bytes[i] != pendingReportBytes[i] {
+                    pendingByteChanges[i] = now
+
+                    let changedBits = pendingReportBytes[i] ^ report.bytes[i]
+                    for bit in 0..<8 where (changedBits >> bit) & 1 == 1 {
+                        if pendingBitCount < pendingBitChanges.count {
+                            pendingBitChanges[pendingBitCount] = (i, bit, now)
+                            pendingBitCount += 1
+                        }
+                    }
+                }
+            }
+            for i in 0..<maxIndex {
+                pendingReportBytes[i] = report.bytes[i]
+            }
+        }
+
+        let shouldUpdateDebugUI = debugActive && now.timeIntervalSince(lastUIUpdate) >= uiUpdateInterval
+        if shouldUpdateDebugUI {
+            lastUIUpdate = now
+        }
+
+        // Battery (best-effort mapping of Joy-Con header byte)
+        let newBatteryLevel: Int? = report.bytes.count > JoyConHIDProtocol.Offset.battery
+            ? BatteryHelper.joyConLevel(from: report.bytes[JoyConHIDProtocol.Offset.battery])
+            : nil
+
+        if !(shouldUpdateDebugUI || newBatteryLevel != nil) { return }
+
+        let byteChanges = pendingByteChanges
+        let bitChangesCount = pendingBitCount
+
+        Task { @MainActor in
+            if shouldUpdateDebugUI {
+                pendingByteChanges.removeAll(keepingCapacity: true)
+                pendingBitCount = 0
+
+                for (index, date) in byteChanges { byteLastChanged[index] = date }
+                for idx in 0..<bitChangesCount {
+                    let (byteIndex, bit, date) = pendingBitChanges[idx]
+                    if byteIndex < bitLastChanged.count && bit < bitLastChanged[byteIndex].count {
+                        bitLastChanged[byteIndex][bit] = date
+                    }
+                }
+                self.reportBytes = pendingReportBytes
+                self.reportLength = length
+
+                lastGyroX = report.gyroX
+                lastGyroY = report.gyroY
+                lastGyroZ = report.gyroZ
+                lastAccelX = report.accelX
+                lastAccelY = report.accelY
+                lastAccelZ = report.accelZ
+                reportCount += 1
+                if debugActive {
+                    debugRefreshTrigger += 1
+                }
+            }
+
+            if let newBatteryLevel {
+                let now = Date()
+                let batteryStale = now.timeIntervalSince(lastBatteryUpdate) >= batteryUpdateInterval
+                if batteryStale || batteryLevel != newBatteryLevel {
+                    batteryLevel = newBatteryLevel
+                    lastBatteryUpdate = now
+                }
+            }
+        }
+    }
+
     // MARK: - Actions
 
     func selectController(id: String) {
-        UserDefaults.standard.set(id, forKey: Self.lastSelectedControllerKey)
-        controller.selectController(id: id)
+        guard let info = availableControllers.first(where: { $0.id == id }) else { return }
+        selectedControllerID = id
+        activeControllerKind = info.kind
+        isLeftController = info.isLeft
+
+        switch info.kind {
+        case .psvr2:
+            UserDefaults.standard.set(id, forKey: Self.lastSelectedPSVR2ControllerKey)
+            controller.selectController(id: id)
+            let connected = controller.selectedControllerID == id && controller.isConnected
+            isConnected = connected
+            controllerName = connected ? info.name : "Not connected"
+        case .joyCon:
+            UserDefaults.standard.set(id, forKey: Self.lastSelectedJoyConControllerKey)
+            joyConController.selectController(id: id)
+            let connected = joyConController.selectedControllerID == id && joyConController.isConnected
+            isConnected = connected
+            controllerName = connected ? info.name : "Not connected"
+        }
     }
 
     func recalibrate() {

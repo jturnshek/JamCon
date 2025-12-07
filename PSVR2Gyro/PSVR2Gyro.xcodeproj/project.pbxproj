@@ -16,12 +16,15 @@
 		346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */; };
 		3544991E17CB20B0F04DC505 /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CAE859D72F3378922F7505 /* MouseController.swift */; };
 		469B6A76BAD375A5FB09A34F /* MouseControlTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */; };
+		4D7203E6FA5ECBE0E10E2CB2 /* ControllerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AB1AE32569827F32A0B67D /* ControllerTypes.swift */; };
 		4DE5044B500B243710E412F7 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B46C891F5C795B5DB61C1CC9 /* RadialMenuView.swift */; };
 		5032A182AE6FDF15E48CA952 /* OneEuroFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C45955B0EB50B861CCC7364 /* OneEuroFilter.swift */; };
 		521E885557B7E0BBF7DFF146 /* ButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDF905E808D615EDD61691D /* ButtonMapping.swift */; };
 		60D59DE415EC63B1823280BA /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69264866137391FFF73D2D71 /* AppState.swift */; };
 		621873D4E44DDECB264B423B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F97C724915CBE0E65952CD /* SettingsView.swift */; };
+		7BB3F36C0813A2FB8503D3FF /* JoyConHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDF09B1A39AA5A958478CC7 /* JoyConHIDProtocol.swift */; };
 		8593D817D288745B442B46C9 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */; };
+		88012BD85571199344C7FF05 /* JoyConHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 361FA04201607CAF5640E4EB /* JoyConHIDController.swift */; };
 		8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F358F393D1578D77696C6D70 /* MenuBarView.swift */; };
 		8B668672AB44630B18EA68E2 /* PSVR2HIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */; };
 		8C26F0B8161DCF12BEB449A4 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AC0D19572DADBF6645B676 /* CrashReporter.swift */; };
@@ -49,8 +52,10 @@
 		153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputIndicators.swift; sourceTree = "<group>"; };
 		1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2Controller.swift; sourceTree = "<group>"; };
 		20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseControlTab.swift; sourceTree = "<group>"; };
+		27AB1AE32569827F32A0B67D /* ControllerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTypes.swift; sourceTree = "<group>"; };
 		27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderWithLabel.swift; sourceTree = "<group>"; };
 		3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2HIDProtocol.swift; sourceTree = "<group>"; };
+		361FA04201607CAF5640E4EB /* JoyConHIDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConHIDController.swift; sourceTree = "<group>"; };
 		3EE758747108FD2A3CBEE281 /* TabHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabHeader.swift; sourceTree = "<group>"; };
 		461E1062B3962AE7DDD99273 /* PSVR2Gyro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PSVR2Gyro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C45955B0EB50B861CCC7364 /* OneEuroFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneEuroFilter.swift; sourceTree = "<group>"; };
@@ -73,6 +78,7 @@
 		D0E224AAB1F78A14E97E0DB8 /* RadialMenuTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuTab.swift; sourceTree = "<group>"; };
 		D3AC0D19572DADBF6645B676 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
 		DBDF905E808D615EDD61691D /* ButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMapping.swift; sourceTree = "<group>"; };
+		DEDF09B1A39AA5A958478CC7 /* JoyConHIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConHIDProtocol.swift; sourceTree = "<group>"; };
 		DF3FB5EA392665DACE0B5CC6 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
 		F0EB72E24A3172F56DE5AC6A /* ButtonAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonAction.swift; sourceTree = "<group>"; };
 		F22AD63AE3B53820633D37B7 /* StickTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickTab.swift; sourceTree = "<group>"; };
@@ -125,6 +131,7 @@
 		6F687A9152D341D00669EE1D /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				27AB1AE32569827F32A0B67D /* ControllerTypes.swift */,
 				AD9ED2BD41428F453AF50099 /* RadialMenu.swift */,
 				70C4C83D9E31D73FACA74980 /* RadialMenuState.swift */,
 			);
@@ -144,6 +151,8 @@
 				D3AC0D19572DADBF6645B676 /* CrashReporter.swift */,
 				7C0D944F62A7696169616814 /* GyroProcessor.swift */,
 				77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */,
+				361FA04201607CAF5640E4EB /* JoyConHIDController.swift */,
+				DEDF09B1A39AA5A958478CC7 /* JoyConHIDProtocol.swift */,
 				C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */,
 				F358F393D1578D77696C6D70 /* MenuBarView.swift */,
 				B1CAE859D72F3378922F7505 /* MouseController.swift */,
@@ -263,11 +272,14 @@
 				A0EA8BB51029D1783902AA4E /* ButtonsTab.swift in Sources */,
 				06FF10005AF5AFE021A0382C /* ByteInspectorViews.swift in Sources */,
 				FE52C5775B836FB1372BE29E /* ControllerTab.swift in Sources */,
+				4D7203E6FA5ECBE0E10E2CB2 /* ControllerTypes.swift in Sources */,
 				8C26F0B8161DCF12BEB449A4 /* CrashReporter.swift in Sources */,
 				AE1A960E5C1AD7E04D4C5D88 /* DebugTab.swift in Sources */,
 				A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */,
 				346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */,
 				A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */,
+				88012BD85571199344C7FF05 /* JoyConHIDController.swift in Sources */,
+				7BB3F36C0813A2FB8503D3FF /* JoyConHIDProtocol.swift in Sources */,
 				B3352B5D8C0DD0B41880CA3E /* KeyCaptureManager.swift in Sources */,
 				B4E64456D08B8F44315CB341 /* LogTab.swift in Sources */,
 				8A020C1239F60FA2B2C93A72 /* MenuBarView.swift in Sources */,

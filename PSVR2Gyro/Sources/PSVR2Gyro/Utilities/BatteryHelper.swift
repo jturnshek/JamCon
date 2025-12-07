@@ -10,6 +10,22 @@ enum BatteryHelper {
         PSVR2HIDProtocol.batteryPercentage(from: rawByte)
     }
 
+    /// Map Joy-Con battery header byte (upper nibble) to a coarse percentage.
+    static func joyConLevel(from rawByte: UInt8) -> Int {
+        let levelNibble = (rawByte >> 4) & 0x0F
+        switch levelNibble {
+        case 0x0: return 0
+        case 0x1: return 20
+        case 0x2: return 35
+        case 0x4: return 50
+        case 0x6: return 65
+        case 0x8: return 80
+        case 0xA: return 90
+        case 0xC, 0xE: return 100
+        default: return min(100, Int(levelNibble) * 10)
+        }
+    }
+
     /// Get display color for battery level
     /// - Parameter level: Battery percentage (0-100)
     /// - Returns: Color appropriate for the battery level

@@ -6,11 +6,17 @@ struct DebugTab: View {
     @ObservedObject var appState: AppState
 
     private let bytesPerRow = 8
-    private let totalBytes = 78
     private let decaySeconds: Double = 5.0
 
+    private var isJoyCon: Bool { appState.activeControllerKind == .joyCon }
     private var isLeft: Bool { appState.isLeftController }
     private var side: String { isLeft ? "Left" : "Right" }
+    private var totalBytes: Int {
+        if appState.reportLength > 0 {
+            return appState.reportLength
+        }
+        return isJoyCon ? JoyConHIDProtocol.reportLength : PSVR2HIDProtocol.reportLength
+    }
 
     private var byte11: UInt8 { appState.safeReportByte(PSVR2HIDProtocol.Offset.touchStates) }
     private var faceTopTouch: Bool { (byte11 & 0x01) != 0 }
@@ -40,110 +46,122 @@ struct DebugTab: View {
             .background(Color.secondary.opacity(0.05))
 
             if appState.debugRenderingEnabled && appState.isConnected {
-                TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 16) {
-                            // Section 1: Gyro/Motion
-                            DebugGyroSection(appState: appState)
+                if isJoyCon {
+                    TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                        JoyConDebugView(
+                            appState: appState,
+                            bytesPerRow: bytesPerRow,
+                            totalBytes: totalBytes,
+                            decaySeconds: decaySeconds,
+                            currentTime: timeline.date
+                        )
+                    }
+                } else {
+                    TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                // Section 1: Gyro/Motion
+                                DebugGyroSection(appState: appState)
 
-                            Divider()
+                                Divider()
 
-                            // Section 2: Buttons
-                            DebugButtonsSection(
-                                appState: appState,
-                                isLeft: isLeft,
-                                faceTopTouch: faceTopTouch,
-                                faceBottomTouch: faceBottomTouch,
-                                stickTouch: stickTouch
-                            )
+                                // Section 2: Buttons
+                                DebugButtonsSection(
+                                    appState: appState,
+                                    isLeft: isLeft,
+                                    faceTopTouch: faceTopTouch,
+                                    faceBottomTouch: faceBottomTouch,
+                                    stickTouch: stickTouch
+                                )
 
-                            Divider()
+                                Divider()
 
-                            // Section 3: Stick
-                            DebugStickSection(appState: appState, isLeft: isLeft, stickTouch: stickTouch)
+                                // Section 3: Stick
+                                DebugStickSection(appState: appState, isLeft: isLeft, stickTouch: stickTouch)
 
-                            Divider()
+                                Divider()
 
-                            // Section 4: Raw HID Report
-                            DebugRawReportSection(
-                                appState: appState,
-                                currentTime: timeline.date,
-                                bytesPerRow: bytesPerRow,
-                                totalBytes: totalBytes,
-                                decaySeconds: decaySeconds
-                            )
+                                // Section 4: Raw HID Report
+                                DebugRawReportSection(
+                                    appState: appState,
+                                    currentTime: timeline.date,
+                                    bytesPerRow: bytesPerRow,
+                                    totalBytes: totalBytes,
+                                    decaySeconds: decaySeconds
+                                )
 
-                            Divider()
+                                Divider()
 
-                            // Section 5: Button Lab
-                            ButtonLabView(
-                                buttonName: "Circle, X, Grip (R1)",
-                                candidateBytes: [9],
-                                reportBytes: appState.reportBytes,
-                                bitLastChanged: appState.bitLastChanged,
-                                currentTime: timeline.date
-                            )
+                                // Section 5: Button Lab
+                                ButtonLabView(
+                                    buttonName: "Circle, X, Grip (R1)",
+                                    candidateBytes: [9],
+                                    reportBytes: appState.reportBytes,
+                                    bitLastChanged: appState.bitLastChanged,
+                                    currentTime: timeline.date
+                                )
 
-                            ButtonLabView(
-                                buttonName: "Joystick Click, Start, PlayStation",
-                                candidateBytes: [10],
-                                reportBytes: appState.reportBytes,
-                                bitLastChanged: appState.bitLastChanged,
-                                currentTime: timeline.date
-                            )
+                                ButtonLabView(
+                                    buttonName: "Joystick Click, Start, PlayStation",
+                                    candidateBytes: [10],
+                                    reportBytes: appState.reportBytes,
+                                    bitLastChanged: appState.bitLastChanged,
+                                    currentTime: timeline.date
+                                )
 
-                            JoystickLabView(
-                                xByte: 2,
-                                yByte: 3,
-                                reportBytes: appState.reportBytes
-                            )
+                                JoystickLabView(
+                                    xByte: 2,
+                                    yByte: 3,
+                                    reportBytes: appState.reportBytes
+                                )
 
-                            AnalogLabView(
-                                title: "Analog Inputs",
-                                inputs: [
-                                    ("Trigger (R2)", 4),
-                                ],
-                                reportBytes: appState.reportBytes
-                            )
+                                AnalogLabView(
+                                    title: "Analog Inputs",
+                                    inputs: [
+                                        ("Trigger (R2)", 4),
+                                    ],
+                                    reportBytes: appState.reportBytes
+                                )
 
-                            AnalogLabView(
-                                title: "Capacitive / Proximity (Analog)",
-                                inputs: [
-                                    ("Trigger Proximity", 5),
-                                    ("Grip Touch", 6),
-                                ],
-                                reportBytes: appState.reportBytes
-                            )
+                                AnalogLabView(
+                                    title: "Capacitive / Proximity (Analog)",
+                                    inputs: [
+                                        ("Trigger Proximity", 5),
+                                        ("Grip Touch", 6),
+                                    ],
+                                    reportBytes: appState.reportBytes
+                                )
 
-                            ButtonLabView(
-                                buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
-                                candidateBytes: [11],
-                                reportBytes: appState.reportBytes,
-                                bitLastChanged: appState.bitLastChanged,
-                                currentTime: timeline.date
-                            )
+                                ButtonLabView(
+                                    buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
+                                    candidateBytes: [11],
+                                    reportBytes: appState.reportBytes,
+                                    bitLastChanged: appState.bitLastChanged,
+                                    currentTime: timeline.date
+                                )
 
-                            LogicalButtonTestView(
-                                buttonStates: appState.buttonStates,
-                                isLeftController: appState.isLeftController,
-                                triggerValue: appState.safeReportByte(4),
-                                joystickX: appState.safeReportByte(2),
-                                joystickY: appState.safeReportByte(3)
-                            )
+                                LogicalButtonTestView(
+                                    buttonStates: appState.buttonStates,
+                                    isLeftController: appState.isLeftController,
+                                    triggerValue: appState.safeReportByte(4),
+                                    joystickX: appState.safeReportByte(2),
+                                    joystickY: appState.safeReportByte(3)
+                                )
 
-                            Divider()
-                                .padding(.vertical, 8)
+                                Divider()
+                                    .padding(.vertical, 8)
 
-                            Text("Sensor Data (Confirmed)")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.green)
+                                Text("Sensor Data (Confirmed)")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.green)
 
-                            IMUAxisTesterView(reportBytes: appState.reportBytes)
+                                IMUAxisTesterView(reportBytes: appState.reportBytes)
 
-                            BatteryStatusView(reportBytes: appState.reportBytes)
+                                BatteryStatusView(reportBytes: appState.reportBytes)
+                            }
+                            .padding()
                         }
-                        .padding()
                     }
                 }
             } else if !appState.isConnected {
@@ -166,6 +184,61 @@ struct DebugTab: View {
                 }
                 Spacer()
             }
+        }
+    }
+}
+
+// MARK: - Joy-Con Debug View
+
+private struct JoyConDebugView: View {
+    @ObservedObject var appState: AppState
+    let bytesPerRow: Int
+    let totalBytes: Int
+    let decaySeconds: Double
+    let currentTime: Date
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Motion / Gyro")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 16) {
+                        GyroVectorIndicator(
+                            x: appState.lastGyroX,
+                            y: appState.lastGyroY
+                        )
+
+                        VStack(spacing: 8) {
+                            GyroAxisRow(
+                                name: "Y",
+                                label: "horizontal",
+                                value: appState.lastGyroY
+                            )
+                            GyroAxisRow(
+                                name: "X",
+                                label: "vertical",
+                                value: appState.lastGyroX
+                            )
+                        }
+                    }
+                }
+                .padding()
+                .background(Color.secondary.opacity(0.03))
+                .cornerRadius(8)
+
+                DebugRawReportSection(
+                    appState: appState,
+                    currentTime: currentTime,
+                    bytesPerRow: bytesPerRow,
+                    totalBytes: totalBytes,
+                    decaySeconds: decaySeconds
+                )
+            }
+            .padding()
         }
     }
 }
