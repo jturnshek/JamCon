@@ -132,6 +132,7 @@ struct BitIndicator: View {
 struct JoystickLabView: View {
     let xByte: Int
     let yByte: Int
+    let useJoyConPacking: Bool
     let reportBytes: [UInt8]
 
     private let size: CGFloat = 120
@@ -141,10 +142,44 @@ struct JoystickLabView: View {
         return reportBytes[index]
     }
 
+    private var joyConX: Double {
+        let b9 = safeReportByte(xByte)
+        let b10 = safeReportByte(yByte)
+        return Double(b9) + Double(b10 & 0x0F) * 256.0
+    }
+
+    private var joyConY: Double {
+        let b10 = safeReportByte(yByte)
+        let b11 = safeReportByte(yByte + 1)
+        return Double(b10 >> 4) + Double(b11) * 16.0
+    }
+
+    private var normalizedX: Double {
+        if useJoyConPacking {
+            return (joyConX - 2048.0) / 2048.0
+        } else {
+            return (Double(safeReportByte(xByte)) - 128.0) / 128.0
+        }
+    }
+
+    private var normalizedY: Double {
+        if useJoyConPacking {
+            // Invert Y so up on the stick renders upward in the view
+            return (2048.0 - joyConY) / 2048.0
+        } else {
+            return (Double(safeReportByte(yByte)) - 128.0) / 128.0
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Joystick (Bytes \(xByte), \(yByte))")
-                .font(.headline)
+            if useJoyConPacking {
+                Text("Joystick (Joy-Con packed bytes \(xByte), \(yByte), \(yByte + 1))")
+                    .font(.headline)
+            } else {
+                Text("Joystick (Bytes \(xByte), \(yByte))")
+                    .font(.headline)
+            }
 
             HStack(spacing: 20) {
                 ZStack {
@@ -164,8 +199,8 @@ struct JoystickLabView: View {
                         .fill(Color.blue)
                         .frame(width: 12, height: 12)
                         .offset(
-                            x: CGFloat(safeReportByte(xByte)) / 255.0 * size - size/2,
-                            y: CGFloat(safeReportByte(yByte)) / 255.0 * size - size/2
+                            x: CGFloat(normalizedX) * (size/2),
+                            y: CGFloat(normalizedY) * (size/2)
                         )
                 }
                 .frame(width: size, height: size)
@@ -176,34 +211,57 @@ struct JoystickLabView: View {
                         Text("X:")
                             .font(.system(.body, design: .monospaced))
                             .frame(width: 20, alignment: .trailing)
-                        Text(String(format: "%3d", safeReportByte(xByte)))
+                        let rawX = useJoyConPacking ? joyConX : Double(safeReportByte(xByte))
+                        Text(String(format: "%4.0f", rawX))
                             .font(.system(.body, design: .monospaced))
                             .foregroundColor(.orange)
-                        Text(String(format: "(0x%02X)", safeReportByte(xByte)))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if useJoyConPacking {
+                            Text(String(format: "(b9=0x%02X b10=0x%02X)", safeReportByte(xByte), safeReportByte(yByte)))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text(String(format: "(0x%02X)", safeReportByte(xByte)))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
 
                     HStack {
                         Text("Y:")
                             .font(.system(.body, design: .monospaced))
                             .frame(width: 20, alignment: .trailing)
-                        Text(String(format: "%3d", safeReportByte(yByte)))
+                        let rawY = useJoyConPacking ? joyConY : Double(safeReportByte(yByte))
+                        Text(String(format: "%4.0f", rawY))
                             .font(.system(.body, design: .monospaced))
                             .foregroundColor(.orange)
-                        Text(String(format: "(0x%02X)", safeReportByte(yByte)))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if useJoyConPacking {
+                            Text(String(format: "(b10=0x%02X b11=0x%02X)", safeReportByte(yByte), safeReportByte(yByte + 1)))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text(String(format: "(0x%02X)", safeReportByte(yByte)))
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
 
                     Divider()
 
-                    Text("Center: ~128")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("Range: 0-255")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    if useJoyConPacking {
+                        Text("Center ~2048 (12-bit)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Range: 0-4095")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Center: ~128")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Range: 0-255")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }

@@ -112,6 +112,7 @@ struct DebugTab: View {
                                 JoystickLabView(
                                     xByte: 2,
                                     yByte: 3,
+                                    useJoyConPacking: false,
                                     reportBytes: appState.reportBytes
                                 )
 
@@ -229,6 +230,18 @@ private struct JoyConDebugView: View {
                 .padding()
                 .background(Color.secondary.opacity(0.03))
                 .cornerRadius(8)
+
+                JoyConQuickRows(
+                    appState: appState,
+                    currentTime: currentTime
+                )
+
+                JoystickLabView(
+                    xByte: 9,
+                    yByte: 10,
+                    useJoyConPacking: true,
+                    reportBytes: appState.reportBytes
+                )
 
                 DebugRawReportSection(
                     appState: appState,
@@ -494,6 +507,122 @@ private struct DebugRawReportSection: View {
         let lastChanged = appState.byteLastChanged[index]
         let elapsed = currentTime.timeIntervalSince(lastChanged)
         let progress = min(1.0, max(0.0, elapsed / decaySeconds))
+        return Color(
+            red: progress,
+            green: 1.0 - progress,
+            blue: 0
+        )
+    }
+}
+
+// MARK: - Joy-Con Quick Byte Rows
+
+private struct JoyConQuickRows: View {
+    @ObservedObject var appState: AppState
+    let currentTime: Date
+
+    private let motionBytes = Array(36...47)  // Hypothesis: latest IMU sample block
+    private let buttonBytes = [3, 4]          // Face/bumper/trigger + Plus/Home
+    private let joystickBytes = [9, 10, 11]   // Stick movement (all three bytes participate)
+    private let batteryBytes = [2]            // Battery nibble (upper)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            JoyConRow(title: "Motion (hypothesis: bytes 36-47)", bytes: motionBytes, appState: appState, currentTime: currentTime)
+            JoyConRow(title: "Buttons (face/bumper/trigger/Plus/Home)", bytes: buttonBytes, appState: appState, currentTime: currentTime)
+            JoyConRow(title: "Joystick", bytes: joystickBytes, appState: appState, currentTime: currentTime)
+            JoyConRow(title: "Battery", bytes: batteryBytes, appState: appState, currentTime: currentTime)
+            JoyConButtonTester(appState: appState, currentTime: currentTime)
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.03))
+        .cornerRadius(8)
+    }
+}
+
+private struct JoyConButtonTester: View {
+    @ObservedObject var appState: AppState
+    let currentTime: Date
+
+    private struct JoyConButtonEntry: Identifiable {
+        let id = UUID()
+        let name: String
+        let byte: Int
+        let mask: UInt8
+    }
+
+    private let buttons: [JoyConButtonEntry] = [
+        .init(name: "Y", byte: 3, mask: 0x01),
+        .init(name: "X", byte: 3, mask: 0x02),
+        .init(name: "B", byte: 3, mask: 0x04),
+        .init(name: "A", byte: 3, mask: 0x08),
+        .init(name: "SR", byte: 3, mask: 0x10),
+        .init(name: "SL", byte: 3, mask: 0x20),
+        .init(name: "R", byte: 3, mask: 0x40),
+        .init(name: "ZR", byte: 3, mask: 0x80),
+        .init(name: "Plus", byte: 4, mask: 0x02),
+        .init(name: "Stick Click", byte: 4, mask: 0x04),
+        .init(name: "Home", byte: 4, mask: 0x0A), // observed as 0x0A
+    ]
+
+    private func isPressed(_ entry: JoyConButtonEntry) -> Bool {
+        let value = appState.safeReportByte(entry.byte)
+        return (value & entry.mask) != 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Button Tester")
+                .font(.headline)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 8)], spacing: 8) {
+                ForEach(buttons) { entry in
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(isPressed(entry) ? Color.green : Color.secondary.opacity(0.3))
+                            .frame(width: 10, height: 10)
+                        Text(entry.name)
+                            .font(.system(size: 12, weight: .medium))
+                        Text(String(format: "b%d 0x%02X", entry.byte, entry.mask))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(6)
+                    .background(Color.secondary.opacity(0.08))
+                    .cornerRadius(6)
+                }
+            }
+        }
+    }
+}
+
+private struct JoyConRow: View {
+    let title: String
+    let bytes: [Int]
+    @ObservedObject var appState: AppState
+    let currentTime: Date
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            HStack(spacing: 4) {
+                ForEach(bytes, id: \.self) { i in
+                    ByteCell(
+                        value: appState.safeReportByte(i),
+                        index: i,
+                        color: colorForByte(i)
+                    )
+                }
+            }
+        }
+    }
+
+    private func colorForByte(_ index: Int) -> Color {
+        guard index < appState.byteLastChanged.count else { return .red }
+        let lastChanged = appState.byteLastChanged[index]
+        let elapsed = currentTime.timeIntervalSince(lastChanged)
+        let progress = min(1.0, max(0.0, elapsed / 5.0))
         return Color(
             red: progress,
             green: 1.0 - progress,
