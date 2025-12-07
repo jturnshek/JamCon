@@ -17,16 +17,6 @@ struct PSVR2GyroApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarView(appState: appState) {
-                openWindow(id: "settings")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-        } label: {
-            Image(systemName: appState.isConnected ? "gamecontroller.fill" : "gamecontroller")
-        }
-        .menuBarExtraStyle(.window)
-
         Window("PSVR2 Gyro Settings", id: "settings") {
             SettingsView(appState: appState)
         }

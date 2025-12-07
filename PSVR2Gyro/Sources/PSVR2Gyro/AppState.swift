@@ -192,6 +192,9 @@ class AppState: ObservableObject {
     )
     private var pendingBitCount: Int = 0
 
+    // Joy-Con gravity estimate for debug projection
+    private var joyConGravity: (x: Double, y: Double, z: Double)?
+
     // Battery publish throttling (avoid per-report publishes on main thread)
     private var lastBatteryUpdate: Date = .distantPast
     private let batteryUpdateInterval: TimeInterval = 1.0  // seconds
@@ -818,7 +821,7 @@ class AppState: ObservableObject {
     }
 
     /// Lightweight Joy-Con report handling focused on debug UI.
-    /// Currently no action execution or gyro mouse processing is performed.
+    /// Uses only the newest IMU sample per report (bytes 36-47) for low latency.
     private func handleJoyConReport(_ report: JoyConHIDController.InputReport) {
         // Only process for the active Joy-Con selection
         guard activeControllerKind == .joyCon else { return }
@@ -827,6 +830,35 @@ class AppState: ObservableObject {
         let debugActive = debugRenderingEnabled && activeTab == .debug
         let now = Date()
         let length = report.length
+
+        // Derive a motion vector similar to PSVR2: take newest sample only and project gyro into
+        // the plane perpendicular to gravity so wrist twist/roll is minimized.
+        let ax = Double(report.accelX)
+        let ay = Double(report.accelY)
+        let az = Double(report.accelZ)
+        let gx = Double(report.gyroX)
+        let gy = Double(report.gyroY)
+        let gz = Double(report.gyroZ)
+
+        // Low-pass gravity (simple single-pole for debug purposes)
+        let alpha = 0.1
+        var gravity = joyConGravity ?? (x: 0.0, y: 0.0, z: 1.0)
+        gravity.x = (1 - alpha) * gravity.x + alpha * ax
+        gravity.y = (1 - alpha) * gravity.y + alpha * ay
+        gravity.z = (1 - alpha) * gravity.z + alpha * az
+        let gLen = max(1.0, sqrt(gravity.x * gravity.x + gravity.y * gravity.y + gravity.z * gravity.z))
+        let gxNorm = gravity.x / gLen
+        let gyNorm = gravity.y / gLen
+        let gzNorm = gravity.z / gLen
+        joyConGravity = gravity
+
+        // Project gyro into plane perpendicular to gravity
+        let dot = gx * gxNorm + gy * gyNorm + gz * gzNorm
+        let projX = gx - dot * gxNorm
+        let projY = gy - dot * gyNorm
+        // Use these as our horizontal motion vector
+        let displayMotionX = projX
+        let displayMotionY = projY
 
         // Track byte/bit changes for debug visualization
         if debugActive {
@@ -880,8 +912,13 @@ class AppState: ObservableObject {
                 self.reportBytes = pendingReportBytes
                 self.reportLength = length
 
-                lastGyroX = report.gyroX
-                lastGyroY = report.gyroY
+                // Display motion vector (scaled) instead of raw gyro for easier visualization
+                // Clamp to keep the visual within bounds
+                let clamp: Double = 500
+                let clampedX = max(-clamp, min(clamp, displayMotionX))
+                let clampedY = max(-clamp, min(clamp, displayMotionY))
+                lastGyroX = Int16(max(-32768, min(32767, Int(clampedX))))
+                lastGyroY = Int16(max(-32768, min(32767, Int(clampedY))))
                 lastGyroZ = report.gyroZ
                 lastAccelX = report.accelX
                 lastAccelY = report.accelY

@@ -32,7 +32,7 @@ enum JoyConHIDProtocol {
         static let imuSample1: Int = imuSample0 + 12
         static let imuSample2: Int = imuSample1 + 12
 
-        // Use the latest (third) sample for live display
+        // Use the latest (third) sample for live display / processing
         static let latestSample: Int = imuSample2
         static let accelXLow: Int = latestSample + 0
         static let accelXHigh: Int = latestSample + 1

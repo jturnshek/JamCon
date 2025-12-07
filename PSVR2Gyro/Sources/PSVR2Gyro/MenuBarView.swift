@@ -10,19 +10,19 @@ struct MenuBarView: View {
             HStack {
                 StatusDot(isActive: appState.isConnected, size: 10)
                 Text(appState.controllerName)
-                    .font(.headline)
+                    .fontWeight(.semibold)
                 Spacer()
                 if appState.isConnected {
                     Image(systemName: BatteryHelper.icon(for: appState.batteryLevel))
                         .foregroundColor(BatteryHelper.color(for: appState.batteryLevel))
                     Text("\(appState.batteryLevel)%")
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
             }
 
             Text(appState.statusMessage)
-                .font(.caption)
+                .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
             Divider()
