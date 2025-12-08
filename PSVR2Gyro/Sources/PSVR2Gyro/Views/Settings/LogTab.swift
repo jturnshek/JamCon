@@ -10,10 +10,6 @@ struct LogTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             TabHeader(appState: appState) {
-                Toggle("Live", isOn: $appState.liveLogsEnabled)
-                    .toggleStyle(.switch)
-                    .help("Enable live log streaming")
-
                 Button {
                     let logText = appState.debugLog.joined(separator: "\n")
                     NSPasteboard.general.clearContents()
@@ -29,7 +25,7 @@ struct LogTab: View {
                 .help(copyFeedback ? "Copied!" : "Copy logs")
 
                 Button {
-                    appState.debugLog.removeAll()
+                    appState.clearLogs()
                 } label: {
                     Image(systemName: "trash")
                 }

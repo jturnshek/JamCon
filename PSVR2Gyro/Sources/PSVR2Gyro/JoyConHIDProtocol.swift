@@ -9,26 +9,40 @@ enum JoyConHIDProtocol {
 
     // Input report
     static let inputReportID: UInt32 = 0x30
+
+    // MARK: - IMU Constants
+
+    /// Gyroscope scale factor (raw units to degrees/second)
+    /// Joy-Con: 0.06103 °/s per LSB (from JoyConSwift library)
+    /// Nearly identical to PSVR2's 0.0625 (1/16)
+    static let defaultGyroScale: Double = 0.06103
+
+    /// Accelerometer scale factor (units per g)
+    static let accelerometerScale: Double = 4096.0
     /// Standard full input reports are 49 bytes over Bluetooth. Some stacks may deliver a byte more; we cap at this length.
     static let reportLength: Int = 49
 
     /// Offsets into the latest IMU sample (report contains 3 samples; newest is the last block)
+    /// NOTE: Report ID (0x30) is included at byte 0, so all offsets are +1 from documentation
     enum Offset {
-        // Header / metadata
-        static let battery: Int = 2   // Upper nibble encodes battery level; lower nibble connection flags
+        // Header / metadata (byte 0 = report ID 0x30)
+        static let reportID: Int = 0
+        static let timer: Int = 1      // Packet counter
+        static let battery: Int = 2    // Upper nibble encodes battery level; lower nibble connection flags
 
         // Buttons (layout differs by side; these are raw bytes)
-        static let buttonByteRight1: Int = 2
-        static let buttonByteRight2: Int = 3
-        static let buttonByteLeft1: Int = 3
-        static let buttonByteLeft2: Int = 4
+        static let buttonByteRight1: Int = 3
+        static let buttonByteRight2: Int = 4
+        static let buttonByteLeft1: Int = 4
+        static let buttonByteLeft2: Int = 5
 
         // Sticks
-        static let leftStickStart: Int = 5   // 3 bytes packed
-        static let rightStickStart: Int = 8  // 3 bytes packed
+        static let leftStickStart: Int = 6   // 3 bytes packed
+        static let rightStickStart: Int = 9  // 3 bytes packed
 
         // IMU samples (12 bytes each: accel XYZ int16 LE, then gyro XYZ int16 LE)
-        static let imuSample0: Int = 12
+        // Byte 13 is where IMU data starts (after report ID + header + buttons + sticks)
+        static let imuSample0: Int = 13
         static let imuSample1: Int = imuSample0 + 12
         static let imuSample2: Int = imuSample1 + 12
 

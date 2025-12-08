@@ -239,13 +239,30 @@ final class AppState: ObservableObject {
     /// Button states for visualization
     @Published var buttonStates: [LogicalButton: Bool] = [:]
 
-    /// Gyro values for visualization
-    @Published var lastGyroX: Int16 = 0
-    @Published var lastGyroY: Int16 = 0
-    @Published var lastGyroZ: Int16 = 0
+    /// Gyro Pipeline Stage 1: Raw (direct from HID)
+    @Published var rawGyroX: Int16 = 0
+    @Published var rawGyroY: Int16 = 0
+    @Published var rawGyroZ: Int16 = 0
+
+    /// Gyro Pipeline Stage 2: Remapped (semantic axes)
+    @Published var remappedPitch: Int16 = 0
+    @Published var remappedYaw: Int16 = 0
+    @Published var remappedRoll: Int16 = 0
+
+    /// Gyro Pipeline Stage 3: Normalized (degrees per second)
+    @Published var normalizedPitch: Double = 0
+    @Published var normalizedYaw: Double = 0
+    @Published var normalizedRoll: Double = 0
+
+    /// Accel values (raw)
     @Published var lastAccelX: Int16 = 0
     @Published var lastAccelY: Int16 = 0
     @Published var lastAccelZ: Int16 = 0
+
+    // Legacy aliases for backwards compatibility
+    var lastGyroX: Int16 { rawGyroX }
+    var lastGyroY: Int16 { rawGyroY }
+    var lastGyroZ: Int16 { rawGyroZ }
 
     /// Report count for stats
     @Published var reportCount: Int = 0
@@ -256,11 +273,11 @@ final class AppState: ObservableObject {
     // MARK: - Log State
 
     @Published var debugLog: [String] = []
-    @Published var liveLogsEnabled: Bool = false
 
     // MARK: - Timers
 
     private var debugPollingTimer: Timer?
+    private var logPollingTimer: Timer?
     private var accessibilityTimer: Timer?
     private var batteryPollingTimer: Timer?
 
@@ -292,6 +309,7 @@ final class AppState: ObservableObject {
         engine.start()
         refreshControllerList()
         startBatteryPolling()
+        startLogPolling()
 
         // Sync connection state after a short delay to let HID controllers discover devices
         Task {
@@ -332,6 +350,7 @@ final class AppState: ObservableObject {
     func stopEngine() {
         engine.stop()
         stopBatteryPolling()
+        stopLogPolling()
     }
 
     // MARK: - Battery Polling
@@ -527,9 +546,23 @@ final class AppState: ObservableObject {
             // Update visualization properties
             reportBytes = sample.reportBytes
             reportLength = sample.reportLength
-            lastGyroX = sample.gyro.x
-            lastGyroY = sample.gyro.y
-            lastGyroZ = sample.gyro.z
+
+            // Pipeline Stage 1: Raw
+            rawGyroX = sample.rawGyro.x
+            rawGyroY = sample.rawGyro.y
+            rawGyroZ = sample.rawGyro.z
+
+            // Pipeline Stage 2: Remapped
+            remappedPitch = sample.remappedGyro.pitch
+            remappedYaw = sample.remappedGyro.yaw
+            remappedRoll = sample.remappedGyro.roll
+
+            // Pipeline Stage 3: Normalized
+            normalizedPitch = sample.normalizedGyro.pitch
+            normalizedYaw = sample.normalizedGyro.yaw
+            normalizedRoll = sample.normalizedGyro.roll
+
+            // Accel (still raw)
             lastAccelX = sample.accel.x
             lastAccelY = sample.accel.y
             lastAccelZ = sample.accel.z
@@ -554,6 +587,33 @@ final class AppState: ObservableObject {
 
         // Trigger refresh
         debugRefreshTrigger += 1
+    }
+
+    // MARK: - Log Polling
+
+    func startLogPolling() {
+        stopLogPolling()
+        logPollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.pollLogMessages()
+            }
+        }
+        // Poll immediately once
+        pollLogMessages()
+    }
+
+    func stopLogPolling() {
+        logPollingTimer?.invalidate()
+        logPollingTimer = nil
+    }
+
+    private func pollLogMessages() {
+        debugLog = debugBuffer.getLogMessages()
+    }
+
+    func clearLogs() {
+        debugLog.removeAll()
+        debugBuffer.clearLog()
     }
 
     // MARK: - Accessibility

@@ -9,21 +9,35 @@ final class DebugBuffer: @unchecked Sendable {
 
     // MARK: - Types
 
-    /// A single debug sample from the controller
+    /// A single debug sample from the controller with all pipeline stages
     struct Sample {
         let timestamp: Date
         let reportBytes: [UInt8]
         let reportLength: Int
-        let gyro: (x: Int16, y: Int16, z: Int16)
+
+        // Pipeline Stage 1: Raw (direct from HID)
+        let rawGyro: (x: Int16, y: Int16, z: Int16)
+
+        // Pipeline Stage 2: Remapped (semantic axes)
+        let remappedGyro: (pitch: Int16, yaw: Int16, roll: Int16)
+
+        // Pipeline Stage 3: Normalized (degrees per second)
+        let normalizedGyro: (pitch: Double, yaw: Double, roll: Double)
+
         let accel: (x: Int16, y: Int16, z: Int16)
         let buttonStates: [Bool]
         let controllerKind: ControllerKind
+
+        // Backwards compatibility alias
+        var gyro: (x: Int16, y: Int16, z: Int16) { rawGyro }
 
         static let empty = Sample(
             timestamp: .distantPast,
             reportBytes: [],
             reportLength: 0,
-            gyro: (0, 0, 0),
+            rawGyro: (0, 0, 0),
+            remappedGyro: (0, 0, 0),
+            normalizedGyro: (0, 0, 0),
             accel: (0, 0, 0),
             buttonStates: [],
             controllerKind: .psvr2
@@ -89,11 +103,13 @@ final class DebugBuffer: @unchecked Sendable {
 
     // MARK: - Writing (Called from HID thread)
 
-    /// Record a new sample - fast, non-blocking write
+    /// Record a new sample with all pipeline stages - fast, non-blocking write
     func record(
         bytes: [UInt8],
         length: Int,
-        gyro: (x: Int16, y: Int16, z: Int16),
+        rawGyro: (x: Int16, y: Int16, z: Int16),
+        remappedGyro: (pitch: Int16, yaw: Int16, roll: Int16),
+        normalizedGyro: (pitch: Double, yaw: Double, roll: Double),
         accel: (x: Int16, y: Int16, z: Int16),
         buttonStates: [Bool],
         controllerKind: ControllerKind
@@ -118,12 +134,14 @@ final class DebugBuffer: @unchecked Sendable {
                 }
             }
 
-            // Create sample
+            // Create sample with all pipeline stages
             let sample = Sample(
                 timestamp: now,
                 reportBytes: Array(bytes.prefix(maxIndex)),
                 reportLength: length,
-                gyro: gyro,
+                rawGyro: rawGyro,
+                remappedGyro: remappedGyro,
+                normalizedGyro: normalizedGyro,
                 accel: accel,
                 buttonStates: buttonStates,
                 controllerKind: controllerKind
@@ -199,6 +217,38 @@ final class DebugBuffer: @unchecked Sendable {
     /// Get current report bytes (for byte inspector)
     func getCurrentBytes() -> [UInt8] {
         lock.withLock { previousBytes }
+    }
+
+    // MARK: - Log Messages
+
+    private var logMessages: [String] = []
+    private let logCapacity: Int = 500
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    /// Add a log message (thread-safe, called from any thread)
+    func log(_ message: String) {
+        let timestamped = "[\(Self.timeFormatter.string(from: Date()))] \(message)"
+        lock.withLock {
+            logMessages.append(timestamped)
+            if logMessages.count > logCapacity {
+                logMessages.removeFirst(logMessages.count - logCapacity)
+            }
+        }
+    }
+
+    /// Get all log messages (thread-safe, called from main thread)
+    func getLogMessages() -> [String] {
+        lock.withLock { logMessages }
+    }
+
+    /// Clear all log messages
+    func clearLog() {
+        lock.withLock { logMessages.removeAll() }
     }
 
     // MARK: - Utility

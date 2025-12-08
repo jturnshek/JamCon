@@ -330,6 +330,8 @@ final class JoyConHIDController {
 
     // MARK: - Input reports
 
+    private static var debugLogCounter = 0
+
     private func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
         let timestamp = CACurrentMediaTime()
@@ -337,6 +339,13 @@ final class JoyConHIDController {
         let maxLength = min(length, reportBuffer.count)
         var bytes = [UInt8](repeating: 0, count: maxLength)
         for i in 0..<maxLength { bytes[i] = report[i] }
+
+        // Debug: log first few reports to see structure
+        Self.debugLogCounter += 1
+        if Self.debugLogCounter <= 5 {
+            let hexBytes = bytes.prefix(50).map { String(format: "%02X", $0) }.joined(separator: " ")
+            log("Report[\(Self.debugLogCounter)] len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)")
+        }
 
         func readInt16LE(_ offset: Int) -> Int16 {
             guard offset + 1 < maxLength else { return 0 }

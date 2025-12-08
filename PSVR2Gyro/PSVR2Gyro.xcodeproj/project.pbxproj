@@ -41,6 +41,7 @@
 		AF0A8605A4E60F6C47B42BBE /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD9ED2BD41428F453AF50099 /* RadialMenu.swift */; };
 		B3352B5D8C0DD0B41880CA3E /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */; };
 		B4E64456D08B8F44315CB341 /* LogTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD63314D6C110B20553D3C90 /* LogTab.swift */; };
+		BCB463FC8A90D8A9231C25BB /* GyroRemapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234136D5392F4F3A92A2AF6A /* GyroRemapper.swift */; };
 		C70A2981F27B3D56D2C6BFCF /* RadialMenuTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E224AAB1F78A14E97E0DB8 /* RadialMenuTab.swift */; };
 		C8362FD92B51994D5B0CAC7A /* ButtonMappingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079E91B184CDF891D5A15F40 /* ButtonMappingViews.swift */; };
 		D2F26DD1DE3373271EE5FB48 /* ButtonAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0EB72E24A3172F56DE5AC6A /* ButtonAction.swift */; };
@@ -56,6 +57,7 @@
 		153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputIndicators.swift; sourceTree = "<group>"; };
 		1C7BCCB1669071720C4EA1FA /* PSVR2Controller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2Controller.swift; sourceTree = "<group>"; };
 		20557AF89A095FADBE0DAF9C /* MouseControlTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseControlTab.swift; sourceTree = "<group>"; };
+		234136D5392F4F3A92A2AF6A /* GyroRemapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroRemapper.swift; sourceTree = "<group>"; };
 		27AB1AE32569827F32A0B67D /* ControllerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTypes.swift; sourceTree = "<group>"; };
 		27AE579511A3E8EBF27E1E9B /* SliderWithLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderWithLabel.swift; sourceTree = "<group>"; };
 		3451C39AB01A4A8E5D7DF789 /* PSVR2HIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PSVR2HIDProtocol.swift; sourceTree = "<group>"; };
@@ -159,6 +161,7 @@
 				DBDF905E808D615EDD61691D /* ButtonMapping.swift */,
 				D3AC0D19572DADBF6645B676 /* CrashReporter.swift */,
 				7C0D944F62A7696169616814 /* GyroProcessor.swift */,
+				234136D5392F4F3A92A2AF6A /* GyroRemapper.swift */,
 				77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */,
 				361FA04201607CAF5640E4EB /* JoyConHIDController.swift */,
 				DEDF09B1A39AA5A958478CC7 /* JoyConHIDProtocol.swift */,
@@ -297,6 +300,7 @@
 				A5292EA749A833613430BEAE /* DebugBuffer.swift in Sources */,
 				AE1A960E5C1AD7E04D4C5D88 /* DebugTab.swift in Sources */,
 				A070916D8ED99B364E2AEBB0 /* GyroProcessor.swift in Sources */,
+				BCB463FC8A90D8A9231C25BB /* GyroRemapper.swift in Sources */,
 				346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */,
 				76816085AF0E7E2A21BFA13A /* InputEngine.swift in Sources */,
 				A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */,

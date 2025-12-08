@@ -65,10 +65,6 @@ final class InputEngine {
     var onControllerListChanged: (() -> Void)?
     var onConnectionChanged: ((_ connected: Bool, _ name: String?, _ kind: ControllerKind) -> Void)?
 
-    // MARK: - Joy-Con Gravity (for debug visualization)
-
-    private var joyConGravity: (x: Double, y: Double, z: Double) = (0, 0, 1)
-
     // MARK: - Battery Level (thread-safe, polled by UI)
 
     private let batteryLock = OSAllocatedUnfairLock()
@@ -231,6 +227,10 @@ final class InputEngine {
             self?.onControllerListChanged?()
         }
 
+        psvr2Controller.onDebugMessage = { [weak self] message in
+            self?.debugBuffer.log("[PSVR2] \(message)")
+        }
+
         // Joy-Con Controller
         joyConController.onReportData = { [weak self] report in
             self?.processJoyConReport(report)
@@ -242,6 +242,10 @@ final class InputEngine {
 
         joyConController.onControllersChanged = { [weak self] in
             self?.onControllerListChanged?()
+        }
+
+        joyConController.onDebugMessage = { [weak self] message in
+            self?.debugBuffer.log("[JoyCon] \(message)")
         }
     }
 
@@ -289,11 +293,19 @@ final class InputEngine {
             updateBatteryLevel(BatteryHelper.level(from: batteryByte))
         }
 
-        // 5. Record to debug buffer (cheap, just writes to ring buffer)
+        // 5. Record to debug buffer with all pipeline stages
+        let pipeline = GyroRemapper.process(
+            rawX: report.gyroX,
+            rawY: report.gyroY,
+            rawZ: report.gyroZ,
+            controllerKind: .psvr2
+        )
         debugBuffer.record(
             bytes: report.bytes,
             length: report.length,
-            gyro: (report.gyroX, report.gyroY, report.gyroZ),
+            rawGyro: pipeline.raw,
+            remappedGyro: pipeline.remapped,
+            normalizedGyro: pipeline.normalized,
             accel: (report.accelX, report.accelY, report.accelZ),
             buttonStates: buttonStates,
             controllerKind: .psvr2
@@ -310,40 +322,21 @@ final class InputEngine {
         guard s.activeControllerKind == .joyCon else { return }
         guard s.isEnabled else { return }
 
-        // Project gyro into plane perpendicular to gravity (reduces wrist roll)
-        let ax = Double(report.accelX)
-        let ay = Double(report.accelY)
-        let az = Double(report.accelZ)
-        let gx = Double(report.gyroX)
-        let gy = Double(report.gyroY)
-        let gz = Double(report.gyroZ)
+        // Process gyro through unified pipeline
+        // GyroRemapper handles the axis swapping for Joy-Con
+        let pipeline = GyroRemapper.process(
+            rawX: report.gyroX,
+            rawY: report.gyroY,
+            rawZ: report.gyroZ,
+            controllerKind: .joyCon
+        )
 
-        // Low-pass gravity estimate
-        let alpha = 0.1
-        joyConGravity.x = (1 - alpha) * joyConGravity.x + alpha * ax
-        joyConGravity.y = (1 - alpha) * joyConGravity.y + alpha * ay
-        joyConGravity.z = (1 - alpha) * joyConGravity.z + alpha * az
-
-        let gLen = max(1.0, sqrt(joyConGravity.x * joyConGravity.x + joyConGravity.y * joyConGravity.y + joyConGravity.z * joyConGravity.z))
-        let gxNorm = joyConGravity.x / gLen
-        let gyNorm = joyConGravity.y / gLen
-        let gzNorm = joyConGravity.z / gLen
-
-        // Project gyro into plane perpendicular to gravity
-        let dot = gx * gxNorm + gy * gyNorm + gz * gzNorm
-        let projX = gx - dot * gxNorm
-        let projY = gy - dot * gyNorm
-
-        // Use projected values for motion
-        let motionX = Int16(clamping: Int(projX))
-        let motionY = Int16(clamping: Int(projY))
-
-        // Process gyro with projected values
+        // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
         let gyroSettings = s.toGyroSettingsState()
         if let (dx, dy) = gyroProcessor.process(
-            rawX: motionX,
-            rawY: motionY,
-            rawZ: report.gyroZ,
+            rawX: pipeline.remapped.pitch,
+            rawY: pipeline.remapped.yaw,
+            rawZ: pipeline.remapped.roll,
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
@@ -355,11 +348,13 @@ final class InputEngine {
             updateBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]))
         }
 
-        // Record to debug buffer
+        // Record to debug buffer with all pipeline stages
         debugBuffer.record(
             bytes: report.bytes,
             length: report.length,
-            gyro: (motionX, motionY, report.gyroZ),
+            rawGyro: pipeline.raw,
+            remappedGyro: pipeline.remapped,
+            normalizedGyro: pipeline.normalized,
             accel: (report.accelX, report.accelY, report.accelZ),
             buttonStates: buttonStates,
             controllerKind: .joyCon
