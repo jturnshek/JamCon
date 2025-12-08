@@ -34,10 +34,13 @@ final class SettingsStore: @unchecked Sendable {
         var softCutoffThreshold: Double = 0.5
         var recoveryThreshold: Double = 1.5
 
-        // MARK: - Button Mappings
+        // MARK: - Button Mappings (PSVR2)
         var buttonMappingProfile: PSVR2ButtonMappingProfile = .load()
         var triggerThreshold: UInt8 = 128
         var holdThreshold: Double = 0.3
+
+        // MARK: - Button Mappings (Joy-Con)
+        var joyConButtonMappingProfile: JoyConButtonMappingProfile = .load()
 
         // MARK: - Joystick
         var joystickScrollEnabled: Bool = false
@@ -71,10 +74,11 @@ final class SettingsStore: @unchecked Sendable {
             settings.softCutoffThreshold = gyroState.softCutoffThreshold
             settings.recoveryThreshold = gyroState.recoveryThreshold
 
-            // Load button mapping
+            // Load button mappings
             settings.buttonMappingProfile = .load()
             settings.triggerThreshold = settings.buttonMappingProfile.triggerThreshold
             settings.holdThreshold = settings.buttonMappingProfile.holdThreshold
+            settings.joyConButtonMappingProfile = .load()
 
             // Load joystick settings
             settings.joystickScrollEnabled = UserDefaults.standard.bool(forKey: "joystick.scrollEnabled")

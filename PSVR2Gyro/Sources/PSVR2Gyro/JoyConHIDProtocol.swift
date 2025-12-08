@@ -62,4 +62,50 @@ enum JoyConHIDProtocol {
         static let gyroZLow: Int = latestSample + 10
         static let gyroZHigh: Int = latestSample + 11
     }
+
+    // MARK: - Button Mappings
+
+    /// Button locations for Right Joy-Con (product ID 0x2007)
+    /// Byte offsets include the report ID at byte 0
+    enum RightButton {
+        // Byte 3: Face and shoulder buttons
+        static let y = (byte: 3, bit: 0)       // 0x01
+        static let x = (byte: 3, bit: 1)       // 0x02
+        static let b = (byte: 3, bit: 2)       // 0x04
+        static let a = (byte: 3, bit: 3)       // 0x08
+        static let sr = (byte: 3, bit: 4)      // 0x10 (side rail)
+        static let sl = (byte: 3, bit: 5)      // 0x20 (side rail)
+        static let r = (byte: 3, bit: 6)       // 0x40
+        static let zr = (byte: 3, bit: 7)      // 0x80
+
+        // Byte 4: System buttons
+        static let minus = (byte: 4, bit: 0)   // 0x01 (only in grip mode)
+        static let plus = (byte: 4, bit: 1)    // 0x02
+        static let rStick = (byte: 4, bit: 2)  // 0x04 (stick click)
+        static let lStick = (byte: 4, bit: 3)  // 0x08 (only in grip mode)
+        static let home = (byte: 4, bit: 4)    // 0x10
+        static let capture = (byte: 4, bit: 5) // 0x20 (only in grip mode)
+    }
+
+    /// Button locations for Left Joy-Con (product ID 0x2006)
+    /// Byte offsets include the report ID at byte 0
+    enum LeftButton {
+        // Byte 4: D-pad and shoulder buttons
+        static let down = (byte: 4, bit: 0)    // 0x01
+        static let up = (byte: 4, bit: 1)      // 0x02
+        static let right = (byte: 4, bit: 2)   // 0x04
+        static let left = (byte: 4, bit: 3)    // 0x08
+        static let sr = (byte: 4, bit: 4)      // 0x10 (side rail)
+        static let sl = (byte: 4, bit: 5)      // 0x20 (side rail)
+        static let l = (byte: 4, bit: 6)       // 0x40
+        static let zl = (byte: 4, bit: 7)      // 0x80
+
+        // Byte 5: System buttons
+        static let minus = (byte: 5, bit: 0)   // 0x01
+        static let plus = (byte: 5, bit: 1)    // 0x02 (only in grip mode)
+        static let lStick = (byte: 5, bit: 2)  // 0x04 (stick click)
+        static let rStick = (byte: 5, bit: 3)  // 0x08 (only in grip mode)
+        static let home = (byte: 5, bit: 4)    // 0x10 (only in grip mode)
+        static let capture = (byte: 5, bit: 5) // 0x20
+    }
 }

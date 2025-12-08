@@ -433,3 +433,139 @@ struct PSVR2ButtonMappingProfile: Codable {
         var triggerThreshold: UInt8
     }
 }
+
+// MARK: - Joy-Con Button Mapping Profile
+
+struct JoyConButtonMappingProfile: Codable {
+    private(set) var mappings: [String: ButtonActions]  // JoyConLogicalButton.rawValue -> actions
+    private var actionsCache: [ButtonActions] = Array(repeating: ButtonActions(), count: JoyConLogicalButton.count)
+    var holdThreshold: Double  // Seconds before hold action fires
+
+    // Cached gyro-mode mapping flags
+    private(set) var dragMapped: Bool = false
+    private(set) var scrollMapped: Bool = false
+    private(set) var radialMenuMapped: Bool = false
+
+    static let userDefaultsKey = "JoyConButtonMappingProfile"
+
+    private enum CodingKeys: String, CodingKey {
+        case mappings
+        case holdThreshold
+    }
+
+    init(mappings: [String: ButtonActions] = [:], holdThreshold: Double = 0.3) {
+        self.mappings = mappings
+        self.holdThreshold = holdThreshold
+        rebuildActionsCache()
+        recomputeMappingFlags()
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.mappings = try container.decodeIfPresent([String: ButtonActions].self, forKey: .mappings) ?? [:]
+        self.holdThreshold = try container.decodeIfPresent(Double.self, forKey: .holdThreshold) ?? 0.3
+        rebuildActionsCache()
+        recomputeMappingFlags()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mappings, forKey: .mappings)
+        try container.encode(holdThreshold, forKey: .holdThreshold)
+    }
+
+    static var `default`: Self {
+        var profile = JoyConButtonMappingProfile()
+        // Default mappings for Right Joy-Con
+        // ZR = Drag (hold to move cursor with gyro)
+        profile.mappings[JoyConLogicalButton.zr.rawValue] = ButtonActions(press: .drag)
+        // ZL = Left click (if available via grip)
+        profile.mappings[JoyConLogicalButton.zl.rawValue] = ButtonActions(press: .mouseClick(.left))
+        // R = Right click
+        profile.mappings[JoyConLogicalButton.r.rawValue] = ButtonActions(press: .mouseClick(.right))
+        // L = Scroll mode (if available via grip)
+        profile.mappings[JoyConLogicalButton.l.rawValue] = ButtonActions(press: .scroll)
+        // A = Middle click
+        profile.mappings[JoyConLogicalButton.a.rawValue] = ButtonActions(press: .mouseClick(.middle))
+        // Plus = Play/Pause
+        profile.mappings[JoyConLogicalButton.plus.rawValue] = ButtonActions(press: .systemAction(.playPause))
+        // Home = Mission Control
+        profile.mappings[JoyConLogicalButton.home.rawValue] = ButtonActions(press: .systemAction(.missionControl))
+        profile.rebuildActionsCache()
+        profile.recomputeMappingFlags()
+        return profile
+    }
+
+    func actions(for button: JoyConLogicalButton) -> ButtonActions {
+        actionsCache[button.index]
+    }
+
+    mutating func setActions(_ actions: ButtonActions, for button: JoyConLogicalButton) {
+        mappings[button.rawValue] = actions
+        actionsCache[button.index] = actions
+        recomputeMappingFlags()
+    }
+
+    mutating func setPressAction(_ action: ButtonAction, for button: JoyConLogicalButton) {
+        var current = actions(for: button)
+        current.press = action
+        if action.isGyroMode {
+            current.hold = .none
+        }
+        mappings[button.rawValue] = current
+        actionsCache[button.index] = current
+        recomputeMappingFlags()
+    }
+
+    mutating func setHoldAction(_ action: ButtonAction, for button: JoyConLogicalButton) {
+        var current = actions(for: button)
+        current.hold = action
+        mappings[button.rawValue] = current
+        actionsCache[button.index] = current
+        recomputeMappingFlags()
+    }
+
+    var hasDragMapping: Bool { dragMapped }
+    var hasScrollMapping: Bool { scrollMapped }
+    var hasRadialMenuMapping: Bool { radialMenuMapped }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
+        }
+    }
+
+    static func load() -> Self {
+        if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+           let profile = try? JSONDecoder().decode(Self.self, from: data) {
+            return profile
+        }
+        return .default
+    }
+
+    private mutating func rebuildActionsCache() {
+        for button in JoyConLogicalButton.allCases {
+            actionsCache[button.index] = mappings[button.rawValue] ?? ButtonActions()
+        }
+    }
+
+    private mutating func recomputeMappingFlags() {
+        var drag = false
+        var scroll = false
+        var radial = false
+
+        for actions in mappings.values {
+            switch actions.press {
+            case .drag: drag = true
+            case .scroll: scroll = true
+            case .radialMenu: radial = true
+            default: break
+            }
+            if drag && scroll && radial { break }
+        }
+
+        dragMapped = drag
+        scrollMapped = scroll
+        radialMenuMapped = radial
+    }
+}

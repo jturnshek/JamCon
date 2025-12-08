@@ -46,6 +46,14 @@ final class InputEngine {
     private let leftMapping = PSVR2ButtonMapping(isLeft: true)
     private let rightMapping = PSVR2ButtonMapping(isLeft: false)
 
+    // Joy-Con button state
+    private var joyConButtonStates: [Bool]
+    private var joyConPreviousButtonStates: [Bool]
+    private var joyConButtonPressStates: [ButtonPressState?]
+    private var joyConHoldTimers: [DispatchWorkItem?]
+    private let joyConLeftMapping = JoyConButtonMapping(isLeft: true)
+    private let joyConRightMapping = JoyConButtonMapping(isLeft: false)
+
     // MARK: - Radial Menu State (Internal)
 
     private var radialMenuPosition: CGPoint = .zero
@@ -96,12 +104,19 @@ final class InputEngine {
         self.gyroProcessor = GyroProcessor()
         self.actionExecutor = ActionExecutor(mouseController: mouseController)
 
-        // Initialize button state arrays
+        // Initialize PSVR2 button state arrays
         let buttonCount = LogicalButton.allCases.count
         self.buttonStates = Array(repeating: false, count: buttonCount)
         self.previousButtonStates = Array(repeating: false, count: buttonCount)
         self.buttonPressStates = Array(repeating: nil, count: buttonCount)
         self.holdTimers = Array(repeating: nil, count: buttonCount)
+
+        // Initialize Joy-Con button state arrays
+        let joyConButtonCount = JoyConLogicalButton.count
+        self.joyConButtonStates = Array(repeating: false, count: joyConButtonCount)
+        self.joyConPreviousButtonStates = Array(repeating: false, count: joyConButtonCount)
+        self.joyConButtonPressStates = Array(repeating: nil, count: joyConButtonCount)
+        self.joyConHoldTimers = Array(repeating: nil, count: joyConButtonCount)
     }
 
     // MARK: - Lifecycle
@@ -133,6 +148,9 @@ final class InputEngine {
 
         // Cancel all hold timers
         for timer in holdTimers {
+            timer?.cancel()
+        }
+        for timer in joyConHoldTimers {
             timer?.cancel()
         }
     }
@@ -322,7 +340,17 @@ final class InputEngine {
         guard s.activeControllerKind == .joyCon else { return }
         guard s.isEnabled else { return }
 
-        // Process gyro through unified pipeline
+        let joyConMapping = s.isLeftController ? joyConLeftMapping : joyConRightMapping
+
+        // 1. Process Joy-Con buttons
+        processJoyConButtonActions(
+            bytes: report.bytes,
+            mapping: joyConMapping,
+            profile: s.joyConButtonMappingProfile,
+            holdThreshold: s.joyConButtonMappingProfile.holdThreshold
+        )
+
+        // 2. Process gyro through unified pipeline
         // GyroRemapper handles the axis swapping for Joy-Con
         let pipeline = GyroRemapper.process(
             rawX: report.gyroX,
@@ -340,15 +368,15 @@ final class InputEngine {
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
-            routeGyroMovement(dx: dx, dy: dy, profile: s.buttonMappingProfile, configuration: s.radialMenuConfiguration)
+            routeJoyConGyroMovement(dx: dx, dy: dy, profile: s.joyConButtonMappingProfile, configuration: s.radialMenuConfiguration)
         }
 
-        // Update battery level (Joy-Con battery is in byte 2, upper nibble)
+        // 3. Update battery level (Joy-Con battery is in byte 2, upper nibble)
         if report.bytes.count > 2 {
             updateBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]))
         }
 
-        // Record to debug buffer with all pipeline stages
+        // 4. Record to debug buffer with all pipeline stages
         debugBuffer.record(
             bytes: report.bytes,
             length: report.length,
@@ -356,7 +384,7 @@ final class InputEngine {
             remappedGyro: pipeline.remapped,
             normalizedGyro: pipeline.normalized,
             accel: (report.accelX, report.accelY, report.accelZ),
-            buttonStates: buttonStates,
+            buttonStates: joyConButtonStates,
             controllerKind: .joyCon
         )
     }
@@ -381,6 +409,32 @@ final class InputEngine {
 
     private func routeGyroMovement(dx: CGFloat, dy: CGFloat, profile: PSVR2ButtonMappingProfile, configuration: RadialMenuConfiguration) {
         let mode = currentGyroMode(profile: profile)
+
+        switch mode {
+        case .none:
+            break
+        case .normal, .drag:
+            mouseController.moveRelative(dx: dx, dy: dy)
+        case .scroll:
+            mouseController.scroll(dx: dx, dy: dy)
+        case .radialMenu:
+            radialMenuAccumulator.x += dx
+            radialMenuAccumulator.y += dy
+            onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
+        }
+    }
+
+    // Joy-Con gyro mode routing (uses JoyConButtonMappingProfile)
+    private func currentJoyConGyroMode(profile: JoyConButtonMappingProfile) -> GyroMode {
+        if radialMenuButtonHeld { return .radialMenu }
+        if scrollButtonHeld { return .scroll }
+        if dragButtonHeld { return .drag }
+        if profile.hasDragMapping { return .none }
+        return .normal
+    }
+
+    private func routeJoyConGyroMovement(dx: CGFloat, dy: CGFloat, profile: JoyConButtonMappingProfile, configuration: RadialMenuConfiguration) {
+        let mode = currentJoyConGyroMode(profile: profile)
 
         switch mode {
         case .none:
@@ -583,6 +637,130 @@ final class InputEngine {
         default:
             break
         }
+    }
+
+    // MARK: - Joy-Con Button Processing
+
+    private func processJoyConButtonActions(
+        bytes: [UInt8],
+        mapping: JoyConButtonMapping,
+        profile: JoyConButtonMappingProfile,
+        holdThreshold: Double
+    ) {
+        // Process all buttons available on this Joy-Con side
+        let availableButtons = mapping.isLeftController ? JoyConLogicalButton.leftButtons : JoyConLogicalButton.rightButtons
+
+        for button in availableButtons {
+            let idx = button.index
+            let isPressed = mapping.isPressed(button, in: bytes)
+            let wasPressed = joyConPreviousButtonStates[idx]
+
+            if isPressed != wasPressed {
+                let actions = profile.actions(for: button)
+                if isPressed {
+                    handleJoyConButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
+                } else {
+                    handleJoyConButtonUp(button: button)
+                }
+            }
+
+            joyConPreviousButtonStates[idx] = isPressed
+            joyConButtonStates[idx] = isPressed
+        }
+    }
+
+    private func handleJoyConButtonDown(button: JoyConLogicalButton, actions: ButtonActions, holdThreshold: Double) {
+        let idx = button.index
+
+        // Handle gyro mode actions immediately
+        if actions.pressIsGyroMode {
+            switch actions.press {
+            case .drag:
+                dragButtonHeld = true
+            case .scroll:
+                scrollButtonHeld = true
+            case .radialMenu:
+                radialMenuButtonHeld = true
+                radialMenuAccumulator = .zero
+                let position = NSEvent.mouseLocation
+                let config = settings.snapshot().radialMenuConfiguration
+                onRadialMenuShow?(position, config)
+                mouseController.hideCursor()
+            default:
+                break
+            }
+            return
+        }
+
+        // Handle mouse clicks immediately
+        if case .mouseClick = actions.press {
+            actionExecutor.execute(actions.press, isPressed: true)
+            joyConButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+            return
+        }
+
+        // Record press state
+        joyConButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+
+        // Schedule hold timer if there's a hold action
+        if actions.hold != .none {
+            let timer = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                guard var state = self.joyConButtonPressStates[idx], !state.holdFired else { return }
+
+                state.holdFired = true
+                self.joyConButtonPressStates[idx] = state
+                self.actionExecutor.execute(actions.hold, isPressed: true)
+            }
+            joyConHoldTimers[idx]?.cancel()
+            joyConHoldTimers[idx] = timer
+            holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+        }
+    }
+
+    private func handleJoyConButtonUp(button: JoyConLogicalButton) {
+        let idx = button.index
+
+        // Cancel hold timer
+        joyConHoldTimers[idx]?.cancel()
+        joyConHoldTimers[idx] = nil
+
+        // Check for gyro mode button release
+        if let state = joyConButtonPressStates[idx], state.actions.pressIsGyroMode {
+            handleGyroModeRelease(action: state.actions.press)
+            joyConButtonPressStates[idx] = nil
+            return
+        }
+
+        // Also check current mapping for gyro modes
+        let profile = settings.snapshot().joyConButtonMappingProfile
+        let actions = profile.actions(for: button)
+        if actions.pressIsGyroMode {
+            handleGyroModeRelease(action: actions.press)
+            return
+        }
+
+        guard let state = joyConButtonPressStates[idx] else { return }
+
+        // Handle mouse click release
+        if case .mouseClick = state.actions.press {
+            actionExecutor.execute(state.actions.press, isPressed: false)
+            joyConButtonPressStates[idx] = nil
+            return
+        }
+
+        if state.holdFired {
+            // Hold action was executed, release it
+            actionExecutor.execute(state.actions.hold, isPressed: false)
+        } else {
+            // Hold didn't fire, execute press action as tap
+            if state.actions.press != .none {
+                actionExecutor.execute(state.actions.press, isPressed: true)
+                actionExecutor.execute(state.actions.press, isPressed: false)
+            }
+        }
+
+        joyConButtonPressStates[idx] = nil
     }
 
     // MARK: - Radial Menu

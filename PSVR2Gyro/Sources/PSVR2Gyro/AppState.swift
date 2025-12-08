@@ -181,6 +181,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    // Joy-Con button mapping
+    @Published var joyConButtonMappingProfile: JoyConButtonMappingProfile = .load() {
+        didSet {
+            joyConButtonMappingProfile.save()
+            settingsStore.update { $0.joyConButtonMappingProfile = joyConButtonMappingProfile }
+        }
+    }
+
     // Joystick settings
     @Published var joystickScrollEnabled: Bool = false {
         didSet {
@@ -400,6 +408,7 @@ final class AppState: ObservableObject {
         _buttonMappingProfile = Published(initialValue: s.buttonMappingProfile)
         _triggerThreshold = Published(initialValue: s.triggerThreshold)
         _holdThreshold = Published(initialValue: s.holdThreshold)
+        _joyConButtonMappingProfile = Published(initialValue: s.joyConButtonMappingProfile)
 
         _joystickScrollEnabled = Published(initialValue: s.joystickScrollEnabled)
         _joystickScrollSpeed = Published(initialValue: s.joystickScrollSpeed)

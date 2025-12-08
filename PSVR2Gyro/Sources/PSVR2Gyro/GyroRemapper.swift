@@ -28,7 +28,8 @@ enum GyroRemapper {
         case .joyCon:
             // Joy-Con: Axes are rotated compared to PSVR2
             // HID X = roll (wrist twist), HID Y = pitch (up/down), HID Z = yaw (left/right pointing)
-            return (pitch: rawY, yaw: rawZ, roll: rawX)
+            // Negate yaw to match PSVR2 polarity (so GyroProcessor's -yaw gives correct result)
+            return (pitch: rawY, yaw: -rawZ, roll: rawX)
         }
     }
 

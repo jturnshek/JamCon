@@ -35,6 +35,7 @@
 		A0EA8BB51029D1783902AA4E /* ButtonsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 953B2055C5B47244AE77056E /* ButtonsTab.swift */; };
 		A500034CFF79C59793617948 /* UIStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CD578182EF58ED21352EF0 /* UIStateStore.swift */; };
 		A5292EA749A833613430BEAE /* DebugBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66A032DEB2DFACEF0EFA3B00 /* DebugBuffer.swift */; };
+		A62F67C8B8439BB4CACE8374 /* JoyConButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0709C4802C7E656400952D2B /* JoyConButtonMapping.swift */; };
 		A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */; };
 		ADEEEE8FF19BC569C3A63AFD /* BatteryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BF1660F04E5235109B3EC5 /* BatteryHelper.swift */; };
 		AE1A960E5C1AD7E04D4C5D88 /* DebugTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = F713D09A4AD0DDDF693F4320 /* DebugTab.swift */; };
@@ -52,6 +53,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0709C4802C7E656400952D2B /* JoyConButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConButtonMapping.swift; sourceTree = "<group>"; };
 		079E91B184CDF891D5A15F40 /* ButtonMappingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMappingViews.swift; sourceTree = "<group>"; };
 		0A3B37B863DCDA922D5E1DCA /* SensorValidationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorValidationViews.swift; sourceTree = "<group>"; };
 		153C26F5D5BBEDBBA6306990 /* InputIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputIndicators.swift; sourceTree = "<group>"; };
@@ -163,6 +165,7 @@
 				7C0D944F62A7696169616814 /* GyroProcessor.swift */,
 				234136D5392F4F3A92A2AF6A /* GyroRemapper.swift */,
 				77FECE22148A1F4AB7ADE077 /* GyroSettings.swift */,
+				0709C4802C7E656400952D2B /* JoyConButtonMapping.swift */,
 				361FA04201607CAF5640E4EB /* JoyConHIDController.swift */,
 				DEDF09B1A39AA5A958478CC7 /* JoyConHIDProtocol.swift */,
 				C75D6A4217153B776F2CDA3C /* KeyCaptureManager.swift */,
@@ -304,6 +307,7 @@
 				346180A29CFF5308F2DC40AE /* GyroSettings.swift in Sources */,
 				76816085AF0E7E2A21BFA13A /* InputEngine.swift in Sources */,
 				A639272BC446A1DD2897FF2C /* InputIndicators.swift in Sources */,
+				A62F67C8B8439BB4CACE8374 /* JoyConButtonMapping.swift in Sources */,
 				88012BD85571199344C7FF05 /* JoyConHIDController.swift in Sources */,
 				7BB3F36C0813A2FB8503D3FF /* JoyConHIDProtocol.swift in Sources */,
 				B3352B5D8C0DD0B41880CA3E /* KeyCaptureManager.swift in Sources */,
