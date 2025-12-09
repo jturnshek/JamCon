@@ -61,8 +61,10 @@ class RadialMenuState: ObservableObject {
     /// How long trail points remain visible (seconds)
     private let trailLifetime: TimeInterval = 0.3
 
-    /// Sensitivity multiplier for delta movement
-    let movementSensitivity: CGFloat = 2.0
+    /// Sensitivity multiplier for delta movement (shared with engine)
+    var movementSensitivity: CGFloat {
+        max(0.1, activeConfiguration.radialMovementScale)
+    }
 
     // MARK: - Internal State
 
@@ -171,15 +173,23 @@ class RadialMenuState: ObservableObject {
 
         ghostPosition = newGhostPosition
 
-        // Determine which ring is selected based on magnitude
+        // Clamp accumulatedDelta to prevent "getting stuck" outside
+        // This ensures a small reverse movement brings you back into selection range
+        if magnitude > maxGhostRadius {
+            let scale = maxGhostRadius / magnitude
+            accumulatedDelta.x *= scale
+            accumulatedDelta.y *= scale
+        }
+
+        // Determine which ring is selected based on clamped magnitude
         let outerRingEnabled = activeConfiguration.outerRingEnabled && outerRingSliceCount > 0
 
-        if magnitude < selectionThreshold {
+        if clampedMagnitude < selectionThreshold {
             // Inside inner deadzone - no selection
             selectedRing = .none
             highlightedIndex = nil
             outerRingHighlightedIndex = nil
-        } else if !outerRingEnabled || magnitude < outerRingInnerRadius {
+        } else if !outerRingEnabled || clampedMagnitude < outerRingInnerRadius {
             // In inner ring zone (or outer ring disabled)
             selectedRing = .inner
             highlightedIndex = sliceCount > 0
@@ -243,8 +253,9 @@ class RadialMenuState: ObservableObject {
         // Convert rotation offset from degrees to radians (negative for clockwise)
         let rotationRadians = -rotationDegrees * Double.pi / 180.0
 
-        // Rotate so 0 degrees points up (subtract pi/2, since up is -pi/2 in screen coords)
-        // Also subtract the user's rotation offset
+        // Visual slices start at -π/2 (top) and go clockwise
+        // Add π/2 to convert from atan2 coords (0=right) to slice coords (0=top)
+        // Subtract rotationRadians to account for user's rotation setting
         var normalizedAngle = angle + Double.pi / 2 - rotationRadians
 
         // Ensure angle is in [0, 2*pi)

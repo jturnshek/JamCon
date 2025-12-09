@@ -27,6 +27,7 @@ final class DebugBuffer: @unchecked Sendable {
         let accel: (x: Int16, y: Int16, z: Int16)
         let buttonStates: [Bool]
         let controllerKind: ControllerKind
+        let gyroDebug: GyroDebug?
 
         // Backwards compatibility alias
         var gyro: (x: Int16, y: Int16, z: Int16) { rawGyro }
@@ -40,8 +41,18 @@ final class DebugBuffer: @unchecked Sendable {
             normalizedGyro: (0, 0, 0),
             accel: (0, 0, 0),
             buttonStates: [],
-            controllerKind: .psvr2
+            controllerKind: .psvr2,
+            gyroDebug: nil
         )
+    }
+
+    struct GyroDebug {
+        let biasX: Double
+        let biasY: Double
+        let biasZ: Double
+        let calibrated: Bool
+        let observedSampleRate: Double
+        let lastNeutralUpdate: TimeInterval?
     }
 
     /// Aggregated statistics for display
@@ -112,7 +123,8 @@ final class DebugBuffer: @unchecked Sendable {
         normalizedGyro: (pitch: Double, yaw: Double, roll: Double),
         accel: (x: Int16, y: Int16, z: Int16),
         buttonStates: [Bool],
-        controllerKind: ControllerKind
+        controllerKind: ControllerKind,
+        gyroDebug: GyroDebug? = nil
     ) {
         let now = Date()
 
@@ -144,7 +156,8 @@ final class DebugBuffer: @unchecked Sendable {
                 normalizedGyro: normalizedGyro,
                 accel: accel,
                 buttonStates: buttonStates,
-                controllerKind: controllerKind
+                controllerKind: controllerKind,
+                gyroDebug: gyroDebug
             )
 
             // Write to ring buffer
@@ -175,6 +188,15 @@ final class DebugBuffer: @unchecked Sendable {
             guard !samples.isEmpty else { return nil }
             let index = (writeIndex - 1 + samples.count) % samples.count
             return samples[index]
+        }
+    }
+
+    /// Get the latest gyro debug snapshot (if available)
+    func latestGyroDebug() -> GyroDebug? {
+        lock.withLock {
+            guard !samples.isEmpty else { return nil }
+            let index = (writeIndex - 1 + samples.count) % samples.count
+            return samples[index].gyroDebug
         }
     }
 

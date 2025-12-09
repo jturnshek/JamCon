@@ -41,6 +41,24 @@ final class GyroProcessor: @unchecked Sendable {
     private var observedDtEMA: Double = 0
     private let observedAlpha = 0.05  // slow EMA to avoid reacting to transient stalls
 
+    // Auto-neutral detection (very still → refresh bias)
+    private var neutralStart: TimeInterval?
+    private var neutralAccumulator: (x: Double, y: Double, z: Double) = (0, 0, 0)
+    private var neutralSumSquares: (x: Double, y: Double, z: Double) = (0, 0, 0)
+    private var neutralCount: Int = 0
+    private var lastNeutralUpdate: TimeInterval?
+
+    // Debug state snapshot
+    struct DebugState {
+        let biasX: Double
+        let biasY: Double
+        let biasZ: Double
+        let calibrated: Bool
+        let observedSampleRate: Double
+        let lastNeutralUpdate: TimeInterval?
+    }
+    private(set) var lastDebugState: DebugState?
+
     init() {
         biasBuffer = Array(repeating: (0, 0, 0), count: maxBiasSamples)
     }
@@ -101,6 +119,15 @@ final class GyroProcessor: @unchecked Sendable {
 
         // 3. Update bias estimation when stationary
         updateBias(x: x, y: y, z: z, threshold: settings.biasMotionThreshold)
+        if settings.autoNeutralEnabled {
+            updateAutoNeutral(
+                rawX: x,
+                rawY: y,
+                rawZ: z,
+                gyroScale: settings.gyroScale,
+                timestamp: timestamp
+            )
+        }
 
         // 4. Apply bias correction
         let calibratedX = x - biasX
@@ -161,6 +188,17 @@ final class GyroProcessor: @unchecked Sendable {
         let dx = CGFloat(filteredYaw * dt * scale * accelGain)
         let dy = CGFloat(filteredPitch * dt * scale * accelGain)
 
+        // Capture debug snapshot
+        let observedRate = observedDtEMA > 0 ? (1.0 / observedDtEMA) : expectedRate
+        lastDebugState = DebugState(
+            biasX: biasX * settings.gyroScale,
+            biasY: biasY * settings.gyroScale,
+            biasZ: biasZ * settings.gyroScale,
+            calibrated: biasCount >= maxBiasSamples / 2,
+            observedSampleRate: observedRate,
+            lastNeutralUpdate: lastNeutralUpdate
+        )
+
         return (dx, dy)
     }
 
@@ -195,6 +233,84 @@ final class GyroProcessor: @unchecked Sendable {
             biasCount = 0
             biasIndex = 0
             biasSum = (0, 0, 0)
+        }
+    }
+
+    private func updateAutoNeutral(
+        rawX: Double,
+        rawY: Double,
+        rawZ: Double,
+        gyroScale: Double,
+        timestamp: TimeInterval
+    ) {
+        // Use variance-based stillness detection so a constant bias doesn't block calibration
+        let degX = rawX * gyroScale
+        let degY = rawY * gyroScale
+        let degZ = rawZ * gyroScale
+
+        let minDuration: TimeInterval = 0.6
+        let minSamples: Int = 20
+        let cooldown: TimeInterval = 2.0
+        let motionBreak: Double = 80.0  // deg/s instantaneous motion that cancels accumulation
+
+        // If there's a sudden spike of motion, abandon accumulation
+        if abs(degX) > motionBreak || abs(degY) > motionBreak || abs(degZ) > motionBreak {
+            neutralStart = nil
+            neutralAccumulator = (0, 0, 0)
+            neutralSumSquares = (0, 0, 0)
+            neutralCount = 0
+            return
+        }
+
+        if neutralStart == nil {
+            neutralStart = timestamp
+            neutralAccumulator = (rawX, rawY, rawZ)
+            neutralSumSquares = (rawX * rawX, rawY * rawY, rawZ * rawZ)
+            neutralCount = 1
+        } else {
+            neutralAccumulator.x += rawX
+            neutralAccumulator.y += rawY
+            neutralAccumulator.z += rawZ
+            neutralSumSquares.x += rawX * rawX
+            neutralSumSquares.y += rawY * rawY
+            neutralSumSquares.z += rawZ * rawZ
+            neutralCount += 1
+        }
+
+        if let start = neutralStart,
+           timestamp - start >= minDuration,
+           neutralCount >= minSamples,
+           (lastNeutralUpdate == nil || timestamp - (lastNeutralUpdate ?? 0) >= cooldown) {
+            let inv = 1.0 / Double(neutralCount)
+            let avgX = neutralAccumulator.x * inv
+            let avgY = neutralAccumulator.y * inv
+            let avgZ = neutralAccumulator.z * inv
+            let varX = max(0, neutralSumSquares.x * inv - avgX * avgX)
+            let varY = max(0, neutralSumSquares.y * inv - avgY * avgY)
+            let varZ = max(0, neutralSumSquares.z * inv - avgZ * avgZ)
+            let stdThreshold: Double = 0.6  // deg/s
+            let stillnessPass =
+                sqrt(varX) * gyroScale < stdThreshold &&
+                sqrt(varY) * gyroScale < stdThreshold &&
+                sqrt(varZ) * gyroScale < stdThreshold
+
+            if stillnessPass {
+                // Force bias to the observed quiet average
+                biasX = avgX
+                biasY = avgY
+                biasZ = avgZ
+                for i in 0..<maxBiasSamples {
+                    biasBuffer[i] = (avgX, avgY, avgZ)
+                }
+                biasCount = maxBiasSamples
+                biasIndex = 0
+                biasSum = (avgX * Double(maxBiasSamples), avgY * Double(maxBiasSamples), avgZ * Double(maxBiasSamples))
+                lastNeutralUpdate = timestamp
+            }
+            neutralStart = nil
+            neutralAccumulator = (0, 0, 0)
+            neutralSumSquares = (0, 0, 0)
+            neutralCount = 0
         }
     }
 

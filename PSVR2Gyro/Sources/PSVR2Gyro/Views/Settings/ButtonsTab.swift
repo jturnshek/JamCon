@@ -14,6 +14,9 @@ struct ButtonsTab: View {
         VStack(spacing: 0) {
             TabHeader(appState: appState)
 
+            // Profile indicator
+            ButtonProfileIndicator(appState: appState)
+
             ScrollView {
                 if isJoyCon {
                     VStack(spacing: 16) {
@@ -94,6 +97,30 @@ struct ButtonsTab: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Button Profile Indicator
+
+private struct ButtonProfileIndicator: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "hand.raised")
+                .foregroundColor(.green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Configuring: \(appState.activeProfile.displayName)")
+                    .font(.caption.bold())
+                Text("Button mappings are saved separately for each controller side")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.green.opacity(0.05))
     }
 }
 

@@ -11,6 +11,9 @@ struct MouseControlTab: View {
 
             ScrollView {
                 VStack(spacing: 16) {
+                    // Profile indicator
+                    GyroProfileIndicator(appState: appState)
+
                     // Main settings
                     VStack(spacing: 12) {
                         // Sensitivity (always visible)
@@ -35,6 +38,30 @@ struct MouseControlTab: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Profile Indicator
+
+private struct GyroProfileIndicator: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "cpu")
+                .foregroundColor(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Configuring: \(appState.activeControllerKind.displayName)")
+                    .font(.caption.bold())
+                Text("Gyro settings are saved separately for each controller type")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(Color.blue.opacity(0.05))
     }
 }
 
@@ -140,23 +167,31 @@ private struct FilteringSection: View {
 
                     Divider()
 
-                    // Joy-Con timing fallback
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
-                            .font(.subheadline)
-                        DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
-                    }
+                    // Joy-Con timing fallback (only shown for Joy-Con)
+                    if appState.activeControllerKind == .joyCon {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
+                                .font(.subheadline)
+                            DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
+                        }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Force Joy-Con timer hybrid", isOn: $appState.joyConTimerHybridEnabled)
-                            .font(.subheadline)
-                        DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Force Joy-Con timer hybrid", isOn: $appState.joyConTimerHybridEnabled)
+                                .font(.subheadline)
+                            DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
+                        }
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Auto-tune sample rate", isOn: $appState.autoTuneSampleRate)
                             .font(.subheadline)
                         DescriptionText(text: "Adjust expected IMU rate based on observed timing to keep filtering and stall detection aligned when the effective rate drifts.")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Auto-calibrate when very still", isOn: $appState.autoNeutralEnabled)
+                            .font(.subheadline)
+                        DescriptionText(text: "When the controller is motionless for a moment, refresh the gyro neutral automatically to prevent slow drift.")
                     }
                 }
             }

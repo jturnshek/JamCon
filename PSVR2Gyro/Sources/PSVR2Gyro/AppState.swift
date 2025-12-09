@@ -33,8 +33,25 @@ final class AppState: ObservableObject {
     /// Connection status
     @Published var isConnected: Bool = false
     @Published var controllerName: String = "Not connected"
-    @Published var activeControllerKind: ControllerKind = .psvr2
-    @Published var isLeftController: Bool = false
+    @Published var activeControllerKind: ControllerKind = .psvr2 {
+        didSet {
+            if oldValue != activeControllerKind {
+                reloadSettingsForCurrentProfile()
+            }
+        }
+    }
+    @Published var isLeftController: Bool = false {
+        didSet {
+            if oldValue != isLeftController {
+                reloadButtonMappingForCurrentProfile()
+            }
+        }
+    }
+
+    /// Current active profile (derived from activeControllerKind and isLeftController)
+    var activeProfile: ControllerProfile {
+        ControllerProfile(kind: activeControllerKind, isLeft: isLeftController)
+    }
 
     /// Status message for UI
     @Published var statusMessage: String = "Waiting for controller..."
@@ -157,10 +174,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    // Button mapping
+    // Button mapping (per-profile)
     @Published var buttonMappingProfile: PSVR2ButtonMappingProfile = .load() {
         didSet {
-            buttonMappingProfile.save()
+            buttonMappingProfile.save(for: activeProfile)
             settingsStore.update { $0.buttonMappingProfile = buttonMappingProfile }
         }
     }
@@ -168,7 +185,7 @@ final class AppState: ObservableObject {
     @Published var triggerThreshold: UInt8 = 128 {
         didSet {
             buttonMappingProfile.triggerThreshold = triggerThreshold
-            buttonMappingProfile.save()
+            buttonMappingProfile.save(for: activeProfile)
             settingsStore.update { $0.triggerThreshold = triggerThreshold }
         }
     }
@@ -176,15 +193,15 @@ final class AppState: ObservableObject {
     @Published var holdThreshold: Double = 0.3 {
         didSet {
             buttonMappingProfile.holdThreshold = holdThreshold
-            buttonMappingProfile.save()
+            buttonMappingProfile.save(for: activeProfile)
             settingsStore.update { $0.holdThreshold = holdThreshold }
         }
     }
 
-    // Joy-Con button mapping
+    // Joy-Con button mapping (per-profile)
     @Published var joyConButtonMappingProfile: JoyConButtonMappingProfile = .load() {
         didSet {
-            joyConButtonMappingProfile.save()
+            joyConButtonMappingProfile.save(for: activeProfile)
             settingsStore.update { $0.joyConButtonMappingProfile = joyConButtonMappingProfile }
         }
     }
@@ -213,22 +230,29 @@ final class AppState: ObservableObject {
 
     @Published var joyConTimerFallbackEnabled: Bool = true {
         didSet {
-            UserDefaults.standard.set(joyConTimerFallbackEnabled, forKey: "joycon.timerFallbackEnabled")
             settingsStore.update { $0.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled }
+            saveGyroSettings()
         }
     }
 
     @Published var joyConTimerHybridEnabled: Bool = false {
         didSet {
-            UserDefaults.standard.set(joyConTimerHybridEnabled, forKey: "joycon.timerHybridEnabled")
             settingsStore.update { $0.joyConTimerHybridEnabled = joyConTimerHybridEnabled }
+            saveGyroSettings()
         }
     }
 
     @Published var autoTuneSampleRate: Bool = false {
         didSet {
-            UserDefaults.standard.set(autoTuneSampleRate, forKey: "gyro.autoTuneSampleRate")
             settingsStore.update { $0.autoTuneSampleRate = autoTuneSampleRate }
+            saveGyroSettings()
+        }
+    }
+
+    @Published var autoNeutralEnabled: Bool = true {
+        didSet {
+            settingsStore.update { $0.autoNeutralEnabled = autoNeutralEnabled }
+            saveGyroSettings()
         }
     }
 
@@ -437,31 +461,108 @@ final class AppState: ObservableObject {
         _joyConTimerFallbackEnabled = Published(initialValue: s.joyConTimerFallbackEnabled)
         _joyConTimerHybridEnabled = Published(initialValue: s.joyConTimerHybridEnabled)
         _autoTuneSampleRate = Published(initialValue: s.autoTuneSampleRate)
+        _autoNeutralEnabled = Published(initialValue: s.autoNeutralEnabled)
 
         _radialMenuConfiguration = Published(initialValue: s.radialMenuConfiguration)
     }
 
     private func saveGyroSettings() {
-        // Save to GyroSettings for persistence
-        let gyroSettings = GyroSettings.load()
-        gyroSettings.update {
-            $0.sensitivity = sensitivity
-            $0.gyroScale = gyroScale
-            $0.filterEnabled = filterEnabled
-            $0.minCutoff = minCutoff
-            $0.beta = beta
-            $0.adaptiveSmoothingMode = adaptiveSmoothingMode
-            $0.accelerationMode = accelerationMode
-            $0.simpleAcceleration = simpleAcceleration
-            $0.accelerationCurve = accelerationCurve
-            $0.accelerationStrength = accelerationStrength
-            $0.sensitivityCap = sensitivityCap
-            $0.curveExponent = curveExponent
-            $0.rampSpeed = rampSpeed
-            $0.softCutoffThreshold = softCutoffThreshold
-            $0.recoveryThreshold = recoveryThreshold
+        // Save to per-type gyro settings for persistence
+        var state = GyroSettingsState.load(for: activeControllerKind)
+        state.sensitivity = sensitivity
+        state.gyroScale = gyroScale
+        state.filterEnabled = filterEnabled
+        state.minCutoff = minCutoff
+        state.beta = beta
+        state.adaptiveSmoothingMode = adaptiveSmoothingMode
+        state.accelerationMode = accelerationMode
+        state.simpleAcceleration = simpleAcceleration
+        state.accelerationCurve = accelerationCurve
+        state.accelerationStrength = accelerationStrength
+        state.sensitivityCap = sensitivityCap
+        state.curveExponent = curveExponent
+        state.rampSpeed = rampSpeed
+        state.softCutoffThreshold = softCutoffThreshold
+        state.recoveryThreshold = recoveryThreshold
+        state.autoTuneSampleRate = autoTuneSampleRate
+        state.autoNeutralEnabled = autoNeutralEnabled
+
+        // Joy-Con specific
+        if activeControllerKind == .joyCon {
+            state.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled
+            state.joyConTimerHybridEnabled = joyConTimerHybridEnabled
         }
-        gyroSettings.save()
+
+        state.save(for: activeControllerKind)
+    }
+
+    /// Reload all settings when controller type changes
+    private func reloadSettingsForCurrentProfile() {
+        let gyroState = GyroSettingsState.load(for: activeControllerKind)
+
+        // Update published properties without triggering saves
+        _sensitivity = Published(initialValue: gyroState.sensitivity)
+        _gyroScale = Published(initialValue: gyroState.gyroScale)
+        _filterEnabled = Published(initialValue: gyroState.filterEnabled)
+        _minCutoff = Published(initialValue: gyroState.minCutoff)
+        _beta = Published(initialValue: gyroState.beta)
+        _adaptiveSmoothingMode = Published(initialValue: gyroState.adaptiveSmoothingMode)
+        _accelerationMode = Published(initialValue: gyroState.accelerationMode)
+        _simpleAcceleration = Published(initialValue: gyroState.simpleAcceleration)
+        _accelerationCurve = Published(initialValue: gyroState.accelerationCurve)
+        _accelerationStrength = Published(initialValue: gyroState.accelerationStrength)
+        _sensitivityCap = Published(initialValue: gyroState.sensitivityCap)
+        _curveExponent = Published(initialValue: gyroState.curveExponent)
+        _rampSpeed = Published(initialValue: gyroState.rampSpeed)
+        _softCutoffThreshold = Published(initialValue: gyroState.softCutoffThreshold)
+        _recoveryThreshold = Published(initialValue: gyroState.recoveryThreshold)
+        _autoTuneSampleRate = Published(initialValue: gyroState.autoTuneSampleRate)
+        _autoNeutralEnabled = Published(initialValue: gyroState.autoNeutralEnabled)
+
+        // Joy-Con specific
+        if activeControllerKind == .joyCon {
+            _joyConTimerFallbackEnabled = Published(initialValue: gyroState.joyConTimerFallbackEnabled)
+            _joyConTimerHybridEnabled = Published(initialValue: gyroState.joyConTimerHybridEnabled)
+        }
+
+        // Update settings store
+        settingsStore.update { s in
+            s.activeProfile = activeProfile
+            s.gyroSettings[activeControllerKind] = gyroState
+        }
+
+        // Also reload button mappings
+        reloadButtonMappingForCurrentProfile()
+
+        // Notify UI of refresh
+        objectWillChange.send()
+    }
+
+    /// Reload button mappings when controller side changes
+    private func reloadButtonMappingForCurrentProfile() {
+        if activeControllerKind == .psvr2 {
+            let profile = PSVR2ButtonMappingProfile.load(for: activeProfile)
+            _buttonMappingProfile = Published(initialValue: profile)
+            _triggerThreshold = Published(initialValue: profile.triggerThreshold)
+            _holdThreshold = Published(initialValue: profile.holdThreshold)
+            settingsStore.update { $0.psvr2ButtonMappings[activeProfile] = profile }
+        } else {
+            let profile: JoyConButtonMappingProfile
+            if JoyConButtonMappingProfile.hasPerProfileSettings(for: activeProfile) {
+                profile = .load(for: activeProfile)
+            } else {
+                profile = .defaultProfile(for: activeProfile)
+            }
+            _joyConButtonMappingProfile = Published(initialValue: profile)
+            _holdThreshold = Published(initialValue: profile.holdThreshold)
+            settingsStore.update { $0.joyConButtonMappings[activeProfile] = profile }
+        }
+
+        // Update settings store with active profile
+        settingsStore.update { $0.activeProfile = activeProfile }
+
+        // Notify UI of refresh
+        objectWillChange.send()
     }
 
     // MARK: - Engine Callbacks
@@ -703,7 +804,7 @@ final class AppState: ObservableObject {
     // MARK: - Gyro Settings Reset
 
     func resetGyroSettings() {
-        let defaults = SettingsStore.InputSettings()
+        let defaults = GyroSettingsState.defaultForKind(activeControllerKind)
 
         sensitivity = defaults.sensitivity
         gyroScale = defaults.gyroScale
@@ -720,6 +821,13 @@ final class AppState: ObservableObject {
         rampSpeed = defaults.rampSpeed
         softCutoffThreshold = defaults.softCutoffThreshold
         recoveryThreshold = defaults.recoveryThreshold
+        autoTuneSampleRate = defaults.autoTuneSampleRate
+        autoNeutralEnabled = defaults.autoNeutralEnabled
+
+        if activeControllerKind == .joyCon {
+            joyConTimerFallbackEnabled = defaults.joyConTimerFallbackEnabled
+            joyConTimerHybridEnabled = defaults.joyConTimerHybridEnabled
+        }
     }
 
     // MARK: - Convenience Accessors

@@ -111,6 +111,7 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
     var outerRingItems: [RadialMenuItem]
     var outerRingSize: CGFloat      // Outer ring thickness in pixels
     var outerRingRotation: Double   // Outer ring rotation in degrees (independent from inner)
+    var radialMovementScale: CGFloat  // Multiplier for gyro deltas while radial menu is active
 
     // MARK: - Computed Properties
 
@@ -144,6 +145,7 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         case deadzoneSize, innerRingSize
         case innerRingRotation = "rotationOffset"  // Map old key to new property
         case outerRingEnabled, outerRingItems, outerRingSize, outerRingRotation
+        case radialMovementScale
         // Legacy keys for migration
         case innerRadiusRatio, outerRingThreshold
     }
@@ -158,7 +160,8 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         outerRingEnabled: Bool = false,
         outerRingItems: [RadialMenuItem] = [],
         outerRingSize: CGFloat = 50,
-        outerRingRotation: Double = 0
+        outerRingRotation: Double = 0,
+        radialMovementScale: CGFloat = 2.0
     ) {
         self.id = id
         self.name = name
@@ -170,6 +173,7 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         self.outerRingItems = outerRingItems
         self.outerRingSize = outerRingSize
         self.outerRingRotation = outerRingRotation
+        self.radialMovementScale = radialMovementScale
     }
 
     init(from decoder: Decoder) throws {
@@ -199,6 +203,7 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         outerRingItems = try container.decodeIfPresent([RadialMenuItem].self, forKey: .outerRingItems) ?? []
         outerRingSize = try container.decodeIfPresent(CGFloat.self, forKey: .outerRingSize) ?? 50
         outerRingRotation = try container.decodeIfPresent(Double.self, forKey: .outerRingRotation) ?? 0
+        radialMovementScale = try container.decodeIfPresent(CGFloat.self, forKey: .radialMovementScale) ?? 2.0
     }
 
     func encode(to encoder: Encoder) throws {
@@ -213,6 +218,7 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         try container.encode(outerRingItems, forKey: .outerRingItems)
         try container.encode(outerRingSize, forKey: .outerRingSize)
         try container.encode(outerRingRotation, forKey: .outerRingRotation)
+        try container.encode(radialMovementScale, forKey: .radialMovementScale)
     }
 
     /// Default 4-direction arrow key menu

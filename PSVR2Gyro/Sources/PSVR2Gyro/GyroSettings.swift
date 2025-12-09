@@ -76,6 +76,14 @@ struct GyroSettingsState: Equatable {
     var expectedSampleRate: Double = 60.0
     /// Whether to auto-tune the expected sample rate based on observed dt
     var autoTuneSampleRate: Bool = false
+    /// Whether to refresh bias when the controller is very still
+    var autoNeutralEnabled: Bool = true
+
+    // MARK: Joy-Con Specific Timing
+    /// When device timestamps aren't available, use packet timer to smooth dt
+    var joyConTimerFallbackEnabled: Bool = true
+    /// Prefer packet timer even when device timestamps are present
+    var joyConTimerHybridEnabled: Bool = false
 
     // MARK: Acceleration
     var accelerationMode: AccelerationMode = .simple
@@ -107,8 +115,26 @@ struct GyroSettingsState: Equatable {
 
     static let `default` = GyroSettingsState()
 
+    /// Default settings optimized for a specific controller type
+    static func defaultForKind(_ kind: ControllerKind) -> GyroSettingsState {
+        var state = GyroSettingsState()
+        switch kind {
+        case .psvr2:
+            state.expectedSampleRate = 60.0
+            state.biasMotionThreshold = 50.0
+        case .joyCon:
+            state.expectedSampleRate = 66.0
+            state.biasMotionThreshold = 30.0
+        }
+        return state
+    }
+
     mutating func resetToDefaults() {
         self = .default
+    }
+
+    mutating func resetToDefaults(for kind: ControllerKind) {
+        self = .defaultForKind(kind)
     }
 }
 
@@ -150,11 +176,16 @@ final class GyroSettings: @unchecked Sendable {
         static let sensitivityCap = "gyro.sensitivityCap"
         static let softCutoffThreshold = "gyro.softCutoffThreshold"
         static let recoveryThreshold = "gyro.recoveryThreshold"
+
+        /// Generate a per-type key, e.g. "gyro.psvr2.sensitivity"
+        static func perType(_ base: String, kind: ControllerKind) -> String {
+            "gyro.\(kind.rawValue).\(base)"
+        }
     }
 
-    // MARK: - Save/Load
+    // MARK: - Save/Load (Legacy Global)
 
-    /// Save current settings to UserDefaults
+    /// Save current settings to UserDefaults (legacy global keys)
     func save() {
         let state = read()
         let defaults = UserDefaults.standard
@@ -167,6 +198,7 @@ final class GyroSettings: @unchecked Sendable {
         defaults.set(state.adaptiveSmoothingMode.rawValue, forKey: Keys.adaptiveSmoothingMode)
         defaults.set(state.expectedSampleRate, forKey: "gyro.expectedSampleRate")
         defaults.set(state.biasMotionThreshold, forKey: "gyro.biasMotionThreshold")
+        defaults.set(state.autoNeutralEnabled, forKey: "gyro.autoNeutralEnabled")
         defaults.set(state.accelerationMode.rawValue, forKey: Keys.accelerationMode)
         defaults.set(state.simpleAcceleration, forKey: Keys.simpleAcceleration)
         defaults.set(state.accelerationCurve.rawValue, forKey: Keys.accelerationCurve)
@@ -179,7 +211,7 @@ final class GyroSettings: @unchecked Sendable {
         defaults.set(state.autoTuneSampleRate, forKey: "gyro.autoTuneSampleRate")
     }
 
-    /// Load settings from UserDefaults
+    /// Load settings from UserDefaults (legacy global keys)
     static func load() -> GyroSettings {
         let settings = GyroSettings()
         let defaults = UserDefaults.standard
@@ -205,6 +237,9 @@ final class GyroSettings: @unchecked Sendable {
             }
             if let v = defaults.object(forKey: "gyro.biasMotionThreshold") as? Double, v > 0 {
                 state.biasMotionThreshold = v
+            }
+            if let v = defaults.object(forKey: "gyro.autoNeutralEnabled") as? Bool {
+                state.autoNeutralEnabled = v
             }
             if let v = defaults.object(forKey: "gyro.autoTuneSampleRate") as? Bool {
                 state.autoTuneSampleRate = v
@@ -251,5 +286,127 @@ final class GyroSettings: @unchecked Sendable {
     func resetToDefaults() {
         update { $0.resetToDefaults() }
         save()
+    }
+}
+
+// MARK: - Per-Type Gyro Settings Persistence
+
+extension GyroSettingsState {
+    /// Save this state to UserDefaults for a specific controller type
+    func save(for kind: ControllerKind) {
+        let defaults = UserDefaults.standard
+        let prefix = "gyro.\(kind.rawValue)"
+
+        defaults.set(sensitivity, forKey: "\(prefix).sensitivity")
+        defaults.set(gyroScale, forKey: "\(prefix).gyroScale")
+        defaults.set(filterEnabled, forKey: "\(prefix).filterEnabled")
+        defaults.set(minCutoff, forKey: "\(prefix).minCutoff")
+        defaults.set(beta, forKey: "\(prefix).beta")
+        defaults.set(adaptiveSmoothingMode.rawValue, forKey: "\(prefix).adaptiveSmoothingMode")
+        defaults.set(expectedSampleRate, forKey: "\(prefix).expectedSampleRate")
+        defaults.set(biasMotionThreshold, forKey: "\(prefix).biasMotionThreshold")
+        defaults.set(autoNeutralEnabled, forKey: "\(prefix).autoNeutralEnabled")
+        defaults.set(autoTuneSampleRate, forKey: "\(prefix).autoTuneSampleRate")
+        defaults.set(accelerationMode.rawValue, forKey: "\(prefix).accelerationMode")
+        defaults.set(simpleAcceleration, forKey: "\(prefix).simpleAcceleration")
+        defaults.set(accelerationCurve.rawValue, forKey: "\(prefix).accelerationCurve")
+        defaults.set(accelerationStrength, forKey: "\(prefix).accelerationStrength")
+        defaults.set(sensitivityCap, forKey: "\(prefix).sensitivityCap")
+        defaults.set(curveExponent, forKey: "\(prefix).curveExponent")
+        defaults.set(rampSpeed, forKey: "\(prefix).rampSpeed")
+        defaults.set(softCutoffThreshold, forKey: "\(prefix).softCutoffThreshold")
+        defaults.set(recoveryThreshold, forKey: "\(prefix).recoveryThreshold")
+
+        // Joy-Con specific
+        if kind == .joyCon {
+            defaults.set(joyConTimerFallbackEnabled, forKey: "\(prefix).timerFallbackEnabled")
+            defaults.set(joyConTimerHybridEnabled, forKey: "\(prefix).timerHybridEnabled")
+        }
+    }
+
+    /// Load state from UserDefaults for a specific controller type
+    static func load(for kind: ControllerKind) -> GyroSettingsState {
+        var state = GyroSettingsState.defaultForKind(kind)
+        let defaults = UserDefaults.standard
+        let prefix = "gyro.\(kind.rawValue)"
+
+        if let v = defaults.object(forKey: "\(prefix).sensitivity") as? Double {
+            state.sensitivity = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).gyroScale") as? Double {
+            state.gyroScale = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).filterEnabled") as? Bool {
+            state.filterEnabled = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).minCutoff") as? Double {
+            state.minCutoff = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).beta") as? Double {
+            state.beta = v
+        }
+        if let v = defaults.string(forKey: "\(prefix).adaptiveSmoothingMode"),
+           let mode = AdaptiveSmoothingMode(rawValue: v) {
+            state.adaptiveSmoothingMode = mode
+        }
+        if let v = defaults.object(forKey: "\(prefix).expectedSampleRate") as? Double, v > 0 {
+            state.expectedSampleRate = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).biasMotionThreshold") as? Double, v > 0 {
+            state.biasMotionThreshold = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).autoNeutralEnabled") as? Bool {
+            state.autoNeutralEnabled = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).autoTuneSampleRate") as? Bool {
+            state.autoTuneSampleRate = v
+        }
+        if let v = defaults.string(forKey: "\(prefix).accelerationMode"),
+           let mode = AccelerationMode(rawValue: v) {
+            state.accelerationMode = mode
+        }
+        if let v = defaults.object(forKey: "\(prefix).simpleAcceleration") as? Double {
+            state.simpleAcceleration = v
+        }
+        if let v = defaults.string(forKey: "\(prefix).accelerationCurve"),
+           let curve = AccelerationCurve(rawValue: v) {
+            state.accelerationCurve = curve
+        }
+        if let v = defaults.object(forKey: "\(prefix).accelerationStrength") as? Double {
+            state.accelerationStrength = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).sensitivityCap") as? Double {
+            state.sensitivityCap = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).curveExponent") as? Double {
+            state.curveExponent = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).rampSpeed") as? Double {
+            state.rampSpeed = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).softCutoffThreshold") as? Double {
+            state.softCutoffThreshold = v
+        }
+        if let v = defaults.object(forKey: "\(prefix).recoveryThreshold") as? Double {
+            state.recoveryThreshold = v
+        }
+
+        // Joy-Con specific
+        if kind == .joyCon {
+            if let v = defaults.object(forKey: "\(prefix).timerFallbackEnabled") as? Bool {
+                state.joyConTimerFallbackEnabled = v
+            }
+            if let v = defaults.object(forKey: "\(prefix).timerHybridEnabled") as? Bool {
+                state.joyConTimerHybridEnabled = v
+            }
+        }
+
+        return state
+    }
+
+    /// Check if per-type settings exist for this controller kind
+    static func hasPerTypeSettings(for kind: ControllerKind) -> Bool {
+        let prefix = "gyro.\(kind.rawValue)"
+        return UserDefaults.standard.object(forKey: "\(prefix).sensitivity") != nil
     }
 }

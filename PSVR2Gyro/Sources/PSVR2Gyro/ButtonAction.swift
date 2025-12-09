@@ -373,6 +373,15 @@ struct PSVR2ButtonMappingProfile: Codable {
         }
     }
 
+    /// Save this profile for a specific controller side
+    func save(for profile: ControllerProfile) {
+        guard profile.kind == .psvr2 else { return }
+        let key = "buttons.\(profile.persistenceKey)"
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
     static func load() -> Self {
         // Try loading new format first
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
@@ -399,6 +408,28 @@ struct PSVR2ButtonMappingProfile: Codable {
         }
 
         return .default
+    }
+
+    /// Load profile for a specific controller side
+    static func load(for profile: ControllerProfile) -> Self {
+        guard profile.kind == .psvr2 else { return .default }
+        let key = "buttons.\(profile.persistenceKey)"
+
+        // Try loading per-profile settings
+        if let data = UserDefaults.standard.data(forKey: key),
+           let loaded = try? JSONDecoder().decode(Self.self, from: data) {
+            return loaded
+        }
+
+        // Fall back to global profile (for migration)
+        return load()
+    }
+
+    /// Check if per-profile settings exist
+    static func hasPerProfileSettings(for profile: ControllerProfile) -> Bool {
+        guard profile.kind == .psvr2 else { return false }
+        let key = "buttons.\(profile.persistenceKey)"
+        return UserDefaults.standard.data(forKey: key) != nil
     }
 
     private mutating func rebuildActionsCache() {
@@ -535,12 +566,90 @@ struct JoyConButtonMappingProfile: Codable {
         }
     }
 
+    /// Save this profile for a specific controller side (left or right Joy-Con)
+    func save(for profile: ControllerProfile) {
+        guard profile.kind == .joyCon else { return }
+        let key = "buttons.\(profile.persistenceKey)"
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
     static func load() -> Self {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let profile = try? JSONDecoder().decode(Self.self, from: data) {
             return profile
         }
         return .default
+    }
+
+    /// Load profile for a specific controller side
+    static func load(for profile: ControllerProfile) -> Self {
+        guard profile.kind == .joyCon else { return .default }
+        let key = "buttons.\(profile.persistenceKey)"
+
+        // Try loading per-profile settings
+        if let data = UserDefaults.standard.data(forKey: key),
+           let loaded = try? JSONDecoder().decode(Self.self, from: data) {
+            return loaded
+        }
+
+        // Fall back to global profile (for migration)
+        return load()
+    }
+
+    /// Check if per-profile settings exist
+    static func hasPerProfileSettings(for profile: ControllerProfile) -> Bool {
+        guard profile.kind == .joyCon else { return false }
+        let key = "buttons.\(profile.persistenceKey)"
+        return UserDefaults.standard.data(forKey: key) != nil
+    }
+
+    /// Default profile for a specific controller side
+    static func defaultProfile(for profile: ControllerProfile) -> Self {
+        guard profile.kind == .joyCon else { return .default }
+
+        var buttonProfile = JoyConButtonMappingProfile()
+        if profile.isLeft {
+            // Default mappings for Left Joy-Con
+            // D-pad
+            buttonProfile.mappings[JoyConLogicalButton.dpadUp.rawValue] = ButtonActions(press: .drag)
+            buttonProfile.mappings[JoyConLogicalButton.dpadDown.rawValue] = ButtonActions(press: .radialMenu)
+            buttonProfile.mappings[JoyConLogicalButton.dpadLeft.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 49, modifiers: .maskControl)), hold: .keyPress(KeyCombo(keyCode: 36)))  // ^Space, hold: Return
+            buttonProfile.mappings[JoyConLogicalButton.dpadRight.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 53)), hold: .keyPress(KeyCombo(keyCode: 8, modifiers: .maskControl)))  // Escape, hold: ^C
+            // Shoulder buttons
+            buttonProfile.mappings[JoyConLogicalButton.l.rawValue] = ButtonActions(press: .mouseClick(.right))
+            buttonProfile.mappings[JoyConLogicalButton.zl.rawValue] = ButtonActions(press: .mouseClick(.left))
+            // System buttons
+            buttonProfile.mappings[JoyConLogicalButton.minus.rawValue] = ButtonActions(press: .systemAction(.playPause))
+            buttonProfile.mappings[JoyConLogicalButton.capture.rawValue] = ButtonActions(press: .systemAction(.missionControl))
+            // Stick
+            buttonProfile.mappings[JoyConLogicalButton.stickClick.rawValue] = ButtonActions(press: .mouseClick(.middle))
+            // Side rail buttons
+            buttonProfile.mappings[JoyConLogicalButton.sl.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 126)))  // Up arrow
+            buttonProfile.mappings[JoyConLogicalButton.sr.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 125)))  // Down arrow
+        } else {
+            // Default mappings for Right Joy-Con
+            // Face buttons
+            buttonProfile.mappings[JoyConLogicalButton.a.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 53)), hold: .keyPress(KeyCombo(keyCode: 8, modifiers: .maskControl)))  // Escape, hold: ^C
+            buttonProfile.mappings[JoyConLogicalButton.b.rawValue] = ButtonActions(press: .radialMenu)
+            buttonProfile.mappings[JoyConLogicalButton.x.rawValue] = ButtonActions(press: .drag)
+            buttonProfile.mappings[JoyConLogicalButton.y.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 49, modifiers: .maskControl)), hold: .keyPress(KeyCombo(keyCode: 36)))  // ^Space, hold: Return
+            // Shoulder buttons
+            buttonProfile.mappings[JoyConLogicalButton.r.rawValue] = ButtonActions(press: .mouseClick(.right))
+            buttonProfile.mappings[JoyConLogicalButton.zr.rawValue] = ButtonActions(press: .mouseClick(.left))
+            // System buttons
+            buttonProfile.mappings[JoyConLogicalButton.plus.rawValue] = ButtonActions(press: .systemAction(.playPause))
+            buttonProfile.mappings[JoyConLogicalButton.home.rawValue] = ButtonActions(press: .systemAction(.missionControl))
+            // Stick
+            buttonProfile.mappings[JoyConLogicalButton.stickClick.rawValue] = ButtonActions(press: .mouseClick(.middle))
+            // Side rail buttons
+            buttonProfile.mappings[JoyConLogicalButton.sl.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 125)))  // Down arrow
+            buttonProfile.mappings[JoyConLogicalButton.sr.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 126)))  // Up arrow
+        }
+        buttonProfile.rebuildActionsCache()
+        buttonProfile.recomputeMappingFlags()
+        return buttonProfile
     }
 
     private mutating func rebuildActionsCache() {

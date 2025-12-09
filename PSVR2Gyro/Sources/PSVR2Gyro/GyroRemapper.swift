@@ -96,4 +96,5 @@ enum GyroRemapper {
 
         return (raw: raw, remapped: remapped, normalized: normalized)
     }
+
 }
