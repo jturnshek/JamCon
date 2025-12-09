@@ -9,6 +9,12 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
     case x
     case y
 
+    // D-pad buttons (Left Joy-Con only when standalone)
+    case dpadUp
+    case dpadDown
+    case dpadLeft
+    case dpadRight
+
     // Shoulder buttons
     case l      // Left Joy-Con
     case r      // Right Joy-Con
@@ -46,6 +52,10 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
         case .stickClick: return 12
         case .sl: return 13
         case .sr: return 14
+        case .dpadUp: return 15
+        case .dpadDown: return 16
+        case .dpadLeft: return 17
+        case .dpadRight: return 18
         }
     }
 
@@ -56,6 +66,10 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
         case .b: return "B"
         case .x: return "X"
         case .y: return "Y"
+        case .dpadUp: return "Up"
+        case .dpadDown: return "Down"
+        case .dpadLeft: return "Left"
+        case .dpadRight: return "Right"
         case .l: return "L"
         case .r: return "R"
         case .zl: return "ZL"
@@ -71,7 +85,7 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
     }
 
     /// Number of buttons for array allocation
-    static var count: Int { 15 }
+    static var count: Int { 19 }
 
     /// Buttons available on Right Joy-Con
     static var rightButtons: [JoyConLogicalButton] {
@@ -80,7 +94,7 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
 
     /// Buttons available on Left Joy-Con
     static var leftButtons: [JoyConLogicalButton] {
-        [.l, .zl, .minus, .capture, .stickClick, .sl, .sr]
+        [.dpadUp, .dpadDown, .dpadLeft, .dpadRight, .l, .zl, .minus, .capture, .stickClick, .sl, .sr]
     }
 
     /// Check if this button exists on the given controller side
@@ -93,9 +107,46 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
     }
 }
 
+/// Calibration data for a Joy-Con stick
+struct JoyConStickCalibration {
+    var centerX: Double = 2048.0
+    var centerY: Double = 2048.0
+    var sampleCount: Int = 0
+    var isCalibrated: Bool = false
+
+    /// Number of samples to collect for calibration
+    static let requiredSamples = 30
+
+    /// Accumulate a sample for calibration (call when stick is at rest on connection)
+    mutating func addSample(rawX: UInt16, rawY: UInt16) {
+        guard !isCalibrated else { return }
+
+        let count = Double(sampleCount)
+        // Running average
+        centerX = (centerX * count + Double(rawX)) / (count + 1)
+        centerY = (centerY * count + Double(rawY)) / (count + 1)
+        sampleCount += 1
+
+        if sampleCount >= Self.requiredSamples {
+            isCalibrated = true
+        }
+    }
+
+    /// Reset calibration (e.g., on reconnect)
+    mutating func reset() {
+        centerX = 2048.0
+        centerY = 2048.0
+        sampleCount = 0
+        isCalibrated = false
+    }
+}
+
 /// Button mapping for Joy-Con controllers
 struct JoyConButtonMapping {
     let isLeftController: Bool
+
+    /// Calibration for this controller's stick
+    var calibration = JoyConStickCalibration()
 
     /// Initialize with controller product ID
     init(productID: Int) {
@@ -170,7 +221,7 @@ struct JoyConButtonMapping {
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
 
         // Buttons not on Right Joy-Con
-        case .l, .zl, .minus, .capture:
+        case .l, .zl, .minus, .capture, .dpadUp, .dpadDown, .dpadLeft, .dpadRight:
             return nil
         }
     }
@@ -179,6 +230,20 @@ struct JoyConButtonMapping {
 
     private func leftButtonLocation(for button: JoyConLogicalButton) -> ButtonLocation? {
         switch button {
+        // D-pad buttons (byte 4)
+        case .dpadUp:
+            let loc = JoyConHIDProtocol.LeftButton.up
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+        case .dpadDown:
+            let loc = JoyConHIDProtocol.LeftButton.down
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+        case .dpadLeft:
+            let loc = JoyConHIDProtocol.LeftButton.left
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+        case .dpadRight:
+            let loc = JoyConHIDProtocol.LeftButton.right
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+
         // Shoulder buttons (byte 4)
         case .l:
             let loc = JoyConHIDProtocol.LeftButton.l
@@ -214,26 +279,38 @@ struct JoyConButtonMapping {
 
     // MARK: - Joystick Position
 
+    /// Deadzone radius in raw 12-bit units (applies around calibrated center)
+    static let deadzoneRadius: Double = 150.0
+
     /// Read joystick position from report bytes
     /// Joy-Con sticks are 12-bit values packed into 3 bytes
     /// Returns values normalized to 0-255 range with 128 as center (matching PSVR2 format)
     func joystickPosition(in report: [UInt8]) -> (x: UInt8, y: UInt8) {
         let raw = joystickPositionRaw(in: report)
 
-        // Joy-Con sticks typically don't use full 0-4095 range
-        // Effective range is roughly 500-3500, center ~2048
-        // Scale to match PSVR2's effective feel
-        let center: Double = 2048.0
+        // Use calibrated center (auto-detected on connection) or fallback to 2048
+        let centerX = calibration.centerX
+        let centerY = calibration.centerY
         let effectiveRange: Double = 1400.0  // Typical max deflection from center
+        let deadzone = Self.deadzoneRadius
 
-        func normalize(_ raw: UInt16) -> UInt8 {
+        func normalize(_ raw: UInt16, center: Double) -> UInt8 {
             let delta = Double(raw) - center
-            let scaled = (delta / effectiveRange) * 127.0  // Scale to -127..+127
+
+            // Apply deadzone: if within deadzone radius, report as center
+            if abs(delta) < deadzone {
+                return 128
+            }
+
+            // Subtract deadzone from delta to eliminate jump when leaving deadzone
+            let adjusted = delta - (delta > 0 ? deadzone : -deadzone)
+            let adjustedRange = effectiveRange - deadzone
+            let scaled = (adjusted / adjustedRange) * 127.0
             let clamped = max(-127.0, min(127.0, scaled))
             return UInt8(clamping: Int(128.0 + clamped))
         }
 
-        return (normalize(raw.x), normalize(raw.y))
+        return (normalize(raw.x, center: centerX), normalize(raw.y, center: centerY))
     }
 
     /// Read raw 12-bit joystick values (0-4095 range, center ~2048)

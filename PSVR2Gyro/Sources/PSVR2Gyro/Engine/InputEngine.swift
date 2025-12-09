@@ -51,8 +51,8 @@ final class InputEngine {
     private var joyConPreviousButtonStates: [Bool]
     private var joyConButtonPressStates: [ButtonPressState?]
     private var joyConHoldTimers: [DispatchWorkItem?]
-    private let joyConLeftMapping = JoyConButtonMapping(isLeft: true)
-    private let joyConRightMapping = JoyConButtonMapping(isLeft: false)
+    private var joyConLeftMapping = JoyConButtonMapping(isLeft: true)
+    private var joyConRightMapping = JoyConButtonMapping(isLeft: false)
 
     // MARK: - Radial Menu State (Internal)
 
@@ -158,9 +158,9 @@ final class InputEngine {
     // MARK: - Controller Selection
 
     func selectController(id: String, kind: ControllerKind, isLeft: Bool) {
+        let profile = ControllerProfile(kind: kind, isLeft: isLeft)
         settings.update {
-            $0.activeControllerKind = kind
-            $0.isLeftController = isLeft
+            $0.activeProfile = profile
             $0.isEnabled = true
         }
 
@@ -254,8 +254,23 @@ final class InputEngine {
             self?.processJoyConReport(report)
         }
 
-        joyConController.onConnectionChange = { [weak self] connected, name, _ in
-            self?.onConnectionChanged?(connected, name, .joyCon)
+        joyConController.onConnectionChange = { [weak self] connected, name, controllerID in
+            guard let self else { return }
+
+            // Reset stick calibration on reconnect so we capture the new rest position
+            if connected {
+                // Determine which side based on the controller that just connected
+                if let controller = self.joyConController.discoveredControllers.first(where: { $0.id == controllerID }) {
+                    let isLeft = controller.productID == JoyConHIDProtocol.leftProductID
+                    if isLeft {
+                        self.joyConLeftMapping.calibration.reset()
+                    } else {
+                        self.joyConRightMapping.calibration.reset()
+                    }
+                }
+            }
+
+            self.onConnectionChanged?(connected, name, .joyCon)
         }
 
         joyConController.onControllersChanged = { [weak self] in
@@ -304,6 +319,7 @@ final class InputEngine {
         gyroSettings.gyroScale = effectiveGyroScale(for: .psvr2, userScale: s.gyroScale)
         gyroSettings.expectedSampleRate = 60.0
         gyroSettings.biasMotionThreshold = 50.0
+        gyroSettings.autoNeutralEnabled = s.autoNeutralEnabled
         if let (dx, dy) = gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
@@ -329,7 +345,8 @@ final class InputEngine {
             normalizedGyro: pipeline.normalized,
             accel: (report.accelX, report.accelY, report.accelZ),
             buttonStates: buttonStates,
-            controllerKind: .psvr2
+            controllerKind: .psvr2,
+            gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
         )
     }
 
@@ -347,7 +364,24 @@ final class InputEngine {
         joyConController.useTimerFallback = s.joyConTimerFallbackEnabled
         joyConController.useTimerHybrid = s.joyConTimerHybridEnabled
 
-        let joyConMapping = s.isLeftController ? joyConLeftMapping : joyConRightMapping
+        // Get the appropriate mapping (mutable reference for calibration)
+        let isLeft = s.isLeftController
+
+        // Auto-calibrate stick center from first N samples after connection
+        // This captures the actual rest position of this specific Joy-Con
+        if isLeft {
+            if !joyConLeftMapping.calibration.isCalibrated {
+                let raw = joyConLeftMapping.joystickPositionRaw(in: report.bytes)
+                joyConLeftMapping.calibration.addSample(rawX: raw.x, rawY: raw.y)
+            }
+        } else {
+            if !joyConRightMapping.calibration.isCalibrated {
+                let raw = joyConRightMapping.joystickPositionRaw(in: report.bytes)
+                joyConRightMapping.calibration.addSample(rawX: raw.x, rawY: raw.y)
+            }
+        }
+
+        let joyConMapping = isLeft ? joyConLeftMapping : joyConRightMapping
 
         // 1. Process Joy-Con buttons
         processJoyConButtonActions(
@@ -371,6 +405,7 @@ final class InputEngine {
         gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: s.gyroScale)
         gyroSettings.expectedSampleRate = 66.0  // ~66 Hz since we use only the newest sample per packet
         gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
+        gyroSettings.autoNeutralEnabled = s.autoNeutralEnabled
         if let (dx, dy) = gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
@@ -400,7 +435,8 @@ final class InputEngine {
             normalizedGyro: pipeline.normalized,
             accel: (report.accelX, report.accelY, report.accelZ),
             buttonStates: joyConButtonStates,
-            controllerKind: .joyCon
+            controllerKind: .joyCon,
+            gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
         )
     }
 
@@ -413,6 +449,18 @@ final class InputEngine {
         let rawMultiplier = reference != 0 ? (userScale / reference) : 1.0
         let userMultiplier = min(4.0, max(0.25, rawMultiplier))  // clamp to a sane range
         return deviceScale * userMultiplier
+    }
+
+    private func mapGyroDebug(from state: GyroProcessor.DebugState?) -> DebugBuffer.GyroDebug? {
+        guard let state else { return nil }
+        return DebugBuffer.GyroDebug(
+            biasX: state.biasX,
+            biasY: state.biasY,
+            biasZ: state.biasZ,
+            calibrated: state.calibrated,
+            observedSampleRate: state.observedSampleRate,
+            lastNeutralUpdate: state.lastNeutralUpdate
+        )
     }
 
     // MARK: - Gyro Mode Routing
@@ -444,8 +492,11 @@ final class InputEngine {
         case .scroll:
             mouseController.scroll(dx: dx, dy: dy)
         case .radialMenu:
-            radialMenuAccumulator.x += dx
-            radialMenuAccumulator.y += dy
+            let scale = max(0.1, configuration.radialMovementScale)
+            let scaledDx = dx * scale
+            let scaledDy = dy * scale
+            radialMenuAccumulator.x += scaledDx
+            radialMenuAccumulator.y += scaledDy
             onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
         }
     }
@@ -470,8 +521,11 @@ final class InputEngine {
         case .scroll:
             mouseController.scroll(dx: dx, dy: dy)
         case .radialMenu:
-            radialMenuAccumulator.x += dx
-            radialMenuAccumulator.y += dy
+            let scale = max(0.1, configuration.radialMovementScale)
+            let scaledDx = dx * scale
+            let scaledDy = dy * scale
+            radialMenuAccumulator.x += scaledDx
+            radialMenuAccumulator.y += scaledDy
             onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
         }
     }
