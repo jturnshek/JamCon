@@ -71,6 +71,10 @@ struct GyroSettingsState: Equatable {
     var beta: Double = 1.0                // One Euro: speed reactivity
     var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
 
+    // MARK: Timing
+    /// Expected sample rate (Hz) used for dt clamping and stall detection
+    var expectedSampleRate: Double = 60.0
+
     // MARK: Acceleration
     var accelerationMode: AccelerationMode = .simple
     var simpleAcceleration: Double = 5.0     // 1-10 slider for simple mode
@@ -92,6 +96,10 @@ struct GyroSettingsState: Equatable {
     // MARK: Deadzone (kept for backwards compatibility, but not used in processing)
     var softCutoffThreshold: Double = 0.5
     var recoveryThreshold: Double = 1.5
+
+    // MARK: Bias estimation
+    /// Motion magnitude threshold (raw units) before bias accumulation resets
+    var biasMotionThreshold: Double = 50.0
 
     // MARK: Defaults
 
@@ -155,6 +163,8 @@ final class GyroSettings: @unchecked Sendable {
         defaults.set(state.minCutoff, forKey: Keys.minCutoff)
         defaults.set(state.beta, forKey: Keys.beta)
         defaults.set(state.adaptiveSmoothingMode.rawValue, forKey: Keys.adaptiveSmoothingMode)
+        defaults.set(state.expectedSampleRate, forKey: "gyro.expectedSampleRate")
+        defaults.set(state.biasMotionThreshold, forKey: "gyro.biasMotionThreshold")
         defaults.set(state.accelerationMode.rawValue, forKey: Keys.accelerationMode)
         defaults.set(state.simpleAcceleration, forKey: Keys.simpleAcceleration)
         defaults.set(state.accelerationCurve.rawValue, forKey: Keys.accelerationCurve)
@@ -186,6 +196,12 @@ final class GyroSettings: @unchecked Sendable {
             }
             if let v = defaults.object(forKey: Keys.beta) as? Double {
                 state.beta = v
+            }
+            if let v = defaults.object(forKey: "gyro.expectedSampleRate") as? Double, v > 0 {
+                state.expectedSampleRate = v
+            }
+            if let v = defaults.object(forKey: "gyro.biasMotionThreshold") as? Double, v > 0 {
+                state.biasMotionThreshold = v
             }
             if let v = defaults.string(forKey: Keys.adaptiveSmoothingMode),
                let mode = AdaptiveSmoothingMode(rawValue: v) {

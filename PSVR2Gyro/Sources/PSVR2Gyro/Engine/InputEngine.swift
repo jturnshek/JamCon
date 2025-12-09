@@ -302,6 +302,8 @@ final class InputEngine {
         )
         var gyroSettings = s.toGyroSettingsState()
         gyroSettings.gyroScale = effectiveGyroScale(for: .psvr2, userScale: s.gyroScale)
+        gyroSettings.expectedSampleRate = 60.0
+        gyroSettings.biasMotionThreshold = 50.0
         if let (dx, dy) = gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
@@ -367,6 +369,8 @@ final class InputEngine {
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
         var gyroSettings = s.toGyroSettingsState()
         gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: s.gyroScale)
+        gyroSettings.expectedSampleRate = 66.0  // ~66 Hz since we use only the newest sample per packet
+        gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
         if let (dx, dy) = gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
@@ -406,7 +410,8 @@ final class InputEngine {
     private func effectiveGyroScale(for kind: ControllerKind, userScale: Double) -> Double {
         let reference = GyroRemapper.gyroScale(for: .psvr2)
         let deviceScale = GyroRemapper.gyroScale(for: kind)
-        let userMultiplier = reference != 0 ? (userScale / reference) : 1.0
+        let rawMultiplier = reference != 0 ? (userScale / reference) : 1.0
+        let userMultiplier = min(4.0, max(0.25, rawMultiplier))  // clamp to a sane range
         return deviceScale * userMultiplier
     }
 

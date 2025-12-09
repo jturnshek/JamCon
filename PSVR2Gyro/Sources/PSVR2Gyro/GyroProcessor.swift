@@ -21,7 +21,6 @@ final class GyroProcessor: @unchecked Sendable {
     private var biasIndex: Int = 0
     private var biasSum: (x: Double, y: Double, z: Double) = (0, 0, 0)
     private let maxBiasSamples = 64
-    private let motionThreshold: Double = 50.0  // Raw units
 
     // MARK: - Filtering
 
@@ -67,7 +66,7 @@ final class GyroProcessor: @unchecked Sendable {
 
         // 2. Calculate dt with clamping to reduce jitter impact
         // Expected sample period ~1/60s from the device
-        let expectedDt = 1.0 / 60.0
+        let expectedDt = 1.0 / max(1.0, settings.expectedSampleRate)
         let maxDt = expectedDt * 4.0  // tolerate brief stalls but cap spikes
         let dt: Double
         if let last = lastTimestamp {
@@ -152,8 +151,9 @@ final class GyroProcessor: @unchecked Sendable {
 
     private func updateBias(x: Double, y: Double, z: Double) {
         let magnitudeSquared = x * x + y * y + z * z
+        let threshold = settings.biasMotionThreshold
 
-        if magnitudeSquared < motionThreshold * motionThreshold {
+        if magnitudeSquared < threshold * threshold {
             let old = biasBuffer[biasIndex]
             biasBuffer[biasIndex] = (x, y, z)
             biasIndex = (biasIndex + 1) % maxBiasSamples

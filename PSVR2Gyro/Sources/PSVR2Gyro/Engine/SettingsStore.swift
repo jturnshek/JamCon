@@ -22,6 +22,8 @@ final class SettingsStore: @unchecked Sendable {
         var minCutoff: Double = 2.5
         var beta: Double = 1.0
         var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
+        var expectedSampleRate: Double = 60.0
+        var biasMotionThreshold: Double = 50.0
 
         // MARK: - Acceleration (matches GyroSettingsState order)
         var accelerationMode: AccelerationMode = .simple
@@ -68,6 +70,8 @@ final class SettingsStore: @unchecked Sendable {
             settings.minCutoff = gyroState.minCutoff
             settings.beta = gyroState.beta
             settings.adaptiveSmoothingMode = gyroState.adaptiveSmoothingMode
+            settings.expectedSampleRate = gyroState.expectedSampleRate
+            settings.biasMotionThreshold = gyroState.biasMotionThreshold
             settings.accelerationMode = gyroState.accelerationMode
             settings.simpleAcceleration = gyroState.simpleAcceleration
             settings.accelerationCurve = gyroState.accelerationCurve
@@ -114,6 +118,8 @@ final class SettingsStore: @unchecked Sendable {
             state.minCutoff = minCutoff
             state.beta = beta
             state.adaptiveSmoothingMode = adaptiveSmoothingMode
+            state.expectedSampleRate = expectedSampleRate
+            state.biasMotionThreshold = biasMotionThreshold
             state.accelerationMode = accelerationMode
             state.simpleAcceleration = simpleAcceleration
             state.curveExponent = curveExponent
