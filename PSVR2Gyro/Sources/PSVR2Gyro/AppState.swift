@@ -211,6 +211,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published var joyConTimerFallbackEnabled: Bool = true {
+        didSet {
+            UserDefaults.standard.set(joyConTimerFallbackEnabled, forKey: "joycon.timerFallbackEnabled")
+            settingsStore.update { $0.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled }
+        }
+    }
+
     // Radial menu
     @Published var radialMenuConfiguration: RadialMenuConfiguration = .load() {
         didSet {
@@ -349,8 +356,14 @@ final class AppState: ObservableObject {
             // Update battery
             pollBatteryLevel()
         } else {
-            isConnected = false
-            controllerName = "Not connected"
+            // Try to restore saved controller selection
+            if let savedID = UserDefaults.standard.string(forKey: "selectedControllerID"),
+               availableControllers.contains(where: { $0.id == savedID }) {
+                selectController(id: savedID)
+            } else {
+                isConnected = false
+                controllerName = "Not connected"
+            }
         }
     }
 
@@ -413,6 +426,7 @@ final class AppState: ObservableObject {
         _joystickScrollEnabled = Published(initialValue: s.joystickScrollEnabled)
         _joystickScrollSpeed = Published(initialValue: s.joystickScrollSpeed)
         _joystickScrollAcceleration = Published(initialValue: s.joystickScrollAcceleration)
+        _joyConTimerFallbackEnabled = Published(initialValue: s.joyConTimerFallbackEnabled)
 
         _radialMenuConfiguration = Published(initialValue: s.radialMenuConfiguration)
     }
@@ -496,6 +510,9 @@ final class AppState: ObservableObject {
         activeControllerKind = info.kind
         isLeftController = info.isLeft
 
+        // Save selection for persistence across restarts
+        UserDefaults.standard.set(id, forKey: "selectedControllerID")
+
         engine.selectController(id: id, kind: info.kind, isLeft: info.isLeft)
 
         // Update connection status - use the Bluetooth device name
@@ -508,6 +525,9 @@ final class AppState: ObservableObject {
         isConnected = false
         controllerName = "Not connected"
         batteryLevel = 0
+
+        // Clear saved selection
+        UserDefaults.standard.removeObject(forKey: "selectedControllerID")
 
         engine.deselectController()
     }

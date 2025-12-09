@@ -68,6 +68,9 @@ final class JoyConHIDController {
     var onControllersChanged: (() -> Void)?
     var onDebugMessage: ((_ message: String) -> Void)?
 
+    /// Whether to use packet timer fallback when device timestamps are unavailable
+    var useTimerFallback: Bool = true
+
     // MARK: - State
 
     private var hidManager: IOHIDManager?
@@ -88,6 +91,8 @@ final class JoyConHIDController {
     /// Device timestamp support (used if available from IOHIDValue)
     private var lastDeviceTimestamp: TimeInterval?
     private var lastDeviceTicks: UInt64?
+    private var lastTimerByte: UInt8?
+    private var lastTimerTimestamp: TimeInterval?
     private let timebase: mach_timebase_info_data_t = {
         var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
         mach_timebase_info(&tb)
@@ -396,28 +401,44 @@ final class JoyConHIDController {
     /// Compute a stable timestamp using device time if available; otherwise fall back to packet timer (byte 1) before host time.
     private func computeTimestamp(report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
         if let deviceTs = lastDeviceTimestamp {
+            // Reset timer fallback state when device timestamps are active
+            lastTimerByte = nil
+            lastTimerTimestamp = nil
             return deviceTs
+        }
+
+        let hostNow = CACurrentMediaTime()
+
+        guard useTimerFallback else {
+            lastTimerByte = nil
+            lastTimerTimestamp = nil
+            return hostNow
         }
 
         // Byte 1 is a packet timer (8-bit). Use it to derive a relative timestamp when possible.
         let timerByteIndex = JoyConHIDProtocol.Offset.timer
-        if timerByteIndex < length {
-            let timer = UInt8(report[timerByteIndex])
-            // Reconstruct elapsed time using 1 ms ticks (Joy-Con spec).
-            let tickSeconds: TimeInterval = 0.001
-            if let lastTicks = lastDeviceTicks {
-                let deltaTicks = UInt8(bitPattern: Int8(timer &- UInt8(truncatingIfNeeded: lastTicks & 0xFF)))
-                // Guard against huge jumps; fall back to host if unreasonable.
-                if deltaTicks > 0 && deltaTicks < 200 {
-                    let candidate = (lastDeviceTimestamp ?? CACurrentMediaTime()) + TimeInterval(deltaTicks) * tickSeconds
-                    return candidate
-                }
-            }
-            lastDeviceTicks = UInt64(timer)
+        guard timerByteIndex < length else {
+            lastTimerByte = nil
+            lastTimerTimestamp = nil
+            return hostNow
         }
 
-        // Fallback to host time
-        return CACurrentMediaTime()
+        let timer = UInt8(report[timerByteIndex])
+        let tickSeconds: TimeInterval = 0.001
+
+        if let lastByte = lastTimerByte, let lastTs = lastTimerTimestamp {
+            let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
+            if deltaTicks > 0 && deltaTicks < 200 {
+                let ts = lastTs + TimeInterval(deltaTicks) * tickSeconds
+                lastTimerByte = timer
+                lastTimerTimestamp = ts
+                return ts
+            }
+        }
+
+        lastTimerByte = timer
+        lastTimerTimestamp = hostNow
+        return hostNow
     }
 
     /// Capture device-provided timestamps (if available) to improve dt stability.
@@ -436,6 +457,9 @@ final class JoyConHIDController {
 
         lastDeviceTicks = ts
         lastDeviceTimestamp = ticksToSeconds(ts)
+        // Reset timer fallback state when real device timestamps arrive
+        lastTimerByte = nil
+        lastTimerTimestamp = nil
     }
 
     /// Convert mach ticks to seconds using cached timebase.

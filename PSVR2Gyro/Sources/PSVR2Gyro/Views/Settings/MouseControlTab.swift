@@ -137,6 +137,15 @@ private struct FilteringSection: View {
                         .pickerStyle(.segmented)
                         DescriptionText(text: adaptiveModeDescription)
                     }
+
+                    Divider()
+
+                    // Joy-Con timing fallback
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
+                            .font(.subheadline)
+                        DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
+                    }
                 }
             }
             .padding(.vertical, 8)

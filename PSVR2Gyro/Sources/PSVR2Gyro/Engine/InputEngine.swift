@@ -341,6 +341,9 @@ final class InputEngine {
         guard s.activeControllerKind == .joyCon else { return }
         guard s.isEnabled else { return }
 
+        // Keep Joy-Con timing mode in sync with settings
+        joyConController.useTimerFallback = s.joyConTimerFallbackEnabled
+
         let joyConMapping = s.isLeftController ? joyConLeftMapping : joyConRightMapping
 
         // 1. Process Joy-Con buttons

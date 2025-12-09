@@ -50,6 +50,9 @@ final class SettingsStore: @unchecked Sendable {
         // MARK: - Radial Menu
         var radialMenuConfiguration: RadialMenuConfiguration = .load()
 
+        // MARK: - Joy-Con timing
+        var joyConTimerFallbackEnabled: Bool = true
+
         // MARK: - Persistence
 
         static func loadFromDefaults() -> InputSettings {
@@ -79,6 +82,11 @@ final class SettingsStore: @unchecked Sendable {
             settings.triggerThreshold = settings.buttonMappingProfile.triggerThreshold
             settings.holdThreshold = settings.buttonMappingProfile.holdThreshold
             settings.joyConButtonMappingProfile = .load()
+
+            // Joy-Con timing
+            if let v = UserDefaults.standard.object(forKey: "joycon.timerFallbackEnabled") as? Bool {
+                settings.joyConTimerFallbackEnabled = v
+            }
 
             // Load joystick settings
             settings.joystickScrollEnabled = UserDefaults.standard.bool(forKey: "joystick.scrollEnabled")
