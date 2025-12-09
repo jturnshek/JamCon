@@ -24,23 +24,6 @@ targets:
     sources:
       - path: Sources/JamCon
         type: group
-    resources:
-      - path: Resources/joycon.png
-        buildPhase: resources
-      - path: Resources/joyconL.png
-        buildPhase: resources
-      - path: Resources/joyconR.png
-        buildPhase: resources
-      - path: Resources/PrivacyInfo.xcprivacy
-        buildPhase: resources
-      - path: Sources/JamCon/Resources
-        type: group
-    postCompileScripts:
-      - script: |
-          cp "${PROJECT_DIR}/Resources/AppIcon.icns" "${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/"
-        name: Copy App Icon
-    dependencies:
-      - package: JoyConSwift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jamcon.app
@@ -48,19 +31,6 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Resources/JamCon.entitlements
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
         COMBINE_HIDPI_IMAGES: YES
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # Menu bar app settings
-        LSUIElement: YES
-    entitlements:
-      path: Resources/JamCon.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.device.usb: true
-        com.apple.security.device.bluetooth: true
-
-packages:
-  JoyConSwift:
-    path: Packages/JoyConSwift
 
 schemes:
   JamCon:
