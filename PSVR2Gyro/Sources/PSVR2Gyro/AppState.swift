@@ -218,6 +218,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published var joyConTimerHybridEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(joyConTimerHybridEnabled, forKey: "joycon.timerHybridEnabled")
+            settingsStore.update { $0.joyConTimerHybridEnabled = joyConTimerHybridEnabled }
+        }
+    }
+
     // Radial menu
     @Published var radialMenuConfiguration: RadialMenuConfiguration = .load() {
         didSet {
@@ -356,14 +363,8 @@ final class AppState: ObservableObject {
             // Update battery
             pollBatteryLevel()
         } else {
-            // Try to restore saved controller selection
-            if let savedID = UserDefaults.standard.string(forKey: "selectedControllerID"),
-               availableControllers.contains(where: { $0.id == savedID }) {
-                selectController(id: savedID)
-            } else {
-                isConnected = false
-                controllerName = "Not connected"
-            }
+            // Try to restore saved controller (if available)
+            tryRestoreSavedController()
         }
     }
 
@@ -427,6 +428,7 @@ final class AppState: ObservableObject {
         _joystickScrollSpeed = Published(initialValue: s.joystickScrollSpeed)
         _joystickScrollAcceleration = Published(initialValue: s.joystickScrollAcceleration)
         _joyConTimerFallbackEnabled = Published(initialValue: s.joyConTimerFallbackEnabled)
+        _joyConTimerHybridEnabled = Published(initialValue: s.joyConTimerHybridEnabled)
 
         _radialMenuConfiguration = Published(initialValue: s.radialMenuConfiguration)
     }
@@ -460,6 +462,7 @@ final class AppState: ObservableObject {
         engine.onControllerListChanged = { [weak self] in
             Task { @MainActor in
                 self?.refreshControllerList()
+                self?.tryRestoreSavedController()
             }
         }
 
@@ -501,6 +504,18 @@ final class AppState: ObservableObject {
 
     func refreshControllerList() {
         availableControllers = engine.availableControllers
+    }
+
+    /// Try to restore a previously saved controller selection
+    private func tryRestoreSavedController() {
+        // Only restore if not already connected
+        guard !isConnected else { return }
+
+        // Check if we have a saved selection and the controller is available
+        if let savedID = UserDefaults.standard.string(forKey: "selectedControllerID"),
+           availableControllers.contains(where: { $0.id == savedID }) {
+            selectController(id: savedID)
+        }
     }
 
     func selectController(id: String) {

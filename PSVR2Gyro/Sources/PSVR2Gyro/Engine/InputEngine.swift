@@ -343,6 +343,7 @@ final class InputEngine {
 
         // Keep Joy-Con timing mode in sync with settings
         joyConController.useTimerFallback = s.joyConTimerFallbackEnabled
+        joyConController.useTimerHybrid = s.joyConTimerHybridEnabled
 
         let joyConMapping = s.isLeftController ? joyConLeftMapping : joyConRightMapping
 

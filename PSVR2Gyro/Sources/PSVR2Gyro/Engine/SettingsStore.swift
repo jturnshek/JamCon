@@ -52,6 +52,7 @@ final class SettingsStore: @unchecked Sendable {
 
         // MARK: - Joy-Con timing
         var joyConTimerFallbackEnabled: Bool = true
+        var joyConTimerHybridEnabled: Bool = false
 
         // MARK: - Persistence
 
@@ -86,6 +87,9 @@ final class SettingsStore: @unchecked Sendable {
             // Joy-Con timing
             if let v = UserDefaults.standard.object(forKey: "joycon.timerFallbackEnabled") as? Bool {
                 settings.joyConTimerFallbackEnabled = v
+            }
+            if let v = UserDefaults.standard.object(forKey: "joycon.timerHybridEnabled") as? Bool {
+                settings.joyConTimerHybridEnabled = v
             }
 
             // Load joystick settings

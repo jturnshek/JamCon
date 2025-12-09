@@ -70,6 +70,8 @@ final class JoyConHIDController {
 
     /// Whether to use packet timer fallback when device timestamps are unavailable
     var useTimerFallback: Bool = true
+    /// Whether to prefer a hybrid timer path (controller timer with device timestamp as anchor)
+    var useTimerHybrid: Bool = false
 
     // MARK: - State
 
@@ -400,6 +402,32 @@ final class JoyConHIDController {
 
     /// Compute a stable timestamp using device time if available; otherwise fall back to packet timer (byte 1) before host time.
     private func computeTimestamp(report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
+        let hostNow = CACurrentMediaTime()
+
+        // Timer byte (packet counter)
+        let timerByteIndex = JoyConHIDProtocol.Offset.timer
+        let timerAvailable = timerByteIndex < length
+        let timerByte = timerAvailable ? UInt8(report[timerByteIndex]) : nil
+        let tickSeconds: TimeInterval = 0.001
+
+        if useTimerHybrid, let timer = timerByte {
+            // Hybrid: prefer controller timer; device timestamp seeds anchor if present
+            let anchor = lastTimerTimestamp ?? lastDeviceTimestamp ?? hostNow
+            if let lastByte = lastTimerByte {
+                let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
+                if deltaTicks > 0 && deltaTicks < 200 {
+                    let ts = anchor + TimeInterval(deltaTicks) * tickSeconds
+                    lastTimerByte = timer
+                    lastTimerTimestamp = ts
+                    return ts
+                }
+            }
+            // Seed timer timeline
+            lastTimerByte = timer
+            lastTimerTimestamp = anchor
+            return anchor
+        }
+
         if let deviceTs = lastDeviceTimestamp {
             // Reset timer fallback state when device timestamps are active
             lastTimerByte = nil
@@ -407,25 +435,13 @@ final class JoyConHIDController {
             return deviceTs
         }
 
-        let hostNow = CACurrentMediaTime()
-
-        guard useTimerFallback else {
+        guard useTimerFallback, let timer = timerByte else {
             lastTimerByte = nil
             lastTimerTimestamp = nil
             return hostNow
         }
 
-        // Byte 1 is a packet timer (8-bit). Use it to derive a relative timestamp when possible.
-        let timerByteIndex = JoyConHIDProtocol.Offset.timer
-        guard timerByteIndex < length else {
-            lastTimerByte = nil
-            lastTimerTimestamp = nil
-            return hostNow
-        }
-
-        let timer = UInt8(report[timerByteIndex])
-        let tickSeconds: TimeInterval = 0.001
-
+        // Fallback: only use timer when device timestamp is absent
         if let lastByte = lastTimerByte, let lastTs = lastTimerTimestamp {
             let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
             if deltaTicks > 0 && deltaTicks < 200 {

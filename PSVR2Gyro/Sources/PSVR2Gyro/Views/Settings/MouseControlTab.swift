@@ -146,6 +146,12 @@ private struct FilteringSection: View {
                             .font(.subheadline)
                         DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Force Joy-Con timer hybrid", isOn: $appState.joyConTimerHybridEnabled)
+                            .font(.subheadline)
+                        DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
+                    }
                 }
             }
             .padding(.vertical, 8)
