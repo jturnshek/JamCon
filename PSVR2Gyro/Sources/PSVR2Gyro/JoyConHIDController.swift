@@ -355,7 +355,7 @@ final class JoyConHIDController {
 
     private func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
-        let timestamp = lastDeviceTimestamp ?? CACurrentMediaTime()
+        let timestamp = computeTimestamp(report: report, length: length)
 
         let maxLength = min(length, reportBuffer.count)
         var bytes = [UInt8](repeating: 0, count: maxLength)
@@ -391,6 +391,33 @@ final class JoyConHIDController {
             accelZ: accelZ,
             timestamp: timestamp
         ))
+    }
+
+    /// Compute a stable timestamp using device time if available; otherwise fall back to packet timer (byte 1) before host time.
+    private func computeTimestamp(report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
+        if let deviceTs = lastDeviceTimestamp {
+            return deviceTs
+        }
+
+        // Byte 1 is a packet timer (8-bit). Use it to derive a relative timestamp when possible.
+        let timerByteIndex = JoyConHIDProtocol.Offset.timer
+        if timerByteIndex < length {
+            let timer = UInt8(report[timerByteIndex])
+            // Reconstruct elapsed time using 1 ms ticks (Joy-Con spec).
+            let tickSeconds: TimeInterval = 0.001
+            if let lastTicks = lastDeviceTicks {
+                let deltaTicks = UInt8(bitPattern: Int8(timer &- UInt8(truncatingIfNeeded: lastTicks & 0xFF)))
+                // Guard against huge jumps; fall back to host if unreasonable.
+                if deltaTicks > 0 && deltaTicks < 200 {
+                    let candidate = (lastDeviceTimestamp ?? CACurrentMediaTime()) + TimeInterval(deltaTicks) * tickSeconds
+                    return candidate
+                }
+            }
+            lastDeviceTicks = UInt64(timer)
+        }
+
+        // Fallback to host time
+        return CACurrentMediaTime()
     }
 
     /// Capture device-provided timestamps (if available) to improve dt stability.
