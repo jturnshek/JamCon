@@ -293,12 +293,19 @@ final class InputEngine {
             processJoystickScroll(bytes: report.bytes, mapping: mapping, settings: s)
         }
 
-        // 3. Process gyro
-        let gyroSettings = s.toGyroSettingsState()
-        if let (dx, dy) = gyroProcessor.process(
+        // 3. Process gyro through unified remap → process pipeline
+        let pipeline = GyroRemapper.process(
             rawX: report.gyroX,
             rawY: report.gyroY,
             rawZ: report.gyroZ,
+            controllerKind: .psvr2
+        )
+        var gyroSettings = s.toGyroSettingsState()
+        gyroSettings.gyroScale = effectiveGyroScale(for: .psvr2, userScale: s.gyroScale)
+        if let (dx, dy) = gyroProcessor.process(
+            rawX: pipeline.remapped.pitch,
+            rawY: pipeline.remapped.yaw,
+            rawZ: pipeline.remapped.roll,
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
@@ -312,12 +319,6 @@ final class InputEngine {
         }
 
         // 5. Record to debug buffer with all pipeline stages
-        let pipeline = GyroRemapper.process(
-            rawX: report.gyroX,
-            rawY: report.gyroY,
-            rawZ: report.gyroZ,
-            controllerKind: .psvr2
-        )
         debugBuffer.record(
             bytes: report.bytes,
             length: report.length,
@@ -360,7 +361,8 @@ final class InputEngine {
         )
 
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
-        let gyroSettings = s.toGyroSettingsState()
+        var gyroSettings = s.toGyroSettingsState()
+        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: s.gyroScale)
         if let (dx, dy) = gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
@@ -392,6 +394,16 @@ final class InputEngine {
             buttonStates: joyConButtonStates,
             controllerKind: .joyCon
         )
+    }
+
+    // MARK: - Shared gyro scaling
+
+    /// Apply the user scale as a multiplier relative to the PSVR2 reference scale so both controllers share the same pipeline.
+    private func effectiveGyroScale(for kind: ControllerKind, userScale: Double) -> Double {
+        let reference = GyroRemapper.gyroScale(for: .psvr2)
+        let deviceScale = GyroRemapper.gyroScale(for: kind)
+        let userMultiplier = reference != 0 ? (userScale / reference) : 1.0
+        return deviceScale * userMultiplier
     }
 
     // MARK: - Gyro Mode Routing

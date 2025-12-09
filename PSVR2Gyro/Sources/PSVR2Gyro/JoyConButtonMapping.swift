@@ -24,6 +24,10 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
     // Stick click
     case stickClick  // L3 (left) or R3 (right)
 
+    // Side rail buttons (both Joy-Cons have these)
+    case sl
+    case sr
+
     /// Stable index for array-backed hot-path storage
     var index: Int {
         switch self {
@@ -40,6 +44,8 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
         case .home: return 10
         case .capture: return 11
         case .stickClick: return 12
+        case .sl: return 13
+        case .sr: return 14
         }
     }
 
@@ -59,20 +65,22 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
         case .home: return "Home"
         case .capture: return "Capture"
         case .stickClick: return "Stick"
+        case .sl: return "SL"
+        case .sr: return "SR"
         }
     }
 
     /// Number of buttons for array allocation
-    static var count: Int { 13 }
+    static var count: Int { 15 }
 
     /// Buttons available on Right Joy-Con
     static var rightButtons: [JoyConLogicalButton] {
-        [.a, .b, .x, .y, .r, .zr, .plus, .home, .stickClick]
+        [.a, .b, .x, .y, .r, .zr, .plus, .home, .stickClick, .sl, .sr]
     }
 
     /// Buttons available on Left Joy-Con
     static var leftButtons: [JoyConLogicalButton] {
-        [.l, .zl, .minus, .capture, .stickClick]
+        [.l, .zl, .minus, .capture, .stickClick, .sl, .sr]
     }
 
     /// Check if this button exists on the given controller side
@@ -153,6 +161,14 @@ struct JoyConButtonMapping {
             let loc = JoyConHIDProtocol.RightButton.rStick
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
 
+        // Side rail buttons
+        case .sl:
+            let loc = JoyConHIDProtocol.RightButton.sl
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+        case .sr:
+            let loc = JoyConHIDProtocol.RightButton.sr
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+
         // Buttons not on Right Joy-Con
         case .l, .zl, .minus, .capture:
             return nil
@@ -180,6 +196,14 @@ struct JoyConButtonMapping {
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
         case .stickClick:
             let loc = JoyConHIDProtocol.LeftButton.lStick
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+
+        // Side rail buttons
+        case .sl:
+            let loc = JoyConHIDProtocol.LeftButton.sl
+            return ButtonLocation(byte: loc.byte, bit: loc.bit)
+        case .sr:
+            let loc = JoyConHIDProtocol.LeftButton.sr
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
 
         // Buttons not on Left Joy-Con (face buttons are on Right)

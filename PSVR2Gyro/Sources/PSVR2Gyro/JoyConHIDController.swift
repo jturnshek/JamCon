@@ -2,6 +2,7 @@ import Foundation
 import IOKit
 import IOKit.hid
 import QuartzCore
+import MachO
 
 private enum JoyCon {
     enum OutputType: UInt8 {
@@ -83,6 +84,15 @@ final class JoyConHIDController {
     private(set) var controllerName: String?
 
     private var outputPacketCounter: UInt8 = 0
+
+    /// Device timestamp support (used if available from IOHIDValue)
+    private var lastDeviceTimestamp: TimeInterval?
+    private var lastDeviceTicks: UInt64?
+    private let timebase: mach_timebase_info_data_t = {
+        var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
+        mach_timebase_info(&tb)
+        return tb
+    }()
 
     // MARK: - Init / lifecycle
 
@@ -305,6 +315,17 @@ final class JoyConHIDController {
             context
         )
 
+        // Register value callback to capture device timestamps (if provided by stack)
+        IOHIDDeviceRegisterInputValueCallback(
+            device,
+            { context, _, _, value in
+                guard let context else { return }
+                let joyCon = Unmanaged<JoyConHIDController>.fromOpaque(context).takeUnretainedValue()
+                joyCon.handleInputValue(value)
+            },
+            context
+        )
+
         // Enable IMU + set input mode
         sendSubcommand(.enableIMU, data: [0x01])
         sendSubcommand(.setInputMode, data: [UInt8(JoyCon.InputMode.standardFull.rawValue)])
@@ -334,7 +355,7 @@ final class JoyConHIDController {
 
     private func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
-        let timestamp = CACurrentMediaTime()
+        let timestamp = lastDeviceTimestamp ?? CACurrentMediaTime()
 
         let maxLength = min(length, reportBuffer.count)
         var bytes = [UInt8](repeating: 0, count: maxLength)
@@ -370,6 +391,30 @@ final class JoyConHIDController {
             accelZ: accelZ,
             timestamp: timestamp
         ))
+    }
+
+    /// Capture device-provided timestamps (if available) to improve dt stability.
+    private func handleInputValue(_ value: IOHIDValue) {
+        let element = IOHIDValueGetElement(value)
+        let reportID = IOHIDElementGetReportID(element)
+
+        guard reportID == JoyConHIDProtocol.inputReportID else { return }
+
+        let ts = IOHIDValueGetTimeStamp(value)
+        // Avoid duplicate timestamps; fall back to host time if they repeat
+        if let lastTicks = lastDeviceTicks, lastTicks == ts {
+            lastDeviceTimestamp = nil
+            return
+        }
+
+        lastDeviceTicks = ts
+        lastDeviceTimestamp = ticksToSeconds(ts)
+    }
+
+    /// Convert mach ticks to seconds using cached timebase.
+    private func ticksToSeconds(_ ticks: UInt64) -> TimeInterval {
+        let nanos = (Double(ticks) * Double(timebase.numer)) / Double(timebase.denom)
+        return nanos / 1_000_000_000.0
     }
 
     // MARK: - Subcommands

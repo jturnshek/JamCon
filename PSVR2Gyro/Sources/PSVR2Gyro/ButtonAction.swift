@@ -477,10 +477,10 @@ struct JoyConButtonMappingProfile: Codable {
     static var `default`: Self {
         var profile = JoyConButtonMappingProfile()
         // Default mappings for Right Joy-Con
-        // ZR = Drag (hold to move cursor with gyro)
-        profile.mappings[JoyConLogicalButton.zr.rawValue] = ButtonActions(press: .drag)
-        // ZL = Left click (if available via grip)
-        profile.mappings[JoyConLogicalButton.zl.rawValue] = ButtonActions(press: .mouseClick(.left))
+        // X = Drag (hold to move cursor with gyro)
+        profile.mappings[JoyConLogicalButton.x.rawValue] = ButtonActions(press: .drag)
+        // ZR = Left click
+        profile.mappings[JoyConLogicalButton.zr.rawValue] = ButtonActions(press: .mouseClick(.left))
         // R = Right click
         profile.mappings[JoyConLogicalButton.r.rawValue] = ButtonActions(press: .mouseClick(.right))
         // L = Scroll mode (if available via grip)
