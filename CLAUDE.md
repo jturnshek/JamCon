@@ -32,38 +32,44 @@ security find-identity -v -p codesigning
 
 ### Threading Model
 
-Input processing happens off the main thread to minimize latency. The `InputSettings` class provides thread-safe access to settings using `OSAllocatedUnfairLock`, avoiding main thread dispatch for high-frequency gyro updates (~66Hz).
+Input processing happens off the main thread to minimize latency. The `SettingsStore` class provides thread-safe access to settings using `OSAllocatedUnfairLock`, avoiding main thread dispatch for high-frequency gyro updates (~66Hz).
 
 **Input flow:**
-1. `JoyConController` receives HID reports on a background queue
+1. `SenseController` or `JoyConHIDController` receives HID reports on a background queue
 2. Callbacks (`onGyroUpdate`, `onButtonPress`, `onStickUpdate`) fire on that queue
-3. `InputProcessor` processes input and calls `MouseController` directly (no dispatch)
+3. `InputEngine` processes input and calls `MouseController` directly (no dispatch)
 4. `MouseController` posts `CGEvent`s to the system
 5. Only UI state changes dispatch to `@MainActor`
 
 ### Key Components
 
-- **AppState** (`Models/AppState.swift`): Central state management. `@Published` properties for UI, `InputSettings` for thread-safe input processing. Routes Joy-Con events to appropriate handlers based on controller role (primary/secondary).
+- **AppState** (`AppState.swift`): Central state management. `@Published` properties for UI, bridges to `SettingsStore` for thread-safe input processing. Routes controller events to appropriate handlers based on controller role (primary/secondary).
 
-- **InputProcessor** (`Controllers/InputProcessor.swift`): Gyro→mouse translation with bias estimation, One Euro filtering, acceleration curves, and override modes (clutch/scroll/zoom). Button hold detection with configurable thresholds.
+- **SenseController** (`SenseController.swift`): PlayStation Sense controller Bluetooth HID driver. Direct IOHIDManager access for low-latency gyro data.
 
-- **MouseController** (`Controllers/MouseController.swift`): CGEvent-based mouse/keyboard control. Handles multi-display coordinate conversion. Requires Accessibility permission.
+- **JoyConHIDController** (`JoyConHIDController.swift`): Joy-Con Bluetooth HID driver. Handles both left and right Joy-Con with IMU data parsing.
 
-- **JoyConController** (`Controllers/JoyConController.swift`): Joy-Con Bluetooth HID communication via bundled JoyConSwift library.
+- **InputEngine** (`Engine/InputEngine.swift`): Unified input processing pipeline. Coordinates gyro processing, button handling, and radial menu activation.
 
-- **RadialMenuController/State/View** (`Controllers/RadialMenuController.swift`, `Models/RadialMenu*.swift`, `Views/RadialMenuView.swift`): Joystick-activated pie menu system. Controller runs on HID thread, State/View are `@MainActor`.
+- **GyroProcessor** (`GyroProcessor.swift`): Gyro→mouse translation with bias estimation, One Euro filtering, acceleration curves, and adaptive smoothing modes.
+
+- **MouseController** (`MouseController.swift`): CGEvent-based mouse/keyboard control. Handles multi-display coordinate conversion. Requires Accessibility permission.
+
+- **SettingsStore** (`Engine/SettingsStore.swift`): Thread-safe settings bridge. UI writes via `update()`, engine reads via `snapshot()`. One-way data flow: UI → Engine.
+
+- **RadialMenuState/View** (`Models/RadialMenuState.swift`, `Views/RadialMenuView.swift`): Joystick-activated pie menu system. State management and SwiftUI view for the radial menu overlay.
 
 ### Dual Controller Support
 
-When two Joy-Cons are connected:
+When two controllers are connected:
 - Primary controller handles gyro mouse + primary button mappings
 - Secondary controller only sends button inputs with separate mappings
-- `inputSettings.primaryControllerId` determines which controller is primary
+- `selectedControllerID` in AppState determines which controller is primary
 - Each has independent clutch/scroll/zoom button assignments
 
 ### Button Mapping System
 
-`ButtonMappingProfile` maps `LogicalButton` → `ButtonActions` (press + hold actions). Actions can be mouse clicks, keyboard shortcuts, or system actions. Override buttons (clutch/scroll/zoom) bypass normal mappings to convert gyro to drag/scroll/magnify gestures.
+`SenseButtonMappingProfile` and `JoyConButtonMappingProfile` map logical buttons → `ButtonActions` (press + hold actions). Actions can be mouse clicks, keyboard shortcuts, or system actions. Override buttons (clutch/scroll/zoom) bypass normal mappings to convert gyro to drag/scroll/magnify gestures.
 
 ## Accessibility Permission
 

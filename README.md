@@ -1,23 +1,24 @@
 # JamCon
 
-A macOS menu bar app that turns Nintendo Switch Joy-Con controllers into a wireless mouse and keyboard input device.
+A macOS menu bar app that turns Nintendo Switch Joy-Con and PlayStation Sense controllers into a wireless mouse and keyboard input device.
 
 ## Features
 
-- **Gyro Mouse Control** - Move the cursor by tilting the Joy-Con like an LG Magic Remote
-- **Button Mapping** - Map Joy-Con buttons to mouse clicks or any keyboard shortcut
+- **Gyro Mouse Control** - Move the cursor by tilting the controller like an LG Magic Remote
+- **Multi-Controller Support** - Works with Joy-Con and PlayStation Sense controllers
+- **Button Mapping** - Map buttons to mouse clicks or any keyboard shortcut
 - **Joystick Scrolling** - Use the analog stick for smooth scrolling
 - **Radial Menu** - Toggle joystick to show a pie-menu for quick arrow key input
-- **Dual Controller Support** - Use two Joy-Cons simultaneously with independent button mappings
+- **Dual Controller Support** - Use two controllers simultaneously with independent button mappings
 - **Override Button Modes** - Assign buttons as Clutch (drag), Scroll, or Zoom modifiers
 - **Pinch-to-Zoom** - Zoom mode sends real trackpad-style magnification gestures
 - **Auto-Calibration** - Gyro drift is automatically corrected when the controller is held still
-- **Low Latency** - Direct input processing without main thread overhead
+- **Low Latency** - Direct HID input processing without main thread overhead
 
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
-- Nintendo Switch Joy-Con controller(s)
+- Nintendo Switch Joy-Con controller(s) or PlayStation Sense controller(s)
 - Bluetooth
 
 ## Quick Start
@@ -34,15 +35,17 @@ xcodegen generate
 
 This builds, signs, and installs the app to `/Applications/JamCon.app`.
 
-### 2. Pair Your Joy-Con
+### 2. Pair Your Controller
 
 1. Open **System Settings → Bluetooth**
-2. Hold the sync button on the Joy-Con (small button on the rail) until the lights flash
-3. Select the Joy-Con from the Bluetooth devices list
+2. Put your controller in pairing mode:
+   - **Joy-Con**: Hold the sync button on the rail until the lights flash
+   - **Sense**: Hold PS + Create buttons until the light bar flashes
+3. Select the controller from the Bluetooth devices list
 
 ### 3. Launch and Grant Permissions
 
-1. Launch JamCon (double-click the .app or run from Xcode)
+1. Launch JamCon (double-click the .app or run `./dev.sh`)
 2. Grant **Accessibility permission** when prompted
    - If the prompt doesn't appear: **System Settings → Privacy & Security → Accessibility → Add JamCon**
 3. The app appears as a controller icon in the menu bar
@@ -53,10 +56,10 @@ This builds, signs, and installs the app to `/Applications/JamCon.app`.
 
 | Control | Action |
 |---------|--------|
-| Tilt Joy-Con | Move mouse cursor |
+| Tilt controller | Move mouse cursor |
 | Analog stick | Scroll (velocity-based) |
-| ZR / ZL | Left click |
-| R / L | Right click |
+| ZR / ZL (or R2/L2) | Left click |
+| R / L (or R1/L1) | Right click |
 
 ### Button Mapping
 
@@ -72,7 +75,7 @@ Each button can only be assigned to one override mode (Clutch/Scroll/Zoom) at a 
 
 ### Dual Controller Mode
 
-When two Joy-Cons are connected:
+When two controllers are connected:
 
 - **Primary** controller handles mouse movement and uses primary button mappings
 - **Secondary** controller only sends button inputs using secondary mappings
@@ -89,7 +92,6 @@ When two Joy-Cons are connected:
 - **Stabilization**
   - *Smoothing* - Reduces jitter for slow movements (0=off, higher=smoother)
   - *Recalibrate* - Reset gyro calibration (hold controller still after)
-- **Mirror Face Buttons** - Maps Left Joy-Con D-pad to match Right Joy-Con face button positions
 
 ## Development
 
@@ -150,31 +152,36 @@ security find-identity -v -p codesigning
 ```
 JamCon/
 ├── Sources/JamCon/
-│   ├── JamConApp.swift          # App entry point, MenuBarExtra scene
-│   ├── MenuBarView.swift        # Settings UI
+│   ├── JamConApp.swift              # App entry point, MenuBarExtra scene
+│   ├── AppState.swift               # Central state management
+│   ├── MenuBarView.swift            # Main settings UI
+│   ├── SenseController.swift        # PlayStation Sense HID driver
+│   ├── JoyConHIDController.swift    # Joy-Con Bluetooth HID driver
+│   ├── GyroProcessor.swift          # Gyro→mouse translation, filtering
+│   ├── GyroRemapper.swift           # Controller-specific axis mapping
+│   ├── MouseController.swift        # CGEvent-based mouse/keyboard
+│   ├── Engine/
+│   │   ├── InputEngine.swift        # Unified input processing pipeline
+│   │   ├── SettingsStore.swift      # Thread-safe settings bridge
+│   │   └── DebugBuffer.swift        # Debug data collection
 │   ├── Models/
-│   │   ├── AppState.swift       # Central state management
-│   │   ├── ButtonMapping.swift  # Button-to-action mapping system
-│   │   ├── RadialMenu.swift     # Radial menu data models
-│   │   └── RadialMenuState.swift # Radial menu runtime state
-│   ├── Controllers/
-│   │   ├── JoyConController.swift    # Joy-Con Bluetooth communication
-│   │   ├── InputProcessor.swift      # Gyro/button processing, calibration
-│   │   ├── MouseController.swift     # CGEvent-based mouse/keyboard control
-│   │   ├── RadialMenuController.swift # Radial menu input handling
-│   │   └── KeyCaptureManager.swift   # Keyboard shortcut capture for mapping
-│   └── Views/
-│       └── RadialMenuView.swift  # Radial menu overlay UI
+│   │   ├── ControllerTypes.swift    # Controller type definitions
+│   │   ├── RadialMenu.swift         # Radial menu configuration
+│   │   └── RadialMenuState.swift    # Radial menu runtime state
+│   ├── Views/
+│   │   ├── Settings/                # Settings tab views
+│   │   ├── Components/              # Reusable UI components
+│   │   └── RadialMenuView.swift     # Radial menu overlay
+│   └── Utilities/
 ├── Resources/
 │   ├── Info.plist
 │   ├── JamCon.entitlements
 │   ├── AppIcon.icns
-│   └── *.png                    # Menu bar icons
-├── Packages/JoyConSwift/        # Joy-Con communication library
-├── project.yml                  # XcodeGen project definition
-├── Package.swift                # Swift Package Manager manifest
-├── dev.sh                       # Build and install script
-└── relaunch.sh                  # Quick relaunch script
+│   └── *.png                        # Menu bar icons
+├── docs/                            # HID protocol documentation
+├── project.yml                      # XcodeGen project definition
+├── dev.sh                           # Build and install script
+└── relaunch.sh                      # Quick relaunch script
 ```
 
 ### Building Manually
@@ -195,27 +202,22 @@ open JamCon.xcodeproj
 ### Mouse not moving / buttons not working
 
 1. Check that Accessibility permission is granted (orange warning appears if not)
-2. Ensure the Joy-Con is connected (green controller icon in menu)
+2. Ensure the controller is connected (green controller icon in menu)
 3. Verify "Mouse Control" toggle is enabled
 
 ### Cursor drifts when controller is still
 
 Hold the controller completely still for 1-2 seconds. The app auto-calibrates when it detects no movement.
 
-### Joy-Con not connecting
+### Controller not connecting
 
-1. Remove the Joy-Con from Bluetooth settings
-2. Re-pair using the sync button
-3. Ensure no other device (like a Switch) is trying to connect to it
+1. Remove the controller from Bluetooth settings
+2. Re-pair using the pairing button sequence
+3. Ensure no other device (like a Switch or PlayStation) is trying to connect to it
 
 ### Zoom not working in some apps
 
 Zoom sends standard macOS magnification gestures. Some apps (especially non-native ones) may not respond to these gestures.
-
-## Credits
-
-- [JoyConSwift](https://github.com/magicien/JoyConSwift) - Joy-Con communication library (bundled, modified for Apple Silicon)
-- Inspired by [JoyShockMapper](https://github.com/JibbSmart/JoyShockMapper) gyro mouse implementation
 
 ## License
 

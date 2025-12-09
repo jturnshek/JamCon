@@ -14,71 +14,72 @@ struct ButtonsTab: View {
         VStack(spacing: 0) {
             TabHeader(appState: appState)
 
-            // Profile indicator
-            ButtonProfileIndicator(appState: appState)
+            if appState.isConnected {
+                // Profile indicator
+                ButtonProfileIndicator(appState: appState)
 
-            ScrollView {
-                if isJoyCon {
-                    VStack(spacing: 16) {
-                        JoyConButtonMappingsSection(
-                            appState: appState,
-                            keyCaptureManager: joyConKeyCaptureManager,
-                            isLeft: isLeft
-                        )
+                ScrollView {
+                    if isJoyCon {
+                        VStack(spacing: 16) {
+                            JoyConButtonMappingsSection(
+                                appState: appState,
+                                keyCaptureManager: joyConKeyCaptureManager,
+                                isLeft: isLeft
+                            )
 
-                        // Tip about Home button
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "info.circle")
-                                .foregroundColor(.blue)
-                            Text("If the Home button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            // Tip about Home button
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .foregroundColor(.blue)
+                                Text("If the Home button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.05))
+                            .cornerRadius(8)
                         }
                         .padding()
-                        .background(Color.blue.opacity(0.05))
-                        .cornerRadius(8)
+                    } else {
+                        VStack(spacing: 16) {
+                            ButtonMappingsSection(
+                                appState: appState,
+                                keyCaptureManager: keyCaptureManager,
+                                isLeft: isLeft
+                            )
+
+                            // Tip about PlayStation button
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .foregroundColor(.blue)
+                                Text("If the PlayStation button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.05))
+                            .cornerRadius(8)
+
+                            // Warning about Square/Circle buttons
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .foregroundColor(.orange)
+                                Text("Square and Circle buttons may trigger unwanted keyboard shortcuts in macOS. For best results, use Triangle, X, triggers, or bumpers for mappings.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.orange.opacity(0.05))
+                            .cornerRadius(8)
+                        }
+                        .padding()
                     }
-                    .padding()
-                } else {
-                    VStack(spacing: 16) {
-                        ButtonMappingsSection(
-                            appState: appState,
-                            keyCaptureManager: keyCaptureManager,
-                            isLeft: isLeft
-                        )
-
-                        // Tip about PlayStation button
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "info.circle")
-                                .foregroundColor(.blue)
-                            Text("If the PlayStation button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding()
-                        .background(Color.blue.opacity(0.05))
-                        .cornerRadius(8)
-
-                        // Warning about Square/Circle buttons
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundColor(.orange)
-                            Text("Square and Circle buttons may trigger unwanted keyboard shortcuts in macOS. For best results, use Triangle, X, triggers, or bumpers for mappings.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding()
-                        .background(Color.orange.opacity(0.05))
-                        .cornerRadius(8)
-                    }
-                    .padding()
                 }
-            }
-
-            if !appState.isConnected {
-                Text("Connect a controller to configure buttons")
-                    .foregroundColor(.secondary)
-                    .frame(maxHeight: .infinity)
+            } else {
+                NoControllerView(
+                    icon: "button.horizontal",
+                    message: "Connect a controller to configure button mappings"
+                )
             }
         }
         .onAppear {

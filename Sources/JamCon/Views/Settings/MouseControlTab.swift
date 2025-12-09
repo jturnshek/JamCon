@@ -9,33 +9,40 @@ struct MouseControlTab: View {
         VStack(spacing: 0) {
             TabHeader(appState: appState)
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Profile indicator
-                    GyroProfileIndicator(appState: appState)
+            if appState.isConnected {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Profile indicator
+                        GyroProfileIndicator(appState: appState)
 
-                    // Main settings
-                    VStack(spacing: 12) {
-                        // Sensitivity (always visible)
-                        SensitivitySection(appState: appState)
+                        // Main settings
+                        VStack(spacing: 12) {
+                            // Sensitivity (always visible)
+                            SensitivitySection(appState: appState)
 
-                        // Collapsible sections
-                        FilteringSection(appState: appState)
-                        AccelerationSection(appState: appState)
+                            // Collapsible sections
+                            FilteringSection(appState: appState)
+                            AccelerationSection(appState: appState)
 
-                        // Reset button
-                        Button(action: { appState.resetGyroSettings() }) {
-                            HStack {
-                                Image(systemName: "arrow.counterclockwise")
-                                Text("Reset to Defaults")
+                            // Reset button
+                            Button(action: { appState.resetGyroSettings() }) {
+                                HStack {
+                                    Image(systemName: "arrow.counterclockwise")
+                                    Text("Reset to Defaults")
+                                }
+                                .foregroundColor(.secondary)
                             }
-                            .foregroundColor(.secondary)
+                            .buttonStyle(.plain)
+                            .padding(.top, 8)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.top, 8)
+                        .padding()
                     }
-                    .padding()
                 }
+            } else {
+                NoControllerView(
+                    icon: "gyroscope",
+                    message: "Connect a controller to configure gyro mouse settings"
+                )
             }
         }
     }

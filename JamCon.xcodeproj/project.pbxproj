@@ -31,6 +31,7 @@
 		86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */; };
 		873DA01BD3693033C66A5F6D /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B36A459FBA46E6F2F8703 /* CrashReporter.swift */; };
 		884F425447A8F986FAD7724F /* RadialMenuTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE750046AA88415C1C5FBE /* RadialMenuTab.swift */; };
+		8A2833A40972CF2AC7D65E46 /* NoControllerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73BAA9918F9630E693743617 /* NoControllerView.swift */; };
 		92894A806AEBA94A71016895 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF67332E3B8816F16D267A67 /* ActionExecutor.swift */; };
 		962DB302E1E26BD509CFF607 /* ByteInspectorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2C66CE3F326B6D45B21CF1 /* ByteInspectorViews.swift */; };
 		9C47593802C08DE3D79C395E /* SenseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C819904F3BF1FFCC0228A41 /* SenseController.swift */; };
@@ -73,6 +74,7 @@
 		6CB21011BC2F9F33F7C2294B /* InputEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputEngine.swift; sourceTree = "<group>"; };
 		711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTypes.swift; sourceTree = "<group>"; };
 		72A7855A1E10189EABA24208 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
+		73BAA9918F9630E693743617 /* NoControllerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoControllerView.swift; sourceTree = "<group>"; };
 		7ADB2C885D2F10A6375BE8D4 /* JoyConButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConButtonMapping.swift; sourceTree = "<group>"; };
 		7ADB33724DF23ECDCF9D3614 /* GyroRemapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroRemapper.swift; sourceTree = "<group>"; };
 		8103F11341851C9371929B73 /* JamConApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamConApp.swift; sourceTree = "<group>"; };
@@ -123,6 +125,7 @@
 			isa = PBXGroup;
 			children = (
 				B47E51C9B09A8F9FF9A6298F /* InputIndicators.swift */,
+				73BAA9918F9630E693743617 /* NoControllerView.swift */,
 				482C873BBFA74526B404F547 /* SharedComponents.swift */,
 				9A40500343CC8A0DB54D74AF /* SliderWithLabel.swift */,
 				B84620F15CB71F402575BEE6 /* StatusIndicators.swift */,
@@ -316,6 +319,7 @@
 				01772595B7A51F43AEBAEB6B /* MenuBarView.swift in Sources */,
 				BA2AF22A9DDCD0D611944E6D /* MouseControlTab.swift in Sources */,
 				09B770A6F1F092FD188BC44C /* MouseController.swift in Sources */,
+				8A2833A40972CF2AC7D65E46 /* NoControllerView.swift in Sources */,
 				78AA5868288AC1FD75401EC7 /* OneEuroFilter.swift in Sources */,
 				86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */,
 				2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */,

@@ -1,6 +1,6 @@
-# PSVR2 Sense Controller HID Protocol
+# PlayStation Sense Controller HID Protocol
 
-This document describes the HID report structure for the PlayStation VR2 Sense Controller when connected via Bluetooth to macOS.
+This document describes the HID report structure for the PlayStation Sense Controller (from PSVR2) when connected via Bluetooth to macOS.
 
 ## Device Identification
 
