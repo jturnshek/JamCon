@@ -187,4 +187,50 @@ struct JoyConButtonMapping {
             return nil
         }
     }
+
+    // MARK: - Joystick Position
+
+    /// Read joystick position from report bytes
+    /// Joy-Con sticks are 12-bit values packed into 3 bytes
+    /// Returns values normalized to 0-255 range with 128 as center (matching PSVR2 format)
+    func joystickPosition(in report: [UInt8]) -> (x: UInt8, y: UInt8) {
+        let raw = joystickPositionRaw(in: report)
+
+        // Joy-Con sticks typically don't use full 0-4095 range
+        // Effective range is roughly 500-3500, center ~2048
+        // Scale to match PSVR2's effective feel
+        let center: Double = 2048.0
+        let effectiveRange: Double = 1400.0  // Typical max deflection from center
+
+        func normalize(_ raw: UInt16) -> UInt8 {
+            let delta = Double(raw) - center
+            let scaled = (delta / effectiveRange) * 127.0  // Scale to -127..+127
+            let clamped = max(-127.0, min(127.0, scaled))
+            return UInt8(clamping: Int(128.0 + clamped))
+        }
+
+        return (normalize(raw.x), normalize(raw.y))
+    }
+
+    /// Read raw 12-bit joystick values (0-4095 range, center ~2048)
+    func joystickPositionRaw(in report: [UInt8]) -> (x: UInt16, y: UInt16) {
+        let startByte = isLeftController
+            ? JoyConHIDProtocol.Offset.leftStickStart
+            : JoyConHIDProtocol.Offset.rightStickStart
+
+        guard startByte + 2 < report.count else { return (2048, 2048) }
+
+        // Joy-Con sticks are packed as 12-bit values:
+        // byte0: X[7:0]
+        // byte1: Y[3:0] | X[11:8]
+        // byte2: Y[11:4]
+        let byte0 = UInt16(report[startByte])
+        let byte1 = UInt16(report[startByte + 1])
+        let byte2 = UInt16(report[startByte + 2])
+
+        let rawX = byte0 | ((byte1 & 0x0F) << 8)  // 12-bit, 0-4095
+        let rawY = (byte1 >> 4) | (byte2 << 4)    // 12-bit, 0-4095
+
+        return (rawX, rawY)
+    }
 }

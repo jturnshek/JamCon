@@ -371,7 +371,12 @@ final class InputEngine {
             routeJoyConGyroMovement(dx: dx, dy: dy, profile: s.joyConButtonMappingProfile, configuration: s.radialMenuConfiguration)
         }
 
-        // 3. Update battery level (Joy-Con battery is in byte 2, upper nibble)
+        // 3. Process joystick scroll (if enabled)
+        if s.joystickScrollEnabled {
+            processJoyConJoystickScroll(bytes: report.bytes, mapping: joyConMapping, settings: s)
+        }
+
+        // 4. Update battery level (Joy-Con battery is in byte 2, upper nibble)
         if report.bytes.count > 2 {
             updateBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]))
         }
@@ -460,6 +465,31 @@ final class InputEngine {
 
         let deltaX = Double(joystickPos.x) - center
         let deltaY = Double(joystickPos.y) - center
+
+        if abs(deltaX) > deadzone || abs(deltaY) > deadzone {
+            let speed = settings.joystickScrollSpeed
+
+            func scaled(_ delta: Double) -> CGFloat {
+                let sign = delta >= 0 ? 1.0 : -1.0
+                let normalized = min(1.0, abs(delta) / maxDelta)
+                let curved = normalized * normalized
+                return CGFloat(sign * curved * speed * 2.0)
+            }
+
+            let scrollX = scaled(deltaX)
+            let scrollY = scaled(deltaY)
+            mouseController.scroll(dx: scrollX, dy: scrollY)
+        }
+    }
+
+    private func processJoyConJoystickScroll(bytes: [UInt8], mapping: JoyConButtonMapping, settings: SettingsStore.InputSettings) {
+        let joystickPos = mapping.joystickPosition(in: bytes)
+        let deadzone: Double = 20.0
+        let center: Double = 128.0
+        let maxDelta: Double = 127.0
+
+        let deltaX = Double(joystickPos.x) - center
+        let deltaY = -(Double(joystickPos.y) - center)  // Invert Y for natural scroll direction
 
         if abs(deltaX) > deadzone || abs(deltaY) > deadzone {
             let speed = settings.joystickScrollSpeed

@@ -4,27 +4,13 @@ import SwiftUI
 
 struct MouseControlTab: View {
     @ObservedObject var appState: AppState
-    private var isJoyCon: Bool { appState.activeControllerKind == .joyCon }
 
     var body: some View {
         VStack(spacing: 0) {
             TabHeader(appState: appState)
 
-            if isJoyCon {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Joy-Con mouse control")
-                            .font(.headline)
-                        Text("Gyro settings for Joy-Con will be added here. Until then, you can verify raw motion data in the Debug tab.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding()
-                }
-            } else {
-                ScrollView {
-                    VStack(spacing: 16) {
-
+            ScrollView {
+                VStack(spacing: 16) {
                     // Main settings
                     VStack(spacing: 12) {
                         // Sensitivity (always visible)
@@ -46,7 +32,6 @@ struct MouseControlTab: View {
                         .padding(.top, 8)
                     }
                     .padding()
-                    }
                 }
             }
         }
