@@ -37,6 +37,10 @@ final class GyroProcessor: @unchecked Sendable {
     /// Current smoothed speed (°/s) for UI visualization
     private(set) var currentSpeed: Double = 0
 
+    // Sample rate auto-tune
+    private var observedDtEMA: Double = 0
+    private let observedAlpha = 0.05  // slow EMA to avoid reacting to transient stalls
+
     init() {
         biasBuffer = Array(repeating: (0, 0, 0), count: maxBiasSamples)
     }
@@ -65,8 +69,21 @@ final class GyroProcessor: @unchecked Sendable {
         let z = Double(rawZ)
 
         // 2. Calculate dt with clamping to reduce jitter impact
-        // Expected sample period ~1/60s from the device
-        let expectedDt = 1.0 / max(1.0, settings.expectedSampleRate)
+        var expectedRate = max(1.0, settings.expectedSampleRate)
+
+        if settings.autoTuneSampleRate {
+            let observedDt = max(0.001, timestamp - (lastTimestamp ?? timestamp))
+            if observedDtEMA == 0 {
+                observedDtEMA = observedDt
+            } else {
+                observedDtEMA = observedAlpha * observedDt + (1 - observedAlpha) * observedDtEMA
+            }
+            let observedRate = 1.0 / max(0.001, observedDtEMA)
+            let clampedRate = min(100.0, max(40.0, observedRate))
+            expectedRate = clampedRate
+        }
+
+        let expectedDt = 1.0 / expectedRate
         let maxDt = expectedDt * 4.0  // tolerate brief stalls but cap spikes
         let dt: Double
         if let last = lastTimestamp {

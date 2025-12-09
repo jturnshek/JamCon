@@ -74,6 +74,8 @@ struct GyroSettingsState: Equatable {
     // MARK: Timing
     /// Expected sample rate (Hz) used for dt clamping and stall detection
     var expectedSampleRate: Double = 60.0
+    /// Whether to auto-tune the expected sample rate based on observed dt
+    var autoTuneSampleRate: Bool = false
 
     // MARK: Acceleration
     var accelerationMode: AccelerationMode = .simple
@@ -174,6 +176,7 @@ final class GyroSettings: @unchecked Sendable {
         defaults.set(state.rampSpeed, forKey: Keys.rampSpeed)
         defaults.set(state.softCutoffThreshold, forKey: Keys.softCutoffThreshold)
         defaults.set(state.recoveryThreshold, forKey: Keys.recoveryThreshold)
+        defaults.set(state.autoTuneSampleRate, forKey: "gyro.autoTuneSampleRate")
     }
 
     /// Load settings from UserDefaults
@@ -202,6 +205,9 @@ final class GyroSettings: @unchecked Sendable {
             }
             if let v = defaults.object(forKey: "gyro.biasMotionThreshold") as? Double, v > 0 {
                 state.biasMotionThreshold = v
+            }
+            if let v = defaults.object(forKey: "gyro.autoTuneSampleRate") as? Bool {
+                state.autoTuneSampleRate = v
             }
             if let v = defaults.string(forKey: Keys.adaptiveSmoothingMode),
                let mode = AdaptiveSmoothingMode(rawValue: v) {

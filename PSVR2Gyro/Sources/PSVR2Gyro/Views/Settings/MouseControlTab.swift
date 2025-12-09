@@ -152,6 +152,12 @@ private struct FilteringSection: View {
                             .font(.subheadline)
                         DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Auto-tune sample rate", isOn: $appState.autoTuneSampleRate)
+                            .font(.subheadline)
+                        DescriptionText(text: "Adjust expected IMU rate based on observed timing to keep filtering and stall detection aligned when the effective rate drifts.")
+                    }
                 }
             }
             .padding(.vertical, 8)

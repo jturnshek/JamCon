@@ -24,6 +24,7 @@ final class SettingsStore: @unchecked Sendable {
         var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speedAndJerk
         var expectedSampleRate: Double = 60.0
         var biasMotionThreshold: Double = 50.0
+        var autoTuneSampleRate: Bool = false
 
         // MARK: - Acceleration (matches GyroSettingsState order)
         var accelerationMode: AccelerationMode = .simple
@@ -120,6 +121,7 @@ final class SettingsStore: @unchecked Sendable {
             state.adaptiveSmoothingMode = adaptiveSmoothingMode
             state.expectedSampleRate = expectedSampleRate
             state.biasMotionThreshold = biasMotionThreshold
+            state.autoTuneSampleRate = autoTuneSampleRate
             state.accelerationMode = accelerationMode
             state.simpleAcceleration = simpleAcceleration
             state.curveExponent = curveExponent

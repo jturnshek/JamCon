@@ -225,6 +225,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    @Published var autoTuneSampleRate: Bool = false {
+        didSet {
+            UserDefaults.standard.set(autoTuneSampleRate, forKey: "gyro.autoTuneSampleRate")
+            settingsStore.update { $0.autoTuneSampleRate = autoTuneSampleRate }
+        }
+    }
+
     // Radial menu
     @Published var radialMenuConfiguration: RadialMenuConfiguration = .load() {
         didSet {
@@ -429,6 +436,7 @@ final class AppState: ObservableObject {
         _joystickScrollAcceleration = Published(initialValue: s.joystickScrollAcceleration)
         _joyConTimerFallbackEnabled = Published(initialValue: s.joyConTimerFallbackEnabled)
         _joyConTimerHybridEnabled = Published(initialValue: s.joyConTimerHybridEnabled)
+        _autoTuneSampleRate = Published(initialValue: s.autoTuneSampleRate)
 
         _radialMenuConfiguration = Published(initialValue: s.radialMenuConfiguration)
     }
