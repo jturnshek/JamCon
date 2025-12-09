@@ -83,7 +83,7 @@ final class GyroProcessor: @unchecked Sendable {
         lastTimestamp = timestamp
 
         // 3. Update bias estimation when stationary
-        updateBias(x: x, y: y, z: z)
+        updateBias(x: x, y: y, z: z, threshold: settings.biasMotionThreshold)
 
         // 4. Apply bias correction
         let calibratedX = x - biasX
@@ -149,10 +149,8 @@ final class GyroProcessor: @unchecked Sendable {
 
     // MARK: - Bias Estimation
 
-    private func updateBias(x: Double, y: Double, z: Double) {
+    private func updateBias(x: Double, y: Double, z: Double, threshold: Double) {
         let magnitudeSquared = x * x + y * y + z * z
-        let threshold = settings.biasMotionThreshold
-
         if magnitudeSquared < threshold * threshold {
             let old = biasBuffer[biasIndex]
             biasBuffer[biasIndex] = (x, y, z)
