@@ -21,6 +21,7 @@ class MouseController {
     private var cachedBounds: CGRect
     private let notificationCenter: NotificationCenter
     private var cachedPosition: CGPoint
+    private var resyncTimer: Timer?
 
     // MARK: - Initialization
 
@@ -33,6 +34,7 @@ class MouseController {
     }
 
     deinit {
+        resyncTimer?.invalidate()
         notificationCenter.removeObserver(self)
     }
 
@@ -277,7 +279,7 @@ class MouseController {
             self?.resyncPosition()
         }
         // Periodic safety resync to align with external cursor moves
-        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        resyncTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.resyncPosition()
         }
     }

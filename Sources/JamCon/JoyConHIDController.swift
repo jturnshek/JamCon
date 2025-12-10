@@ -112,6 +112,9 @@ final class JoyConHIDController {
     }
 
     func stop() {
+        // Signal the HID thread to exit its run loop
+        hidThread?.cancel()
+
         guard let runLoop = hidRunLoop else { return }
 
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
@@ -146,7 +149,7 @@ final class JoyConHIDController {
         guard hidThread == nil else { return }
 
         let thread = Thread { [weak self] in
-            autoreleasepool { self?.runHIDThread() }
+            self?.runHIDThread()
         }
         thread.name = "JamCon.JoyConHID"
         thread.qualityOfService = .userInteractive
@@ -161,7 +164,14 @@ final class JoyConHIDController {
         hidRunLoopReady.signal()
 
         configureHIDManager(on: hidRunLoop ?? CFRunLoopGetCurrent())
-        CFRunLoopRun()
+
+        // Run loop with periodic autorelease pool drain to prevent memory accumulation
+        // from autoreleased objects created in HID callbacks
+        while !Thread.current.isCancelled {
+            _ = autoreleasepool {
+                CFRunLoopRunInMode(.defaultMode, 1.0, false)
+            }
+        }
 
         hidRunLoop = nil
         hidThread = nil

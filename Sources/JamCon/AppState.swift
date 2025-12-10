@@ -332,6 +332,7 @@ final class AppState: ObservableObject {
     private var debugPollingTimer: Timer?
     private var logPollingTimer: Timer?
     private var accessibilityTimer: Timer?
+    private var accessibilityPollCount = 0
     private var batteryPollingTimer: Timer?
 
     // MARK: - Tab Enum
@@ -353,6 +354,13 @@ final class AppState: ObservableObject {
 
         // Setup engine callbacks for UI updates
         setupEngineCallbacks()
+    }
+
+    deinit {
+        debugPollingTimer?.invalidate()
+        logPollingTimer?.invalidate()
+        accessibilityTimer?.invalidate()
+        batteryPollingTimer?.invalidate()
     }
 
     // MARK: - Engine Lifecycle
@@ -789,13 +797,17 @@ final class AppState: ObservableObject {
     }
 
     private func startAccessibilityPolling() {
+        accessibilityPollCount = 0
         accessibilityTimer?.invalidate()
         accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.checkAccessibilityPermission()
-                if self?.hasAccessibilityPermission == true {
-                    self?.accessibilityTimer?.invalidate()
-                    self?.accessibilityTimer = nil
+                guard let self else { return }
+                self.accessibilityPollCount += 1
+                self.checkAccessibilityPermission()
+                // Stop polling after permission granted or 60 seconds (user probably dismissed the prompt)
+                if self.hasAccessibilityPermission || self.accessibilityPollCount >= 60 {
+                    self.accessibilityTimer?.invalidate()
+                    self.accessibilityTimer = nil
                 }
             }
         }

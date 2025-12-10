@@ -158,9 +158,7 @@ class SenseController {
         guard hidThread == nil else { return }
 
         let thread = Thread { [weak self] in
-            autoreleasepool {
-                self?.runHIDThread()
-            }
+            self?.runHIDThread()
         }
         thread.name = "JamCon.Sense.HID"
         thread.qualityOfService = .userInteractive
@@ -177,8 +175,13 @@ class SenseController {
 
         configureHIDManager(on: hidRunLoop ?? CFRunLoopGetCurrent())
 
-        // Keep the HID run loop alive until explicitly stopped
-        CFRunLoopRun()
+        // Run loop with periodic autorelease pool drain to prevent memory accumulation
+        // from autoreleased objects created in HID callbacks
+        while !Thread.current.isCancelled {
+            _ = autoreleasepool {
+                CFRunLoopRunInMode(.defaultMode, 1.0, false)
+            }
+        }
 
         // Cleanup after the run loop stops
         hidRunLoop = nil
@@ -228,6 +231,9 @@ class SenseController {
     }
 
     func stop() {
+        // Signal the HID thread to exit its run loop
+        hidThread?.cancel()
+
         guard let runLoop = hidRunLoop else {
             // Fallback cleanup if the HID thread was never started
             if let device = activeDevice {
