@@ -12,12 +12,14 @@ enum GyroRemapper {
     ///   - rawY: Raw Y axis from HID report
     ///   - rawZ: Raw Z axis from HID report
     ///   - controllerKind: The type of controller
+    ///   - isLeft: Whether this is a left-side controller (only relevant for Joy-Con)
     /// - Returns: Tuple of semantic axes (pitch=vertical, yaw=horizontal, roll=rotation)
     static func remap(
         rawX: Int16,
         rawY: Int16,
         rawZ: Int16,
-        controllerKind: ControllerKind
+        controllerKind: ControllerKind,
+        isLeft: Bool = true
     ) -> (pitch: Int16, yaw: Int16, roll: Int16) {
         switch controllerKind {
         case .sense:
@@ -27,10 +29,18 @@ enum GyroRemapper {
 
         case .joyCon:
             // Joy-Con: Axes are rotated compared to Sense
-            // HID X = roll (wrist twist), HID Y = pitch (up/down), HID Z = yaw (left/right pointing)
-            // Negate pitch to fix inverted up/down motion
-            // Keep yaw positive (rawZ) for correct left/right direction
-            return (pitch: -rawY, yaw: rawZ, roll: rawX)
+            // Left and Right Joy-Con are physical mirrors of each other
+            if isLeft {
+                // Left Joy-Con (held sideways with stick at top-left):
+                // HID Y = pitch (up/down), HID Z = yaw (left/right pointing)
+                // Negate pitch to fix inverted up/down motion
+                return (pitch: -rawY, yaw: rawZ, roll: rawX)
+            } else {
+                // Right Joy-Con (held sideways with stick at top-right):
+                // The controller is mirrored, so both pitch and yaw need to be inverted
+                // relative to the left Joy-Con mapping
+                return (pitch: rawY, yaw: -rawZ, roll: -rawX)
+            }
         }
     }
 
@@ -80,19 +90,21 @@ enum GyroRemapper {
     ///   - rawY: Raw Y axis from HID report
     ///   - rawZ: Raw Z axis from HID report
     ///   - controllerKind: The type of controller
+    ///   - isLeft: Whether this is a left-side controller (only relevant for Joy-Con)
     /// - Returns: All three pipeline stages
     static func process(
         rawX: Int16,
         rawY: Int16,
         rawZ: Int16,
-        controllerKind: ControllerKind
+        controllerKind: ControllerKind,
+        isLeft: Bool = true
     ) -> (
         raw: (x: Int16, y: Int16, z: Int16),
         remapped: (pitch: Int16, yaw: Int16, roll: Int16),
         normalized: (pitch: Double, yaw: Double, roll: Double)
     ) {
         let raw = (x: rawX, y: rawY, z: rawZ)
-        let remapped = remap(rawX: rawX, rawY: rawY, rawZ: rawZ, controllerKind: controllerKind)
+        let remapped = remap(rawX: rawX, rawY: rawY, rawZ: rawZ, controllerKind: controllerKind, isLeft: isLeft)
         let normalized = normalize(pitch: remapped.pitch, yaw: remapped.yaw, roll: remapped.roll, controllerKind: controllerKind)
 
         return (raw: raw, remapped: remapped, normalized: normalized)

@@ -387,12 +387,13 @@ final class InputEngine {
         )
 
         // 2. Process gyro through unified pipeline
-        // GyroRemapper handles the axis swapping for Joy-Con
+        // GyroRemapper handles the axis swapping for Joy-Con (different for left vs right)
         let pipeline = GyroRemapper.process(
             rawX: report.gyroX,
             rawY: report.gyroY,
             rawZ: report.gyroZ,
-            controllerKind: .joyCon
+            controllerKind: .joyCon,
+            isLeft: isLeft
         )
 
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
