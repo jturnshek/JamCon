@@ -28,8 +28,9 @@ enum GyroRemapper {
         case .joyCon:
             // Joy-Con: Axes are rotated compared to Sense
             // HID X = roll (wrist twist), HID Y = pitch (up/down), HID Z = yaw (left/right pointing)
-            // Negate yaw to match Sense polarity (so GyroProcessor's -yaw gives correct result)
-            return (pitch: rawY, yaw: -rawZ, roll: rawX)
+            // Negate pitch to fix inverted up/down motion
+            // Keep yaw positive (rawZ) for correct left/right direction
+            return (pitch: -rawY, yaw: rawZ, roll: rawX)
         }
     }
 

@@ -615,8 +615,8 @@ struct JoyConButtonMappingProfile: Codable {
             // D-pad
             buttonProfile.mappings[JoyConLogicalButton.dpadUp.rawValue] = ButtonActions(press: .drag)
             buttonProfile.mappings[JoyConLogicalButton.dpadDown.rawValue] = ButtonActions(press: .radialMenu)
-            buttonProfile.mappings[JoyConLogicalButton.dpadLeft.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 49, modifiers: .maskControl)), hold: .keyPress(KeyCombo(keyCode: 36)))  // ^Space, hold: Return
-            buttonProfile.mappings[JoyConLogicalButton.dpadRight.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 53)), hold: .keyPress(KeyCombo(keyCode: 8, modifiers: .maskControl)))  // Escape, hold: ^C
+            buttonProfile.mappings[JoyConLogicalButton.dpadLeft.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 53)), hold: .keyPress(KeyCombo(keyCode: 8, modifiers: .maskControl)))  // Escape, hold: ^C
+            buttonProfile.mappings[JoyConLogicalButton.dpadRight.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 49, modifiers: .maskControl)), hold: .keyPress(KeyCombo(keyCode: 36)))  // ^Space, hold: Return
             // Shoulder buttons
             buttonProfile.mappings[JoyConLogicalButton.l.rawValue] = ButtonActions(press: .mouseClick(.right))
             buttonProfile.mappings[JoyConLogicalButton.zl.rawValue] = ButtonActions(press: .mouseClick(.left))

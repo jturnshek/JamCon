@@ -1,43 +1,94 @@
 # Joy-Con HID Protocol (Bluetooth, Standard Full 0x30)
 
-Observations captured from a right Joy-Con on macOS (Bluetooth), report ID 0x30 (~49 bytes). This is a working notebook; masks/values to be confirmed.
+Observations captured from Joy-Con controllers on macOS (Bluetooth), report ID 0x30 (~49 bytes).
 
-## High-Level State
-- Report length observed: 49 bytes
-- Always-ticking (changes even when idle on table): 1, 9, 10, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47 (likely sequence/timers/IMU samples)
-- Stable in all observations so far: 0, 2, 5, 6, 7, 8, 12
-- When moving controller (gyro/accel): all bytes except 0, 2, 3, 4, 5, 6, 7, 8, 11, 12 update at high rate
-- Right stick movement: byte 11 updates continuously
+## Report Structure
 
-## Inputs Mapped (Right Joy-Con)
-- Byte 3 (bits confirmed):
-  - Y = 0x01
-  - X = 0x02
-  - B = 0x04
-  - A = 0x08
-  - SR (right) = 0x10
-  - SL (right) = 0x20
-  - R bumper = 0x40
-  - ZR trigger = 0x80
-- Byte 4 (bits confirmed):
-  - Plus = 0x02
-  - Stick click (R3) = 0x04
-  - Home/Menu = 0x0A  (observed; implies bits 0x02 + 0x08 set)
-- Bytes 9, 10, 11: right stick (all three participate; 9/10 flicker, 11 shows clear movement)
-  - Center jitter (byte 11): ~0x48–0x4A (72–74)
-  - Center jitter (byte 9): ~0x60–0x79 (samples seen: 0x65, 0x5E, 0x7A, 0x7E, 0x78, 0x79, 0x70)
-  - Center jitter (byte 10): ~0x80–0x98 (samples seen: 0x98, 0x68, 0x58, 0x78, 0x8A, 0x8C, 0x83, 0x82, 0x80)
-  - Full up (byte 11): ~0xBE–0xBF
-  - Full down (byte 11): ~0x2D–0x2E
-  - Full left (byte 11): ~0x80 (approx)
-  - Full right (byte 11): ~0x7E (approx)
-  - Hypothesis: standard Joy-Con 12-bit packing shifted by +1 byte (i.e., X = byte9 | ((byte10 & 0x0F) << 8), Y = (byte10 >> 4) | (byte11 << 4)). Observed values (up/down/left/right) fit this pattern roughly.
+- Report length: 49 bytes
+- Byte 0: Report ID (0x30)
+- Byte 1: Packet counter/timer
+- Byte 2: Battery level (upper nibble)
+- Bytes 3-5: Button data (layout differs by controller side)
+- Bytes 6-8: Left stick (12-bit packed)
+- Bytes 9-11: Right stick (12-bit packed)
+- Bytes 13-48: IMU data (3 samples × 12 bytes each: accel XYZ + gyro XYZ, all int16 LE)
 
-## TBD / Needs Masking
-- Bit masks for byte 3 (A/B/X/Y/R/ZR/stick click)
-- Bit masks for byte 4 (Plus, Home) → masks now observed; need to disambiguate Home exact bit (currently 0x0A observed)
-- Stick center/min/max values (byte 11 packing)
-- Confirm no action on bytes 0, 2, 5, 6, 7, 8, 12 across more scenarios
+## Right Joy-Con (Product ID 0x2007)
+
+### Buttons - Byte 3
+| Bit | Mask | Button |
+|-----|------|--------|
+| 0   | 0x01 | Y      |
+| 1   | 0x02 | X      |
+| 2   | 0x04 | B      |
+| 3   | 0x08 | A      |
+| 4   | 0x10 | SR     |
+| 5   | 0x20 | SL     |
+| 6   | 0x40 | R      |
+| 7   | 0x80 | ZR     |
+
+### Buttons - Byte 4
+| Bit | Mask | Button      |
+|-----|------|-------------|
+| 1   | 0x02 | Plus        |
+| 2   | 0x04 | Stick click |
+| 4   | 0x10 | Home        |
+
+### Stick
+- Bytes 9-11: 12-bit packed values
+- X = byte9 | ((byte10 & 0x0F) << 8)
+- Y = (byte10 >> 4) | (byte11 << 4)
+- Center: ~2048, Range: 0-4095
+
+## Left Joy-Con (Product ID 0x2006)
+
+### Buttons - Byte 4
+| Bit | Mask | Button      |
+|-----|------|-------------|
+| 0   | 0x01 | Minus       |
+| 3   | 0x08 | Stick click |
+| 5   | 0x20 | Capture     |
+
+### Buttons - Byte 5
+| Bit | Mask | Button   |
+|-----|------|----------|
+| 0   | 0x01 | D-pad Down  |
+| 1   | 0x02 | D-pad Up    |
+| 2   | 0x04 | D-pad Right |
+| 3   | 0x08 | D-pad Left  |
+| 4   | 0x10 | SR       |
+| 5   | 0x20 | SL       |
+| 6   | 0x40 | L        |
+| 7   | 0x80 | ZL       |
+
+### Stick
+- Bytes 6-8: 12-bit packed values
+- X = byte6 | ((byte7 & 0x0F) << 8)
+- Y = (byte7 >> 4) | (byte8 << 4)
+- Center: ~2048, Range: 0-4095
+
+## IMU Data
+
+Each report contains 3 IMU samples (oldest to newest). Each sample is 12 bytes:
+- Bytes 0-1: Accel X (int16 LE)
+- Bytes 2-3: Accel Y (int16 LE)
+- Bytes 4-5: Accel Z (int16 LE)
+- Bytes 6-7: Gyro X (int16 LE)
+- Bytes 8-9: Gyro Y (int16 LE)
+- Bytes 10-11: Gyro Z (int16 LE)
+
+Sample offsets: 13, 25, 37 (use sample at 37 for latest data)
+
+### Axis Mapping (for mouse control)
+- Gyro X → Roll (wrist twist)
+- Gyro Y → Pitch (up/down tilt) - **negate for correct direction**
+- Gyro Z → Yaw (left/right pointing)
+
+Gyro scale: 0.06103 °/s per LSB
 
 ## Battery
-- Battery byte (offset 2) upper nibble encodes level; current mapping in code uses coarse nibble mapping.
+Upper nibble of byte 2 encodes battery level:
+- 0x8: Full
+- 0x6: Medium
+- 0x4: Low
+- 0x2: Critical
