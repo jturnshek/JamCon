@@ -29,7 +29,7 @@ final class SettingsStore: @unchecked Sendable {
         var holdThreshold: Double = 0.3
 
         // MARK: - Global Joystick Settings
-        var joystickScrollEnabled: Bool = false
+        var joystickScrollEnabled: Bool = true
         var joystickScrollSpeed: Double = 10.0
         var joystickScrollAcceleration: Double = 3.0
 
@@ -234,7 +234,12 @@ final class SettingsStore: @unchecked Sendable {
             settings.holdThreshold = senseProfile.holdThreshold
 
             // Load global joystick settings
-            settings.joystickScrollEnabled = UserDefaults.standard.bool(forKey: "joystick.scrollEnabled")
+            // Use object(forKey:) to check if the key exists; default to true for new installs
+            if UserDefaults.standard.object(forKey: "joystick.scrollEnabled") != nil {
+                settings.joystickScrollEnabled = UserDefaults.standard.bool(forKey: "joystick.scrollEnabled")
+            } else {
+                settings.joystickScrollEnabled = true
+            }
             let savedSpeed = UserDefaults.standard.double(forKey: "joystick.scrollSpeed")
             settings.joystickScrollSpeed = savedSpeed > 0 ? savedSpeed : 10.0
             let savedAccel = UserDefaults.standard.double(forKey: "joystick.scrollAcceleration")

@@ -207,7 +207,7 @@ final class AppState: ObservableObject {
     }
 
     // Joystick settings
-    @Published var joystickScrollEnabled: Bool = false {
+    @Published var joystickScrollEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(joystickScrollEnabled, forKey: "joystick.scrollEnabled")
             settingsStore.update { $0.joystickScrollEnabled = joystickScrollEnabled }
