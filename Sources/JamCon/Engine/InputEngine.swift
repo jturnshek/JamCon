@@ -367,18 +367,13 @@ final class InputEngine {
         // Get the appropriate mapping (mutable reference for calibration)
         let isLeft = s.isLeftController
 
-        // Auto-calibrate stick center from first N samples after connection
-        // This captures the actual rest position of this specific Joy-Con
+        // Continuous auto-calibration: updates center when stick is stationary
         if isLeft {
-            if !joyConLeftMapping.calibration.isCalibrated {
-                let raw = joyConLeftMapping.joystickPositionRaw(in: report.bytes)
-                joyConLeftMapping.calibration.addSample(rawX: raw.x, rawY: raw.y)
-            }
+            let raw = joyConLeftMapping.joystickPositionRaw(in: report.bytes)
+            joyConLeftMapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
         } else {
-            if !joyConRightMapping.calibration.isCalibrated {
-                let raw = joyConRightMapping.joystickPositionRaw(in: report.bytes)
-                joyConRightMapping.calibration.addSample(rawX: raw.x, rawY: raw.y)
-            }
+            let raw = joyConRightMapping.joystickPositionRaw(in: report.bytes)
+            joyConRightMapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
         }
 
         let joyConMapping = isLeft ? joyConLeftMapping : joyConRightMapping
@@ -543,12 +538,17 @@ final class InputEngine {
 
         if abs(deltaX) > deadzone || abs(deltaY) > deadzone {
             let speed = settings.joystickScrollSpeed
+            let accel = settings.joystickScrollAcceleration
 
             func scaled(_ delta: Double) -> CGFloat {
                 let sign = delta >= 0 ? 1.0 : -1.0
                 let normalized = min(1.0, abs(delta) / maxDelta)
+                // Quadratic base curve for smooth feel
                 let curved = normalized * normalized
-                return CGFloat(sign * curved * speed * 2.0)
+                // Acceleration multiplies the output: higher accel = faster at full deflection
+                // Interpolate from 1x at low deflection to accel× at full deflection
+                let accelGain = 1.0 + (accel - 1.0) * normalized
+                return CGFloat(sign * curved * accelGain * speed * 2.0)
             }
 
             let scrollX = scaled(deltaX)
@@ -568,12 +568,18 @@ final class InputEngine {
 
         if abs(deltaX) > deadzone || abs(deltaY) > deadzone {
             let speed = settings.joystickScrollSpeed
+            let accel = settings.joystickScrollAcceleration
 
             func scaled(_ delta: Double) -> CGFloat {
                 let sign = delta >= 0 ? 1.0 : -1.0
                 let normalized = min(1.0, abs(delta) / maxDelta)
+                // Quadratic base curve for smooth feel
                 let curved = normalized * normalized
-                return CGFloat(sign * curved * speed * 2.0)
+                // Acceleration multiplies the output: higher accel = faster at full deflection
+                // At normalized=1.0: output = 1 * accel
+                // Interpolate from 1x at low deflection to accel× at full deflection
+                let accelGain = 1.0 + (accel - 1.0) * normalized
+                return CGFloat(sign * curved * accelGain * speed * 2.0)
             }
 
             let scrollX = scaled(deltaX)

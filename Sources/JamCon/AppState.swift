@@ -214,14 +214,14 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published var joystickScrollSpeed: Double = 5.0 {
+    @Published var joystickScrollSpeed: Double = 10.0 {
         didSet {
             UserDefaults.standard.set(joystickScrollSpeed, forKey: "joystick.scrollSpeed")
             settingsStore.update { $0.joystickScrollSpeed = joystickScrollSpeed }
         }
     }
 
-    @Published var joystickScrollAcceleration: Double = 1.0 {
+    @Published var joystickScrollAcceleration: Double = 3.0 {
         didSet {
             UserDefaults.standard.set(joystickScrollAcceleration, forKey: "joystick.scrollAcceleration")
             settingsStore.update { $0.joystickScrollAcceleration = joystickScrollAcceleration }

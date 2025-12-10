@@ -114,22 +114,107 @@ struct JoyConStickCalibration {
     var sampleCount: Int = 0
     var isCalibrated: Bool = false
 
-    /// Number of samples to collect for calibration
+    // Track actual stick range (updated continuously as stick moves)
+    var minX: Double = 2048.0
+    var maxX: Double = 2048.0
+    var minY: Double = 2048.0
+    var maxY: Double = 2048.0
+
+    // Auto-calibration state
+    private var autoCalibStartTime: TimeInterval?
+    private var autoCalibAccumX: Double = 0
+    private var autoCalibAccumY: Double = 0
+    private var autoCalibSumSqX: Double = 0
+    private var autoCalibSumSqY: Double = 0
+    private var autoCalibCount: Int = 0
+    private var lastAutoCalibUpdate: TimeInterval?
+
+    // Constants
     static let requiredSamples = 30
+    static let autoCalibMinDuration: TimeInterval = 0.5  // 500ms of stillness
+    static let autoCalibMinSamples: Int = 30
+    static let autoCalibCooldown: TimeInterval = 2.0     // Don't recalibrate too often
+    static let autoCalibMaxStdDev: Double = 20.0         // Max std dev in raw units (~0.5% of range)
+    static let autoCalibMotionThreshold: Double = 200.0  // Motion that cancels accumulation
+    static let minEffectiveRange: Double = 400.0         // Minimum range to avoid division issues
 
-    /// Accumulate a sample for calibration (call when stick is at rest on connection)
-    mutating func addSample(rawX: UInt16, rawY: UInt16) {
-        guard !isCalibrated else { return }
+    /// Effective range from center for X axis (dynamically calculated)
+    var effectiveRangeX: Double {
+        let rangeNeg = centerX - minX
+        let rangePos = maxX - centerX
+        return max(rangeNeg, rangePos, Self.minEffectiveRange)
+    }
 
-        let count = Double(sampleCount)
-        // Running average
-        centerX = (centerX * count + Double(rawX)) / (count + 1)
-        centerY = (centerY * count + Double(rawY)) / (count + 1)
-        sampleCount += 1
+    /// Effective range from center for Y axis (dynamically calculated)
+    var effectiveRangeY: Double {
+        let rangeNeg = centerY - minY
+        let rangePos = maxY - centerY
+        return max(rangeNeg, rangePos, Self.minEffectiveRange)
+    }
 
-        if sampleCount >= Self.requiredSamples {
-            isCalibrated = true
+    /// Continuous auto-calibration: updates center when stick is stationary, always tracks range
+    mutating func updateAutoCalibration(rawX: UInt16, rawY: UInt16, timestamp: TimeInterval) {
+        let x = Double(rawX)
+        let y = Double(rawY)
+
+        // Always track min/max to learn the stick's actual range
+        minX = min(minX, x)
+        maxX = max(maxX, x)
+        minY = min(minY, y)
+        maxY = max(maxY, y)
+
+        // If stick moved significantly from current center, reset center accumulation
+        let deltaX = abs(x - centerX)
+        let deltaY = abs(y - centerY)
+        if deltaX > Self.autoCalibMotionThreshold || deltaY > Self.autoCalibMotionThreshold {
+            resetAutoCalibAccumulator()
+            return
         }
+
+        // Accumulate samples for center detection
+        if autoCalibStartTime == nil {
+            autoCalibStartTime = timestamp
+        }
+        autoCalibAccumX += x
+        autoCalibAccumY += y
+        autoCalibSumSqX += x * x
+        autoCalibSumSqY += y * y
+        autoCalibCount += 1
+
+        // Check if we have enough stable samples
+        guard let start = autoCalibStartTime,
+              timestamp - start >= Self.autoCalibMinDuration,
+              autoCalibCount >= Self.autoCalibMinSamples,
+              (lastAutoCalibUpdate == nil || timestamp - (lastAutoCalibUpdate ?? 0) >= Self.autoCalibCooldown)
+        else { return }
+
+        // Calculate variance
+        let inv = 1.0 / Double(autoCalibCount)
+        let avgX = autoCalibAccumX * inv
+        let avgY = autoCalibAccumY * inv
+        let varX = max(0, autoCalibSumSqX * inv - avgX * avgX)
+        let varY = max(0, autoCalibSumSqY * inv - avgY * avgY)
+        let stdX = sqrt(varX)
+        let stdY = sqrt(varY)
+
+        // If variance is low enough, update center
+        if stdX < Self.autoCalibMaxStdDev && stdY < Self.autoCalibMaxStdDev {
+            centerX = avgX
+            centerY = avgY
+            isCalibrated = true
+            lastAutoCalibUpdate = timestamp
+        }
+
+        resetAutoCalibAccumulator()
+    }
+
+    private mutating func resetAutoCalibAccumulator() {
+        autoCalibStartTime = nil
+        autoCalibAccumX = 0
+        autoCalibAccumY = 0
+        autoCalibSumSqX = 0
+        autoCalibSumSqY = 0
+        autoCalibCount = 0
     }
 
     /// Reset calibration (e.g., on reconnect)
@@ -138,6 +223,12 @@ struct JoyConStickCalibration {
         centerY = 2048.0
         sampleCount = 0
         isCalibrated = false
+        minX = 2048.0
+        maxX = 2048.0
+        minY = 2048.0
+        maxY = 2048.0
+        resetAutoCalibAccumulator()
+        lastAutoCalibUpdate = nil
     }
 }
 
@@ -288,13 +379,14 @@ struct JoyConButtonMapping {
     func joystickPosition(in report: [UInt8]) -> (x: UInt8, y: UInt8) {
         let raw = joystickPositionRaw(in: report)
 
-        // Use calibrated center (auto-detected on connection) or fallback to 2048
+        // Use calibrated center and dynamically learned range
         let centerX = calibration.centerX
         let centerY = calibration.centerY
-        let effectiveRange: Double = 1400.0  // Typical max deflection from center
+        let rangeX = calibration.effectiveRangeX
+        let rangeY = calibration.effectiveRangeY
         let deadzone = Self.deadzoneRadius
 
-        func normalize(_ raw: UInt16, center: Double) -> UInt8 {
+        func normalize(_ raw: UInt16, center: Double, range: Double) -> UInt8 {
             let delta = Double(raw) - center
 
             // Apply deadzone: if within deadzone radius, report as center
@@ -304,13 +396,14 @@ struct JoyConButtonMapping {
 
             // Subtract deadzone from delta to eliminate jump when leaving deadzone
             let adjusted = delta - (delta > 0 ? deadzone : -deadzone)
-            let adjustedRange = effectiveRange - deadzone
+            let adjustedRange = range - deadzone
             let scaled = (adjusted / adjustedRange) * 127.0
             let clamped = max(-127.0, min(127.0, scaled))
             return UInt8(clamping: Int(128.0 + clamped))
         }
 
-        return (normalize(raw.x, center: centerX), normalize(raw.y, center: centerY))
+        return (normalize(raw.x, center: centerX, range: rangeX),
+                normalize(raw.y, center: centerY, range: rangeY))
     }
 
     /// Read raw 12-bit joystick values (0-4095 range, center ~2048)

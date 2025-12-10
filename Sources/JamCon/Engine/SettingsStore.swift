@@ -30,8 +30,8 @@ final class SettingsStore: @unchecked Sendable {
 
         // MARK: - Global Joystick Settings
         var joystickScrollEnabled: Bool = false
-        var joystickScrollSpeed: Double = 5.0
-        var joystickScrollAcceleration: Double = 1.0
+        var joystickScrollSpeed: Double = 10.0
+        var joystickScrollAcceleration: Double = 3.0
 
         // MARK: - Global Radial Menu
         var radialMenuConfiguration: RadialMenuConfiguration = .load()
@@ -236,9 +236,9 @@ final class SettingsStore: @unchecked Sendable {
             // Load global joystick settings
             settings.joystickScrollEnabled = UserDefaults.standard.bool(forKey: "joystick.scrollEnabled")
             let savedSpeed = UserDefaults.standard.double(forKey: "joystick.scrollSpeed")
-            settings.joystickScrollSpeed = savedSpeed > 0 ? savedSpeed : 5.0
+            settings.joystickScrollSpeed = savedSpeed > 0 ? savedSpeed : 10.0
             let savedAccel = UserDefaults.standard.double(forKey: "joystick.scrollAcceleration")
-            settings.joystickScrollAcceleration = savedAccel > 0 ? savedAccel : 1.0
+            settings.joystickScrollAcceleration = savedAccel > 0 ? savedAccel : 3.0
 
             // Load global radial menu
             settings.radialMenuConfiguration = .load()
