@@ -6,6 +6,9 @@ import AppKit
 private enum RadialMenuLayout {
     /// Gap between adjacent slices, in points.
     static let sliceGapWidth: CGFloat = 4.0
+
+    /// How strong the slice blur appears (lower = more transparent).
+    static let sliceBlurOpacity: Double = 0.60
 }
 
 // MARK: - Colors Helper
@@ -60,7 +63,7 @@ struct RadialMenuView: View {
             // Single material layer masked to all slices. This avoids stacking many separate
             // material layers (one per slice), which can produce visible transparency artifacts
             // on light backgrounds.
-            slicesMaterialBackground
+            slicesBackground
 
             // Inner ring pie slices - stroke-based design with rainbow colors
             ForEach(Array(state.activeConfiguration.items.enumerated()), id: \.element.id) { index, item in
@@ -143,41 +146,25 @@ struct RadialMenuView: View {
         }
     }
 
-    private var slicesMaterialBackground: some View {
-        Rectangle()
+    private var slicesBackground: some View {
+        slicesShape
             .fill(.ultraThinMaterial)
-            .mask(slicesMask)
+            .opacity(RadialMenuLayout.sliceBlurOpacity)
             .allowsHitTesting(false)
     }
 
-    private var slicesMask: some View {
-        ZStack {
-            // Inner ring slices
-            ForEach(Array(state.activeConfiguration.items.enumerated()), id: \.element.id) { index, _ in
-                PieSlice(
-                    index: index,
-                    total: state.sliceCount,
-                    innerRadiusRatio: state.activeConfiguration.innerRadiusRatio,
-                    outerRadiusRatio: innerRingOuterRatio,
-                    rotationOffset: innerRingRotationRadians
-                )
-                .fill(Color.white)
-            }
-
-            // Outer ring slices (if enabled)
-            if state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0 {
-                ForEach(Array(state.activeConfiguration.outerRingItems.enumerated()), id: \.element.id) { index, _ in
-                    PieSlice(
-                        index: index,
-                        total: state.outerRingSliceCount,
-                        innerRadiusRatio: outerRingInnerRatio,
-                        outerRadiusRatio: 1.0,
-                        rotationOffset: outerRingRotationRadians
-                    )
-                    .fill(Color.white)
-                }
-            }
-        }
+    private var slicesShape: RadialMenuSlicesShape {
+        RadialMenuSlicesShape(
+            innerCount: state.sliceCount,
+            innerInnerRadiusRatio: state.activeConfiguration.innerRadiusRatio,
+            innerOuterRadiusRatio: innerRingOuterRatio,
+            innerRotationOffset: innerRingRotationRadians,
+            outerEnabled: state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0,
+            outerCount: state.outerRingSliceCount,
+            outerInnerRadiusRatio: outerRingInnerRatio,
+            outerOuterRadiusRatio: 1.0,
+            outerRotationOffset: outerRingRotationRadians
+        )
     }
 
     /// Inner ring outer edge ratio (depends on whether outer ring is enabled)
@@ -396,6 +383,55 @@ struct PieSlice: InsettableShape {
         var slice = self
         slice.insetAmount += amount
         return slice
+    }
+}
+
+// MARK: - Combined Slices Shape
+
+/// A single Shape representing all active slice regions (inner + optional outer ring).
+/// Used to apply a single material/glass layer without stacking per-slice effects.
+private struct RadialMenuSlicesShape: Shape {
+    let innerCount: Int
+    let innerInnerRadiusRatio: Double
+    let innerOuterRadiusRatio: Double
+    let innerRotationOffset: Double
+
+    let outerEnabled: Bool
+    let outerCount: Int
+    let outerInnerRadiusRatio: Double
+    let outerOuterRadiusRatio: Double
+    let outerRotationOffset: Double
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        if innerCount > 0 {
+            for index in 0..<innerCount {
+                let slice = PieSlice(
+                    index: index,
+                    total: innerCount,
+                    innerRadiusRatio: innerInnerRadiusRatio,
+                    outerRadiusRatio: innerOuterRadiusRatio,
+                    rotationOffset: innerRotationOffset
+                )
+                path.addPath(slice.path(in: rect))
+            }
+        }
+
+        if outerEnabled, outerCount > 0 {
+            for index in 0..<outerCount {
+                let slice = PieSlice(
+                    index: index,
+                    total: outerCount,
+                    innerRadiusRatio: outerInnerRadiusRatio,
+                    outerRadiusRatio: outerOuterRadiusRatio,
+                    rotationOffset: outerRotationOffset
+                )
+                path.addPath(slice.path(in: rect))
+            }
+        }
+
+        return path
     }
 }
 
