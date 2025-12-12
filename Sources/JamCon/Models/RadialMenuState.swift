@@ -31,6 +31,9 @@ class RadialMenuState: ObservableObject {
     /// Whether the radial menu is currently visible
     @Published var isVisible: Bool = false
 
+    /// How pointer movement is represented (ghost dot vs system cursor).
+    @Published var pointerStyle: RadialMenuPointerStyle = .ghostCursor
+
     /// Current mouse position where menu is anchored (screen coordinates)
     @Published var anchorPosition: CGPoint = .zero
 
@@ -63,7 +66,11 @@ class RadialMenuState: ObservableObject {
 
     /// Sensitivity multiplier for delta movement (shared with engine)
     var movementSensitivity: CGFloat {
-        max(0.1, activeConfiguration.radialMovementScale)
+        if pointerStyle == .systemCursor {
+            // Mouse selection uses the system cursor directly; don't apply gyro-style scaling.
+            return 1.0
+        }
+        return max(0.1, activeConfiguration.radialMovementScale)
     }
 
     // MARK: - Internal State
@@ -122,10 +129,11 @@ class RadialMenuState: ObservableObject {
     // MARK: - Methods
 
     /// Show the menu at the given screen position
-    func show(at position: CGPoint, configuration: RadialMenuConfiguration? = nil) {
+    func show(at position: CGPoint, configuration: RadialMenuConfiguration? = nil, pointerStyle: RadialMenuPointerStyle = .ghostCursor) {
         if let config = configuration {
             activeConfiguration = config
         }
+        self.pointerStyle = pointerStyle
         anchorPosition = position
         highlightedIndex = nil
         outerRingHighlightedIndex = nil
@@ -198,6 +206,62 @@ class RadialMenuState: ObservableObject {
             outerRingHighlightedIndex = nil
         } else {
             // In outer ring zone
+            selectedRing = .outer
+            highlightedIndex = nil
+            outerRingHighlightedIndex = angleToSegmentIndex(
+                angle,
+                sliceCount: outerRingSliceCount,
+                rotationDegrees: activeConfiguration.outerRingRotation
+            )
+        }
+    }
+
+    /// Set position directly from absolute offset (for mouse input)
+    /// Unlike updateFromDelta, this sets the position absolutely rather than accumulating
+    /// - Parameters:
+    ///   - dx: Horizontal offset from center (positive = right)
+    ///   - dy: Vertical offset from center (positive = down in screen coordinates)
+    func setAbsolutePosition(dx: CGFloat, dy: CGFloat) {
+        // Set position directly (not accumulated)
+        accumulatedDelta.x = dx * movementSensitivity
+        accumulatedDelta.y = dy * movementSensitivity
+
+        // Calculate magnitude (distance from center)
+        let magnitude = sqrt(accumulatedDelta.x * accumulatedDelta.x + accumulatedDelta.y * accumulatedDelta.y)
+
+        // Calculate angle for segment selection
+        let angle = atan2(accumulatedDelta.y, accumulatedDelta.x)
+
+        // Clamp ghost cursor to max radius
+        let clampedMagnitude = min(magnitude, maxGhostRadius)
+        let newGhostPosition = CGPoint(
+            x: cos(angle) * clampedMagnitude,
+            y: sin(angle) * clampedMagnitude
+        )
+
+        ghostPosition = newGhostPosition
+
+        // Clamp accumulatedDelta to prevent "getting stuck" outside
+        if magnitude > maxGhostRadius {
+            let scale = maxGhostRadius / magnitude
+            accumulatedDelta.x *= scale
+            accumulatedDelta.y *= scale
+        }
+
+        // Determine which ring is selected based on clamped magnitude
+        let outerRingEnabled = activeConfiguration.outerRingEnabled && outerRingSliceCount > 0
+
+        if clampedMagnitude < selectionThreshold {
+            selectedRing = .none
+            highlightedIndex = nil
+            outerRingHighlightedIndex = nil
+        } else if !outerRingEnabled || clampedMagnitude < outerRingInnerRadius {
+            selectedRing = .inner
+            highlightedIndex = sliceCount > 0
+                ? angleToSegmentIndex(angle, sliceCount: sliceCount, rotationDegrees: activeConfiguration.innerRingRotation)
+                : nil
+            outerRingHighlightedIndex = nil
+        } else {
             selectedRing = .outer
             highlightedIndex = nil
             outerRingHighlightedIndex = angleToSegmentIndex(

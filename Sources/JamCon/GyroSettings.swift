@@ -125,6 +125,10 @@ struct GyroSettingsState: Equatable {
         case .joyCon:
             state.expectedSampleRate = 66.0
             state.biasMotionThreshold = 30.0
+        case .mouse:
+            // Mouse has no gyro, but provide sensible defaults
+            state.expectedSampleRate = 0.0
+            state.biasMotionThreshold = 0.0
         }
         return state
     }

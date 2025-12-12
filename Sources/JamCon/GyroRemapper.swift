@@ -41,6 +41,10 @@ enum GyroRemapper {
                 // relative to the left Joy-Con mapping
                 return (pitch: rawY, yaw: -rawZ, roll: -rawX)
             }
+
+        case .mouse:
+            // Mouse has no gyro - return zeros
+            return (pitch: 0, yaw: 0, roll: 0)
         }
     }
 
@@ -55,6 +59,8 @@ enum GyroRemapper {
             return SenseHIDProtocol.defaultGyroScale  // 0.0625 (1/16)
         case .joyCon:
             return JoyConHIDProtocol.defaultGyroScale  // 0.06103
+        case .mouse:
+            return 0.0  // Mouse has no gyro
         }
     }
 

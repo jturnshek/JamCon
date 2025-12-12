@@ -4,11 +4,37 @@ import Foundation
 enum ControllerKind: String, Codable, Sendable, CaseIterable {
     case sense
     case joyCon
+    case mouse
 
     var displayName: String {
         switch self {
         case .sense: return "Sense"
         case .joyCon: return "Joy-Con"
+        case .mouse: return "G502X"
+        }
+    }
+
+    /// Whether this controller type has left/right variants
+    var hasSides: Bool {
+        switch self {
+        case .sense, .joyCon: return true
+        case .mouse: return false
+        }
+    }
+
+    /// Whether this controller type has gyro/accelerometer
+    var hasGyro: Bool {
+        switch self {
+        case .sense, .joyCon: return true
+        case .mouse: return false
+        }
+    }
+
+    /// Whether this controller type has a joystick
+    var hasJoystick: Bool {
+        switch self {
+        case .sense, .joyCon: return true
+        case .mouse: return false
         }
     }
 }
@@ -24,21 +50,28 @@ struct ControllerProfile: Hashable, Codable, Sendable {
         "\(kind.rawValue).\(isLeft ? "left" : "right")"
     }
 
-    /// Human-readable display name, e.g. "Joy-Con Left"
+    /// Human-readable display name, e.g. "Joy-Con Left" or just "G502X"
     var displayName: String {
-        let sideName = isLeft ? "Left" : "Right"
-        return "\(kind.displayName) \(sideName)"
+        if kind.hasSides {
+            let sideName = isLeft ? "Left" : "Right"
+            return "\(kind.displayName) \(sideName)"
+        } else {
+            return kind.displayName
+        }
     }
 
-    var side: String { isLeft ? "Left" : "Right" }
+    var side: String {
+        kind.hasSides ? (isLeft ? "Left" : "Right") : ""
+    }
 
-    // Static convenience accessors for all 4 profiles
+    // Static convenience accessors for all profiles
     static let senseLeft = ControllerProfile(kind: .sense, isLeft: true)
     static let senseRight = ControllerProfile(kind: .sense, isLeft: false)
     static let joyConLeft = ControllerProfile(kind: .joyCon, isLeft: true)
     static let joyConRight = ControllerProfile(kind: .joyCon, isLeft: false)
+    static let mouse = ControllerProfile(kind: .mouse, isLeft: false)  // Mouse has no sides
 
-    static let allProfiles: [ControllerProfile] = [.senseLeft, .senseRight, .joyConLeft, .joyConRight]
+    static let allProfiles: [ControllerProfile] = [.senseLeft, .senseRight, .joyConLeft, .joyConRight, .mouse]
 
     /// Create a profile from a ControllerInfo
     init(from info: ControllerInfo) {
@@ -65,8 +98,12 @@ struct ControllerInfo: Identifiable, Equatable, Sendable {
             return productID == SenseHIDProtocol.leftProductID
         case .joyCon:
             return productID == JoyConHIDProtocol.leftProductID
+        case .mouse:
+            return false  // Mouse has no sides
         }
     }
 
-    var side: String { isLeft ? "Left" : "Right" }
+    var side: String {
+        kind.hasSides ? (isLeft ? "Left" : "Right") : ""
+    }
 }

@@ -132,7 +132,7 @@ final class DebugBuffer: @unchecked Sendable {
             guard _isRecording else { return }
 
             // Track byte/bit changes
-            let maxIndex = min(length, previousBytes.count)
+            let maxIndex = min(length, previousBytes.count, bytes.count)
             for i in 0..<maxIndex {
                 if bytes[i] != previousBytes[i] {
                     byteLastChanged[i] = now

@@ -9,7 +9,13 @@ struct MouseControlTab: View {
         VStack(spacing: 0) {
             TabHeader(appState: appState)
 
-            if appState.isConnected {
+            if appState.activeControllerKind == .mouse {
+                // Mouse devices don't have gyro
+                NoControllerView(
+                    icon: "computermouse",
+                    message: "Gyro mouse settings are not available for USB mice.\n\nThese settings control how controller gyroscope data is translated to mouse movement."
+                )
+            } else if appState.isConnected {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Profile indicator

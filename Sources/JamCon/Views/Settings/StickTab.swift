@@ -9,7 +9,13 @@ struct JoystickTab: View {
         VStack(spacing: 0) {
             TabHeader(appState: appState)
 
-            if appState.isConnected {
+            if appState.activeControllerKind == .mouse {
+                // Mouse devices don't have joysticks
+                NoControllerView(
+                    icon: "computermouse",
+                    message: "Joystick settings are not available for USB mice.\n\nThese settings control how controller joystick input is translated to scroll wheel actions."
+                )
+            } else if appState.isConnected {
                 Form {
                     Section {
                         Toggle("Enable Joystick Scroll", isOn: $appState.joystickScrollEnabled)

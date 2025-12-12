@@ -17,6 +17,7 @@ final class InputEngine {
 
     let senseController: SenseController
     let joyConController: JoyConHIDController
+    let g502xController: G502XHIDController
     private let mouseController: MouseController
     private let gyroProcessor: GyroProcessor
     private let actionExecutor: ActionExecutor
@@ -54,6 +55,19 @@ final class InputEngine {
     private var joyConLeftMapping = JoyConButtonMapping(isLeft: true)
     private var joyConRightMapping = JoyConButtonMapping(isLeft: false)
 
+    // G502X button state
+    private var g502xButtonStates: [Bool]
+    private var g502xPreviousButtonStates: [Bool]
+    private var g502xButtonPressStates: [ButtonPressState?]
+    private var g502xHoldTimers: [DispatchWorkItem?]
+    private let g502xMapping = G502XButtonMapping()
+    private var g502xHasPrimedButtonState: Bool = false
+
+    // Mouse movement capture for radial menu (when using G502X)
+    private let radialMenuLock = OSAllocatedUnfairLock()
+    private var radialMenuCursorAnchor: CGPoint?
+    private var radialMenuCursorPollTimer: DispatchSourceTimer?
+
     // MARK: - Radial Menu State (Internal)
 
     private var radialMenuPosition: CGPoint = .zero
@@ -64,9 +78,10 @@ final class InputEngine {
 
     /// Called when radial menu should show/hide - UI can observe this
     /// This is the ONLY callback to UI, and it's for radial menu overlay
-    var onRadialMenuShow: ((_ position: CGPoint, _ configuration: RadialMenuConfiguration) -> Void)?
+    var onRadialMenuShow: ((_ position: CGPoint, _ configuration: RadialMenuConfiguration, _ pointerStyle: RadialMenuPointerStyle) -> Void)?
     var onRadialMenuHide: ((_ selectedItem: RadialMenuItem?) -> Void)?
     var onRadialMenuUpdate: ((_ delta: CGPoint) -> Void)?
+    var onRadialMenuSetPosition: ((_ offset: CGPoint) -> Void)?  // For mouse: absolute position
 
     // MARK: - Connection Callbacks (for UI to update controller list)
 
@@ -100,6 +115,7 @@ final class InputEngine {
         // Initialize controllers
         self.senseController = SenseController()
         self.joyConController = JoyConHIDController()
+        self.g502xController = G502XHIDController()
         self.mouseController = MouseController()
         self.gyroProcessor = GyroProcessor()
         self.actionExecutor = ActionExecutor(mouseController: mouseController)
@@ -117,6 +133,13 @@ final class InputEngine {
         self.joyConPreviousButtonStates = Array(repeating: false, count: joyConButtonCount)
         self.joyConButtonPressStates = Array(repeating: nil, count: joyConButtonCount)
         self.joyConHoldTimers = Array(repeating: nil, count: joyConButtonCount)
+
+        // Initialize G502X button state arrays
+        let g502xButtonCount = G502XLogicalButton.count
+        self.g502xButtonStates = Array(repeating: false, count: g502xButtonCount)
+        self.g502xPreviousButtonStates = Array(repeating: false, count: g502xButtonCount)
+        self.g502xButtonPressStates = Array(repeating: nil, count: g502xButtonCount)
+        self.g502xHoldTimers = Array(repeating: nil, count: g502xButtonCount)
     }
 
     // MARK: - Lifecycle
@@ -134,9 +157,13 @@ final class InputEngine {
         if let savedJoyCon = UserDefaults.standard.string(forKey: "lastSelectedJoyConControllerID") {
             joyConController.preferredControllerID = savedJoyCon
         }
+        if let savedMouse = UserDefaults.standard.string(forKey: "lastSelectedMouseID") {
+            g502xController.preferredMouseID = savedMouse
+        }
 
         senseController.start()
         joyConController.start()
+        g502xController.start()
     }
 
     func stop() {
@@ -145,12 +172,16 @@ final class InputEngine {
 
         senseController.stop()
         joyConController.stop()
+        g502xController.stop()
 
         // Cancel all hold timers
         for timer in holdTimers {
             timer?.cancel()
         }
         for timer in joyConHoldTimers {
+            timer?.cancel()
+        }
+        for timer in g502xHoldTimers {
             timer?.cancel()
         }
     }
@@ -171,6 +202,10 @@ final class InputEngine {
         case .joyCon:
             UserDefaults.standard.set(id, forKey: "lastSelectedJoyConControllerID")
             joyConController.selectController(id: id)
+        case .mouse:
+            UserDefaults.standard.set(id, forKey: "lastSelectedMouseID")
+            resetG502XButtonStateBaseline()
+            g502xController.selectMouse(id: id)
         }
     }
 
@@ -183,10 +218,12 @@ final class InputEngine {
         // Clear saved preferences
         UserDefaults.standard.removeObject(forKey: "lastSelectedControllerID")
         UserDefaults.standard.removeObject(forKey: "lastSelectedJoyConControllerID")
+        UserDefaults.standard.removeObject(forKey: "lastSelectedMouseID")
 
         // Deselect in HID controllers
         senseController.deselectController()
         joyConController.deselectController()
+        g502xController.deselectMouse()
 
         // Reset battery
         updateBatteryLevel(0)
@@ -196,12 +233,13 @@ final class InputEngine {
     var availableControllers: [ControllerInfo] {
         let senseInfos = senseController.discoveredControllers.map { $0.info }
         let joyInfos = joyConController.discoveredControllers.map { $0.info }
-        return senseInfos + joyInfos
+        let mouseInfos = g502xController.discoveredMice.map { $0.info }
+        return senseInfos + joyInfos + mouseInfos
     }
 
     /// Current connection state
     var isConnected: Bool {
-        senseController.isConnected || joyConController.isConnected
+        senseController.isConnected || joyConController.isConnected || g502xController.isConnected
     }
 
     /// Current controller name
@@ -210,6 +248,8 @@ final class InputEngine {
             return senseController.controllerName
         } else if joyConController.isConnected {
             return joyConController.controllerName
+        } else if g502xController.isConnected {
+            return g502xController.mouseName
         }
         return nil
     }
@@ -220,6 +260,8 @@ final class InputEngine {
             return senseController.selectedControllerID
         } else if joyConController.isConnected {
             return joyConController.selectedControllerID
+        } else if g502xController.isConnected {
+            return g502xController.selectedMouseID
         }
         return nil
     }
@@ -279,6 +321,29 @@ final class InputEngine {
 
         joyConController.onDebugMessage = { [weak self] message in
             self?.debugBuffer.log("[JoyCon] \(message)")
+        }
+
+        // G502X Mouse Controller
+        g502xController.onReportData = { [weak self] report in
+            self?.processG502XReport(report)
+        }
+
+        g502xController.onConnectionChange = { [weak self] connected, name, _ in
+            guard let self else { return }
+            if connected {
+                self.resetG502XButtonStateBaseline()
+            } else {
+                self.resetG502XButtonStateBaseline()
+            }
+            self.onConnectionChanged?(connected, name, .mouse)
+        }
+
+        g502xController.onControllersChanged = { [weak self] in
+            self?.onControllerListChanged?()
+        }
+
+        g502xController.onDebugMessage = { [weak self] message in
+            self?.debugBuffer.log("[G502X] \(message)")
         }
     }
 
@@ -491,8 +556,10 @@ final class InputEngine {
             let scale = max(0.1, configuration.radialMovementScale)
             let scaledDx = dx * scale
             let scaledDy = dy * scale
-            radialMenuAccumulator.x += scaledDx
-            radialMenuAccumulator.y += scaledDy
+            radialMenuLock.withLock {
+                radialMenuAccumulator.x += scaledDx
+                radialMenuAccumulator.y += scaledDy
+            }
             onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
         }
     }
@@ -520,8 +587,10 @@ final class InputEngine {
             let scale = max(0.1, configuration.radialMovementScale)
             let scaledDx = dx * scale
             let scaledDy = dy * scale
-            radialMenuAccumulator.x += scaledDx
-            radialMenuAccumulator.y += scaledDy
+            radialMenuLock.withLock {
+                radialMenuAccumulator.x += scaledDx
+                radialMenuAccumulator.y += scaledDy
+            }
             onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
         }
     }
@@ -646,11 +715,11 @@ final class InputEngine {
                 scrollButtonHeld = true
             case .radialMenu:
                 radialMenuButtonHeld = true
-                radialMenuAccumulator = .zero
+                radialMenuLock.withLock { radialMenuAccumulator = .zero }
                 let position = NSEvent.mouseLocation
                 let config = settings.snapshot().radialMenuConfiguration
-                onRadialMenuShow?(position, config)
                 mouseController.hideCursor()
+                onRadialMenuShow?(position, config, .ghostCursor)
             default:
                 break
             }
@@ -736,7 +805,6 @@ final class InputEngine {
             scrollButtonHeld = false
         case .radialMenu:
             radialMenuButtonHeld = false
-            mouseController.showCursor()
 
             // Determine selected item based on accumulated movement
             let selectedItem = calculateRadialMenuSelection()
@@ -746,6 +814,7 @@ final class InputEngine {
             if let item = selectedItem {
                 executeRadialMenuAction(item.action)
             }
+            mouseController.showCursor()
         default:
             break
         }
@@ -793,11 +862,11 @@ final class InputEngine {
                 scrollButtonHeld = true
             case .radialMenu:
                 radialMenuButtonHeld = true
-                radialMenuAccumulator = .zero
+                radialMenuLock.withLock { radialMenuAccumulator = .zero }
                 let position = NSEvent.mouseLocation
                 let config = settings.snapshot().radialMenuConfiguration
-                onRadialMenuShow?(position, config)
                 mouseController.hideCursor()
+                onRadialMenuShow?(position, config, .ghostCursor)
             default:
                 break
             }
@@ -875,15 +944,275 @@ final class InputEngine {
         joyConButtonPressStates[idx] = nil
     }
 
+    // MARK: - G502X Report Processing
+
+    private func processG502XReport(_ report: G502XHIDController.InputReport) {
+        // Record to debug buffer FIRST (before any guards) so we can always see HID data
+        debugBuffer.record(
+            bytes: report.bytes,
+            length: report.length,
+            rawGyro: (0, 0, 0),           // Mouse has no gyro
+            remappedGyro: (0, 0, 0),
+            normalizedGyro: (0, 0, 0),
+            accel: (0, 0, 0),
+            buttonStates: g502xPreviousButtonStates,
+            controllerKind: .mouse
+        )
+
+        // Read settings ONCE at start of frame
+        let s = settings.snapshot()
+
+        // Only process if mouse controller type is active
+        guard s.activeControllerKind == .mouse else { return }
+        guard s.isEnabled else { return }
+
+        // Prime initial button state to avoid false "pressed" edges on startup/connect.
+        // The Lightspeed receiver can deliver a non-zero snapshot while we are still setting up HID++.
+        if !g502xHasPrimedButtonState {
+            primeG502XButtonStates(bytes: report.bytes, mapping: g502xMapping)
+            g502xHasPrimedButtonState = true
+            return
+        }
+
+        // 1. Process mouse buttons
+        processG502XButtonActions(
+            bytes: report.bytes,
+            mapping: g502xMapping,
+            profile: s.g502xButtonMappingProfile,
+            holdThreshold: s.g502xButtonMappingProfile.holdThreshold
+        )
+    }
+
+    private func resetG502XButtonStateBaseline() {
+        g502xHasPrimedButtonState = false
+        for i in 0..<g502xPreviousButtonStates.count {
+            g502xPreviousButtonStates[i] = false
+            g502xButtonStates[i] = false
+            g502xButtonPressStates[i] = nil
+            g502xHoldTimers[i]?.cancel()
+            g502xHoldTimers[i] = nil
+        }
+    }
+
+    private func primeG502XButtonStates(bytes: [UInt8], mapping: G502XButtonMapping) {
+        for button in G502XLogicalButton.allCases {
+            let idx = button.index
+            let pressed = mapping.isPressed(button, in: bytes)
+            g502xPreviousButtonStates[idx] = pressed
+            g502xButtonStates[idx] = pressed
+            g502xButtonPressStates[idx] = nil
+            g502xHoldTimers[idx]?.cancel()
+            g502xHoldTimers[idx] = nil
+        }
+    }
+
+    // MARK: - Radial Menu Cursor Tracking (Mouse)
+
+    /// For real mice, the user expects to select using the system cursor.
+    /// We poll cursor position relative to the menu anchor and update selection.
+    private func startRadialMenuCursorTracking(anchor: CGPoint) {
+        stopRadialMenuCursorTracking()
+        radialMenuCursorAnchor = anchor
+
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(16))  // ~60Hz
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
+
+            let current = NSEvent.mouseLocation
+            let dx = current.x - anchor.x
+            let dy = -(current.y - anchor.y) // NSEvent Y+ up; radial menu uses Y+ down
+
+            self.radialMenuLock.withLock {
+                self.radialMenuAccumulator = CGPoint(x: dx, y: dy)
+            }
+
+            self.onRadialMenuSetPosition?(CGPoint(x: dx, y: dy))
+        }
+        timer.resume()
+        radialMenuCursorPollTimer = timer
+    }
+
+    private func stopRadialMenuCursorTracking() {
+        radialMenuCursorPollTimer?.cancel()
+        radialMenuCursorPollTimer = nil
+        radialMenuCursorAnchor = nil
+    }
+
+    // MARK: - G502X Button Processing
+
+    private func processG502XButtonActions(
+        bytes: [UInt8],
+        mapping: G502XButtonMapping,
+        profile: G502XButtonMappingProfile,
+        holdThreshold: Double
+    ) {
+        // Log G9 state for debugging (byte 1, bit 0)
+        let g9Pressed = bytes.count > 1 ? (bytes[1] & 0x01) != 0 : false
+        let g9WasPrevious = g502xPreviousButtonStates[G502XLogicalButton.g9.index]
+        if g9Pressed != g9WasPrevious {
+            debugBuffer.log("[G502X] HID: G9 state change - byte1=0x\(String(format: "%02X", bytes.count > 1 ? bytes[1] : 0)) pressed=\(g9Pressed) was=\(g9WasPrevious)")
+        }
+
+        // Process all G502X buttons
+        for button in G502XLogicalButton.allCases {
+            let idx = button.index
+            let isPressed = mapping.isPressed(button, in: bytes)
+            let wasPressed = g502xPreviousButtonStates[idx]
+
+            if isPressed != wasPressed {
+                let actions = profile.actions(for: button)
+                if isPressed {
+                    handleG502XButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
+                } else {
+                    handleG502XButtonUp(button: button)
+                }
+            }
+
+            g502xPreviousButtonStates[idx] = isPressed
+            g502xButtonStates[idx] = isPressed
+        }
+    }
+
+    private func handleG502XButtonDown(button: G502XLogicalButton, actions: ButtonActions, holdThreshold: Double) {
+        let idx = button.index
+
+        // Handle gyro mode actions (radial menu for mouse)
+        if actions.pressIsGyroMode {
+            switch actions.press {
+            case .radialMenu:
+                debugBuffer.log("[G502X] Opening radial menu (button=\(button))")
+                radialMenuButtonHeld = true
+                radialMenuLock.withLock { radialMenuAccumulator = .zero }
+                let position = NSEvent.mouseLocation
+                let config = settings.snapshot().radialMenuConfiguration
+                onRadialMenuShow?(position, config, .systemCursor)
+                startRadialMenuCursorTracking(anchor: position)
+            case .drag, .scroll:
+                // These don't make sense for mouse (it already has native cursor/scroll)
+                // but we handle them for consistency
+                if actions.press == .drag {
+                    dragButtonHeld = true
+                } else {
+                    scrollButtonHeld = true
+                }
+            default:
+                break
+            }
+            return
+        }
+
+        // Handle mouse clicks immediately
+        if case .mouseClick = actions.press {
+            actionExecutor.execute(actions.press, isPressed: true)
+            g502xButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+            return
+        }
+
+        // Record press state
+        g502xButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+
+        // Schedule hold timer if there's a hold action
+        if actions.hold != .none {
+            let timer = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                guard var state = self.g502xButtonPressStates[idx], !state.holdFired else { return }
+
+                state.holdFired = true
+                self.g502xButtonPressStates[idx] = state
+                self.actionExecutor.execute(actions.hold, isPressed: true)
+            }
+            g502xHoldTimers[idx]?.cancel()
+            g502xHoldTimers[idx] = timer
+            holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+        }
+    }
+
+    private func handleG502XButtonUp(button: G502XLogicalButton) {
+        let idx = button.index
+
+        // Cancel hold timer
+        g502xHoldTimers[idx]?.cancel()
+        g502xHoldTimers[idx] = nil
+
+        // Check for gyro mode button release
+        if let state = g502xButtonPressStates[idx], state.actions.pressIsGyroMode {
+            handleG502XGyroModeRelease(action: state.actions.press)
+            g502xButtonPressStates[idx] = nil
+            return
+        }
+
+        // Also check current mapping for gyro modes
+        let profile = settings.snapshot().g502xButtonMappingProfile
+        let actions = profile.actions(for: button)
+        if actions.pressIsGyroMode {
+            handleG502XGyroModeRelease(action: actions.press)
+            return
+        }
+
+        guard let state = g502xButtonPressStates[idx] else { return }
+
+        // Handle mouse click release
+        if case .mouseClick = state.actions.press {
+            actionExecutor.execute(state.actions.press, isPressed: false)
+            g502xButtonPressStates[idx] = nil
+            return
+        }
+
+        if state.holdFired {
+            // Hold action was executed, release it
+            actionExecutor.execute(state.actions.hold, isPressed: false)
+        } else {
+            // Hold didn't fire, execute press action as tap
+            if state.actions.press != .none {
+                actionExecutor.execute(state.actions.press, isPressed: true)
+                actionExecutor.execute(state.actions.press, isPressed: false)
+            }
+        }
+
+        g502xButtonPressStates[idx] = nil
+    }
+
+    private func handleG502XGyroModeRelease(action: ButtonAction) {
+        switch action {
+        case .drag:
+            dragButtonHeld = false
+        case .scroll:
+            scrollButtonHeld = false
+        case .radialMenu:
+            guard radialMenuButtonHeld else {
+                return
+            }
+            stopRadialMenuCursorTracking()
+            radialMenuButtonHeld = false
+
+            // Determine selected item based on accumulated movement
+            let selectedItem = calculateRadialMenuSelection()
+            onRadialMenuHide?(selectedItem)
+
+            // Execute the selected action
+            if let item = selectedItem {
+                executeRadialMenuAction(item.action)
+            }
+        default:
+            break
+        }
+    }
+
+    // NOTE: We intentionally do not "passthrough" mouse buttons by re-posting CGEvents.
+    // The G502X is opened non-exclusively, so the system already receives native mouse events.
+
     // MARK: - Radial Menu
 
     private func calculateRadialMenuSelection() -> RadialMenuItem? {
         let config = settings.snapshot().radialMenuConfiguration
-        let magnitude = sqrt(radialMenuAccumulator.x * radialMenuAccumulator.x + radialMenuAccumulator.y * radialMenuAccumulator.y)
+        let accumulator = radialMenuLock.withLock { radialMenuAccumulator }
+        let magnitude = sqrt(accumulator.x * accumulator.x + accumulator.y * accumulator.y)
 
         guard magnitude > config.deadzoneSize else { return nil }
 
-        let angle = atan2(radialMenuAccumulator.y, radialMenuAccumulator.x)
+        let angle = atan2(accumulator.y, accumulator.x)
 
         // Determine ring and item
         let outerRingEnabled = config.outerRingEnabled && !config.outerRingItems.isEmpty

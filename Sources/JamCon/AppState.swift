@@ -206,6 +206,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    // G502X button mapping (per-profile)
+    @Published var g502xButtonMappingProfile: G502XButtonMappingProfile = .load() {
+        didSet {
+            g502xButtonMappingProfile.save(for: activeProfile)
+            settingsStore.update { $0.g502xButtonMappingProfile = g502xButtonMappingProfile }
+        }
+    }
+
     // Joystick settings
     @Published var joystickScrollEnabled: Bool = true {
         didSet {
@@ -462,6 +470,7 @@ final class AppState: ObservableObject {
         _triggerThreshold = Published(initialValue: s.triggerThreshold)
         _holdThreshold = Published(initialValue: s.holdThreshold)
         _joyConButtonMappingProfile = Published(initialValue: s.joyConButtonMappingProfile)
+        _g502xButtonMappingProfile = Published(initialValue: s.g502xButtonMappingProfile)
 
         _joystickScrollEnabled = Published(initialValue: s.joystickScrollEnabled)
         _joystickScrollSpeed = Published(initialValue: s.joystickScrollSpeed)
@@ -548,13 +557,15 @@ final class AppState: ObservableObject {
 
     /// Reload button mappings when controller side changes
     private func reloadButtonMappingForCurrentProfile() {
-        if activeControllerKind == .sense {
+        switch activeControllerKind {
+        case .sense:
             let profile = SenseButtonMappingProfile.load(for: activeProfile)
             _buttonMappingProfile = Published(initialValue: profile)
             _triggerThreshold = Published(initialValue: profile.triggerThreshold)
             _holdThreshold = Published(initialValue: profile.holdThreshold)
             settingsStore.update { $0.senseButtonMappings[activeProfile] = profile }
-        } else {
+
+        case .joyCon:
             let profile: JoyConButtonMappingProfile
             if JoyConButtonMappingProfile.hasPerProfileSettings(for: activeProfile) {
                 profile = .load(for: activeProfile)
@@ -564,6 +575,17 @@ final class AppState: ObservableObject {
             _joyConButtonMappingProfile = Published(initialValue: profile)
             _holdThreshold = Published(initialValue: profile.holdThreshold)
             settingsStore.update { $0.joyConButtonMappings[activeProfile] = profile }
+
+        case .mouse:
+            let profile: G502XButtonMappingProfile
+            if G502XButtonMappingProfile.hasPerProfileSettings(for: activeProfile) {
+                profile = .load(for: activeProfile)
+            } else {
+                profile = .default
+            }
+            _g502xButtonMappingProfile = Published(initialValue: profile)
+            _holdThreshold = Published(initialValue: profile.holdThreshold)
+            settingsStore.update { $0.g502xButtonMappings[activeProfile] = profile }
         }
 
         // Update settings store with active profile
@@ -592,27 +614,34 @@ final class AppState: ObservableObject {
             }
         }
 
-        engine.onRadialMenuShow = { [weak self] position, configuration in
+        engine.onRadialMenuShow = { [weak self] position, configuration, pointerStyle in
             Task { @MainActor in
                 guard let self else { return }
                 if self.radialMenuWindowController == nil {
                     self.radialMenuWindowController = RadialMenuWindowController(state: self.radialMenuState)
                 }
-                self.radialMenuState.show(at: position, configuration: configuration)
+                self.radialMenuState.show(at: position, configuration: configuration, pointerStyle: pointerStyle)
                 self.radialMenuWindowController?.show(at: position)
             }
         }
 
         engine.onRadialMenuHide = { [weak self] _ in
             Task { @MainActor in
-                self?.radialMenuState.hide()
-                self?.radialMenuWindowController?.hide()
+                guard let self else { return }
+                self.radialMenuState.hide()
+                self.radialMenuWindowController?.hide()
             }
         }
 
         engine.onRadialMenuUpdate = { [weak self] delta in
             Task { @MainActor in
                 self?.radialMenuState.updateFromDelta(dx: delta.x, dy: delta.y)
+            }
+        }
+
+        engine.onRadialMenuSetPosition = { [weak self] offset in
+            Task { @MainActor in
+                self?.radialMenuState.setAbsolutePosition(dx: offset.x, dy: offset.y)
             }
         }
     }
@@ -848,5 +877,10 @@ final class AppState: ObservableObject {
     func safeReportByte(_ index: Int) -> UInt8 {
         guard index >= 0 && index < reportBytes.count else { return 0 }
         return reportBytes[index]
+    }
+
+    /// Get G502X HID interface info for debug display
+    func getG502XInterfaceInfo() -> [G502XInterfaceInfo] {
+        engine.g502xController.getInterfaceInfo()
     }
 }

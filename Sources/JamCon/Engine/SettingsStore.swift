@@ -23,6 +23,7 @@ final class SettingsStore: @unchecked Sendable {
         // MARK: - Per-Profile Button Mappings
         var senseButtonMappings: [ControllerProfile: SenseButtonMappingProfile] = [:]
         var joyConButtonMappings: [ControllerProfile: JoyConButtonMappingProfile] = [:]
+        var g502xButtonMappings: [ControllerProfile: G502XButtonMappingProfile] = [:]
 
         // Global button settings
         var triggerThreshold: UInt8 = 128
@@ -54,6 +55,12 @@ final class SettingsStore: @unchecked Sendable {
         var currentJoyConButtonMapping: JoyConButtonMappingProfile {
             get { joyConButtonMappings[activeProfile] ?? .load(for: activeProfile) }
             set { joyConButtonMappings[activeProfile] = newValue }
+        }
+
+        /// Current G502X button mapping for the active profile
+        var currentG502XButtonMapping: G502XButtonMappingProfile {
+            get { g502xButtonMappings[activeProfile] ?? .load(for: activeProfile) }
+            set { g502xButtonMappings[activeProfile] = newValue }
         }
 
         // MARK: - Legacy Accessors (for backwards compatibility during migration)
@@ -189,6 +196,11 @@ final class SettingsStore: @unchecked Sendable {
             set { joyConButtonMappings[activeProfile] = newValue }
         }
 
+        var g502xButtonMappingProfile: G502XButtonMappingProfile {
+            get { currentG502XButtonMapping }
+            set { g502xButtonMappings[activeProfile] = newValue }
+        }
+
         // MARK: - Persistence
 
         private static let settingsVersionKey = "settings.version"
@@ -226,6 +238,14 @@ final class SettingsStore: @unchecked Sendable {
                 } else {
                     settings.joyConButtonMappings[profile] = .defaultProfile(for: profile)
                 }
+            }
+
+            // Load G502X button mappings
+            let mouseProfile = ControllerProfile.mouse
+            if G502XButtonMappingProfile.hasPerProfileSettings(for: mouseProfile) {
+                settings.g502xButtonMappings[mouseProfile] = .load(for: mouseProfile)
+            } else {
+                settings.g502xButtonMappings[mouseProfile] = .default
             }
 
             // Load global trigger/hold thresholds

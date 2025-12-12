@@ -122,8 +122,10 @@ struct RadialMenuView: View {
                     height: state.innerRadius * 2
                 )
 
-            // Ghost cursor dot
-            ghostCursorDot
+            // Ghost cursor dot (controller mode only; mouse uses system cursor)
+            if state.pointerStyle == .ghostCursor {
+                ghostCursorDot
+            }
         }
         .frame(width: menuSize, height: menuSize)
         .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 6)

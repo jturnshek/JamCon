@@ -17,12 +17,13 @@ struct ControllerTab: View {
                             Image(systemName: "gamecontroller")
                                 .font(.system(size: 48))
                                 .foregroundColor(.secondary.opacity(0.5))
-                            Text("No controllers found")
+                            Text("No devices found")
                                 .font(.headline)
                                 .foregroundColor(.secondary)
-                            Text("Press the PlayStation button to connect")
+                            Text("Connect a controller via Bluetooth or plug in a supported mouse")
                                 .font(.caption)
                                 .foregroundColor(.secondary.opacity(0.7))
+                                .multilineTextAlignment(.center)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
@@ -37,7 +38,7 @@ struct ControllerTab: View {
                             )
                         }
 
-                        Text("Select the controller to use for gyro mouse control.")
+                        Text("Select a device to use for input control.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -62,6 +63,24 @@ private struct ControllerCard: View {
             return controller.isLeft ? "l.joystick" : "r.joystick"
         case .joyCon:
             return controller.isLeft ? "l.joystick" : "r.joystick"
+        case .mouse:
+            return "computermouse"
+        }
+    }
+
+    private var kindDisplayName: String {
+        switch controller.kind {
+        case .sense: return "Sense"
+        case .joyCon: return "Joy-Con"
+        case .mouse: return "Mouse"
+        }
+    }
+
+    private var subtitleText: String {
+        if controller.kind.hasSides {
+            return "\(controller.side) • \(kindDisplayName)"
+        } else {
+            return kindDisplayName
         }
     }
 
@@ -94,7 +113,7 @@ private struct ControllerCard: View {
                             .cornerRadius(4)
                     }
                 }
-                Text("\(controller.side) • \(controller.kind == .joyCon ? "Joy-Con" : "Sense")")
+                Text(subtitleText)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -294,27 +294,58 @@ class MouseController {
     /// Track cursor hide/show balance
     private var cursorHideCount: Int = 0
 
+    private static func activeDisplayIDs() -> [CGDirectDisplayID] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else {
+            return [CGMainDisplayID()]
+        }
+
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success, count > 0 else {
+            return [CGMainDisplayID()]
+        }
+
+        return Array(displays.prefix(Int(count)))
+    }
+
     /// Hide the system cursor
     func hideCursor() {
-        if cursorHideCount == 0 {
-            CGDisplayHideCursor(CGMainDisplayID())
+        // Cursor visibility is effectively UI state; apply on main to avoid timing races with
+        // SwiftUI/AppKit window operations (e.g. radial menu overlay).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.cursorHideCount == 0 {
+                for displayID in Self.activeDisplayIDs() {
+                    CGDisplayHideCursor(displayID)
+                }
+            }
+            self.cursorHideCount += 1
         }
-        cursorHideCount += 1
     }
 
     /// Show the system cursor (must match previous hide calls)
     func showCursor() {
-        cursorHideCount = max(cursorHideCount - 1, 0)
-        if cursorHideCount == 0 {
-            CGDisplayShowCursor(CGMainDisplayID())
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.cursorHideCount = max(self.cursorHideCount - 1, 0)
+            if self.cursorHideCount == 0 {
+                for displayID in Self.activeDisplayIDs() {
+                    CGDisplayShowCursor(displayID)
+                }
+            }
         }
     }
 
     /// Force show cursor regardless of hide count (for cleanup)
     func forceShowCursor() {
-        while cursorHideCount > 0 {
-            CGDisplayShowCursor(CGMainDisplayID())
-            cursorHideCount -= 1
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            while self.cursorHideCount > 0 {
+                for displayID in Self.activeDisplayIDs() {
+                    CGDisplayShowCursor(displayID)
+                }
+                self.cursorHideCount -= 1
+            }
         }
     }
 }

@@ -20,6 +20,8 @@
 		2C6267710B3C81EB75346F5B /* StatusIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84620F15CB71F402575BEE6 /* StatusIndicators.swift */; };
 		2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */; };
 		3330AD6551ED17D23AA41508 /* JoyConHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62203646E95111A4D67E46C9 /* JoyConHIDController.swift */; };
+		3AB975A63B80209AB6D81E21 /* G502XHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */; };
+		3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */; };
 		4DCADBA39379F43AC90DD100 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04EB933AD21491B69DCFE64 /* SettingsView.swift */; };
 		4F2655D098E358C285CC7296 /* ControllerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */; };
 		76A5FC9931444E2485230F84 /* JoyConHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E18E845D60DF3C99DD71E81 /* JoyConHIDProtocol.swift */; };
@@ -50,12 +52,14 @@
 		D20A66B9970B2F60D2406E52 /* UIStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0746B893246669F770BBD324 /* UIStateStore.swift */; };
 		D9FB2079CB78D61D11310DE6 /* GyroProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980EC5F0FFCA29665E42A75E /* GyroProcessor.swift */; };
 		DD30696DAAFCDDFDF60C0E2E /* SharedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 482C873BBFA74526B404F547 /* SharedComponents.swift */; };
+		E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A71BABCA2FB0A2DC34AAAFC /* G502XButtonMapping.swift */; };
 		ED5CD22FDC47AFF8FD2D6C5C /* SensorValidationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E3C96DF01C9561153E345E7 /* SensorValidationViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		008EAFD0998ED73B26E6579D /* GyroSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroSettings.swift; sourceTree = "<group>"; };
 		0746B893246669F770BBD324 /* UIStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIStateStore.swift; sourceTree = "<group>"; };
+		0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDProtocol.swift; sourceTree = "<group>"; };
 		0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
 		1E2C66CE3F326B6D45B21CF1 /* ByteInspectorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ByteInspectorViews.swift; sourceTree = "<group>"; };
 		2125ADE648F458AAAF0269C4 /* ButtonsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonsTab.swift; sourceTree = "<group>"; };
@@ -75,8 +79,10 @@
 		711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTypes.swift; sourceTree = "<group>"; };
 		72A7855A1E10189EABA24208 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
 		73BAA9918F9630E693743617 /* NoControllerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoControllerView.swift; sourceTree = "<group>"; };
+		7A71BABCA2FB0A2DC34AAAFC /* G502XButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XButtonMapping.swift; sourceTree = "<group>"; };
 		7ADB2C885D2F10A6375BE8D4 /* JoyConButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConButtonMapping.swift; sourceTree = "<group>"; };
 		7ADB33724DF23ECDCF9D3614 /* GyroRemapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroRemapper.swift; sourceTree = "<group>"; };
+		7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDController.swift; sourceTree = "<group>"; };
 		8103F11341851C9371929B73 /* JamConApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamConApp.swift; sourceTree = "<group>"; };
 		840723E20C2E27D73D6411F5 /* DebugTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTab.swift; sourceTree = "<group>"; };
 		8A018018F04F12A98D20A52F /* JamCon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JamCon.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -170,6 +176,9 @@
 				429DF3A228AF0717776513FD /* ButtonAction.swift */,
 				98A336E41CF4A257C4886654 /* ButtonMapping.swift */,
 				996B36A459FBA46E6F2F8703 /* CrashReporter.swift */,
+				7A71BABCA2FB0A2DC34AAAFC /* G502XButtonMapping.swift */,
+				7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */,
+				0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */,
 				980EC5F0FFCA29665E42A75E /* GyroProcessor.swift */,
 				7ADB33724DF23ECDCF9D3614 /* GyroRemapper.swift */,
 				008EAFD0998ED73B26E6579D /* GyroSettings.swift */,
@@ -305,6 +314,9 @@
 				873DA01BD3693033C66A5F6D /* CrashReporter.swift in Sources */,
 				BCA4AAFFC1F9FB3FE1367633 /* DebugBuffer.swift in Sources */,
 				7A5A8E822D6BE73E42ED1DA3 /* DebugTab.swift in Sources */,
+				E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */,
+				3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */,
+				3AB975A63B80209AB6D81E21 /* G502XHIDProtocol.swift in Sources */,
 				D9FB2079CB78D61D11310DE6 /* GyroProcessor.swift in Sources */,
 				A05A676723A9839A4CE2F507 /* GyroRemapper.swift in Sources */,
 				9D1C03EBEB33010AC215B545 /* GyroSettings.swift in Sources */,

@@ -1,6 +1,14 @@
 import Foundation
 import CoreGraphics
 
+/// How the radial menu should represent pointer movement.
+/// - `ghostCursor`: Controller-style selection using the on-screen dot.
+/// - `systemCursor`: Mouse-style selection using the system cursor.
+enum RadialMenuPointerStyle: Equatable, Sendable {
+    case ghostCursor
+    case systemCursor
+}
+
 // MARK: - Radial Menu Action
 
 /// Actions that can be triggered by selecting a radial menu item

@@ -6,9 +6,10 @@ struct ButtonsTab: View {
     @ObservedObject var appState: AppState
     @StateObject private var keyCaptureManager = KeyCaptureManager()
     @StateObject private var joyConKeyCaptureManager = JoyConKeyCaptureManager()
+    @StateObject private var g502xKeyCaptureManager = G502XKeyCaptureManager()
 
     private var isLeft: Bool { appState.isLeftController }
-    private var isJoyCon: Bool { appState.activeControllerKind == .joyCon }
+    private var controllerKind: ControllerKind { appState.activeControllerKind }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +20,8 @@ struct ButtonsTab: View {
                 ButtonProfileIndicator(appState: appState)
 
                 ScrollView {
-                    if isJoyCon {
+                    switch controllerKind {
+                    case .joyCon:
                         VStack(spacing: 16) {
                             JoyConButtonMappingsSection(
                                 appState: appState,
@@ -40,7 +42,29 @@ struct ButtonsTab: View {
                             .cornerRadius(8)
                         }
                         .padding()
-                    } else {
+
+                    case .mouse:
+                        VStack(spacing: 16) {
+                            G502XButtonMappingsSection(
+                                appState: appState,
+                                keyCaptureManager: g502xKeyCaptureManager
+                            )
+
+                            // Tip about unmapped buttons
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "info.circle")
+                                    .foregroundColor(.blue)
+                                Text("Unmapped buttons (left, right, middle click) will pass through to apps normally. Only buttons with assigned actions are intercepted.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding()
+                            .background(Color.blue.opacity(0.05))
+                            .cornerRadius(8)
+                        }
+                        .padding()
+
+                    case .sense:
                         VStack(spacing: 16) {
                             ButtonMappingsSection(
                                 appState: appState,
@@ -78,7 +102,7 @@ struct ButtonsTab: View {
             } else {
                 NoControllerView(
                     icon: "button.horizontal",
-                    message: "Connect a controller to configure button mappings"
+                    message: "Connect a device to configure button mappings"
                 )
             }
         }
@@ -95,6 +119,13 @@ struct ButtonsTab: View {
                     appState.joyConButtonMappingProfile.setHoldAction(.keyPress(combo), for: button)
                 } else {
                     appState.joyConButtonMappingProfile.setPressAction(.keyPress(combo), for: button)
+                }
+            }
+            g502xKeyCaptureManager.onCapture = { button, combo, isHold in
+                if isHold {
+                    appState.g502xButtonMappingProfile.setHoldAction(.keyPress(combo), for: button)
+                } else {
+                    appState.g502xButtonMappingProfile.setPressAction(.keyPress(combo), for: button)
                 }
             }
         }
@@ -307,6 +338,242 @@ class JoyConKeyCaptureManager: ObservableObject {
     }
 
     func startCapture(for button: JoyConLogicalButton, isHold: Bool) {
+        capturingButton = button
+        isHoldCapture = isHold
+        modifiersDisplay = "Press a key..."
+
+        // Monitor key events
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, let button = self.capturingButton else { return event }
+
+            // Convert NSEvent.ModifierFlags to CGEventFlags
+            var cgFlags: CGEventFlags = []
+            let nsFlags = event.modifierFlags
+            if nsFlags.contains(.control) { cgFlags.insert(.maskControl) }
+            if nsFlags.contains(.option) { cgFlags.insert(.maskAlternate) }
+            if nsFlags.contains(.shift) { cgFlags.insert(.maskShift) }
+            if nsFlags.contains(.command) { cgFlags.insert(.maskCommand) }
+
+            let combo = KeyCombo(keyCode: event.keyCode, modifiers: cgFlags)
+            self.onCapture?(button, combo, self.isHoldCapture)
+            self.stopCapture()
+            return nil
+        }
+
+        // Monitor modifier changes for display
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self = self else { return event }
+            let flags = event.modifierFlags
+            var parts: [String] = []
+            if flags.contains(.control) { parts.append("⌃") }
+            if flags.contains(.option) { parts.append("⌥") }
+            if flags.contains(.shift) { parts.append("⇧") }
+            if flags.contains(.command) { parts.append("⌘") }
+            self.modifiersDisplay = parts.isEmpty ? "Press a key..." : parts.joined() + "..."
+            return event
+        }
+    }
+
+    func cancelCapture() {
+        stopCapture()
+    }
+
+    private func stopCapture() {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+        if let monitor = flagsMonitor {
+            NSEvent.removeMonitor(monitor)
+            flagsMonitor = nil
+        }
+        capturingButton = nil
+        modifiersDisplay = ""
+    }
+}
+
+// MARK: - G502X Button Mappings Section
+
+struct G502XButtonMappingsSection: View {
+    @ObservedObject var appState: AppState
+    @ObservedObject var keyCaptureManager: G502XKeyCaptureManager
+
+    // All G502X buttons
+    private var mappableButtons: [G502XLogicalButton] {
+        G502XLogicalButton.allCases
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("G502X Button Mappings")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                Text("")
+                    .frame(width: 90, alignment: .leading)
+                Text("Press")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Hold")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 4)
+
+            VStack(spacing: 8) {
+                ForEach(mappableButtons, id: \.self) { button in
+                    G502XButtonMappingRow(
+                        button: button,
+                        buttonName: button.displayName,
+                        actions: appState.g502xButtonMappingProfile.actions(for: button),
+                        isCapturing: keyCaptureManager.isCapturing(button: button),
+                        modifiersDisplay: keyCaptureManager.modifiersDisplay,
+                        onPressActionSelected: { action in
+                            appState.g502xButtonMappingProfile.setPressAction(action, for: button)
+                        },
+                        onHoldActionSelected: { action in
+                            appState.g502xButtonMappingProfile.setHoldAction(action, for: button)
+                        },
+                        onStartCapture: { isHold in
+                            keyCaptureManager.startCapture(for: button, isHold: isHold)
+                        },
+                        onCancelCapture: {
+                            keyCaptureManager.cancelCapture()
+                        }
+                    )
+                }
+            }
+
+            // Hold threshold
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Hold Threshold")
+                        .font(.system(size: 12, weight: .medium))
+                    Spacer()
+                    Text(String(format: "%.1fs", appState.g502xButtonMappingProfile.holdThreshold))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    Text("0.1s")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Slider(
+                        value: Binding(
+                            get: { appState.g502xButtonMappingProfile.holdThreshold },
+                            set: { appState.g502xButtonMappingProfile.holdThreshold = $0 }
+                        ),
+                        in: 0.1...1.0,
+                        step: 0.1
+                    )
+                    Text("1.0s")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+
+                Text("How long to hold before the hold action fires")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.03))
+        .cornerRadius(8)
+    }
+}
+
+struct G502XButtonMappingRow: View {
+    let button: G502XLogicalButton
+    let buttonName: String
+    let actions: ButtonActions
+    let isCapturing: Bool
+    let modifiersDisplay: String
+    let onPressActionSelected: (ButtonAction) -> Void
+    let onHoldActionSelected: (ButtonAction) -> Void
+    let onStartCapture: (Bool) -> Void
+    let onCancelCapture: () -> Void
+
+    private var holdDisabled: Bool {
+        actions.pressIsGyroMode
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(buttonName)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 90, alignment: .leading)
+
+            if isCapturing {
+                HStack(spacing: 8) {
+                    Text(modifiersDisplay)
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button("Cancel") {
+                        onCancelCapture()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(6)
+            } else {
+                ActionPickerMenu(
+                    action: actions.press,
+                    includeGyroModes: true,
+                    isHold: false,
+                    onActionSelected: onPressActionSelected,
+                    onStartCapture: onStartCapture
+                )
+
+                if holdDisabled {
+                    Text("—")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.5))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.05))
+                        .cornerRadius(6)
+                } else {
+                    ActionPickerMenu(
+                        action: actions.hold,
+                        includeGyroModes: false,
+                        isHold: true,
+                        onActionSelected: onHoldActionSelected,
+                        onStartCapture: onStartCapture
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - G502X Key Capture Manager
+
+class G502XKeyCaptureManager: ObservableObject {
+    @Published private(set) var capturingButton: G502XLogicalButton?
+    @Published private(set) var isHoldCapture: Bool = false
+    @Published private(set) var modifiersDisplay: String = ""
+
+    var onCapture: ((G502XLogicalButton, KeyCombo, Bool) -> Void)?
+
+    private var eventMonitor: Any?
+    private var flagsMonitor: Any?
+
+    func isCapturing(button: G502XLogicalButton) -> Bool {
+        capturingButton == button
+    }
+
+    func startCapture(for button: G502XLogicalButton, isHold: Bool) {
         capturingButton = button
         isHoldCapture = isHold
         modifiersDisplay = "Press a key..."
