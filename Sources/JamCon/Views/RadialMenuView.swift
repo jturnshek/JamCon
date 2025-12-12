@@ -41,13 +41,31 @@ struct RadialMenuView: View {
 
     var body: some View {
         ZStack {
+            // Explicit circular shadow to avoid a rectangular shadow being inferred from the
+            // hosting view's bounds (shows up as faint "corners" on light backgrounds).
+            Circle()
+                .fill(Color.black.opacity(0.001))
+                .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 6)
+                .allowsHitTesting(false)
+
+            menuContents
+                .clipShape(Circle())
+                .compositingGroup()
+        }
+        .frame(width: menuSize, height: menuSize)
+    }
+
+    private var menuContents: some View {
+        ZStack {
+            // Single material layer masked to all slices. This avoids stacking many separate
+            // material layers (one per slice), which can produce visible transparency artifacts
+            // on light backgrounds.
+            slicesMaterialBackground
+
             // Inner ring pie slices - stroke-based design with rainbow colors
             ForEach(Array(state.activeConfiguration.items.enumerated()), id: \.element.id) { index, item in
                 let isHighlighted = state.highlightedIndex == index
                 let sliceColor = RadialMenuColors.rainbow(at: index, count: state.sliceCount)
-
-                // Glass background for each slice (macOS 26+)
-                sliceGlassBackground(index: index, isOuterRing: false)
 
                 // Subtle fill only when highlighted
                 PieSlice(
@@ -81,9 +99,6 @@ struct RadialMenuView: View {
                 ForEach(Array(state.activeConfiguration.outerRingItems.enumerated()), id: \.element.id) { index, item in
                     let isHighlighted = state.outerRingHighlightedIndex == index
                     let sliceColor = RadialMenuColors.rainbow(at: index, count: state.outerRingSliceCount)
-
-                    // Glass background for outer ring slice
-                    sliceGlassBackground(index: index, isOuterRing: true)
 
                     // Subtle fill only when highlighted
                     PieSlice(
@@ -126,8 +141,43 @@ struct RadialMenuView: View {
                 ghostCursorDot
             }
         }
-        .frame(width: menuSize, height: menuSize)
-        .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 6)
+    }
+
+    private var slicesMaterialBackground: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .mask(slicesMask)
+            .allowsHitTesting(false)
+    }
+
+    private var slicesMask: some View {
+        ZStack {
+            // Inner ring slices
+            ForEach(Array(state.activeConfiguration.items.enumerated()), id: \.element.id) { index, _ in
+                PieSlice(
+                    index: index,
+                    total: state.sliceCount,
+                    innerRadiusRatio: state.activeConfiguration.innerRadiusRatio,
+                    outerRadiusRatio: innerRingOuterRatio,
+                    rotationOffset: innerRingRotationRadians
+                )
+                .fill(Color.white)
+            }
+
+            // Outer ring slices (if enabled)
+            if state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0 {
+                ForEach(Array(state.activeConfiguration.outerRingItems.enumerated()), id: \.element.id) { index, _ in
+                    PieSlice(
+                        index: index,
+                        total: state.outerRingSliceCount,
+                        innerRadiusRatio: outerRingInnerRatio,
+                        outerRadiusRatio: 1.0,
+                        rotationOffset: outerRingRotationRadians
+                    )
+                    .fill(Color.white)
+                }
+            }
+        }
     }
 
     /// Inner ring outer edge ratio (depends on whether outer ring is enabled)
@@ -228,35 +278,6 @@ struct RadialMenuView: View {
 
     // MARK: - Helpers
 
-    /// Glass background for individual pie slice (macOS 26+)
-    @ViewBuilder
-    private func sliceGlassBackground(index: Int, isOuterRing: Bool) -> some View {
-        let slice = isOuterRing
-            ? PieSlice(
-                index: index,
-                total: state.outerRingSliceCount,
-                innerRadiusRatio: state.activeConfiguration.outerRingThreshold,
-                outerRadiusRatio: 1.0,
-                rotationOffset: outerRingRotationRadians
-            )
-            : PieSlice(
-                index: index,
-                total: state.sliceCount,
-                innerRadiusRatio: state.activeConfiguration.innerRadiusRatio,
-                outerRadiusRatio: innerRingOuterRatio,
-                rotationOffset: innerRingRotationRadians
-            )
-
-        if #available(macOS 26.0, *) {
-            slice
-                .fill(.white.opacity(0.001))
-                .glassEffect(.clear.tint(.white.opacity(0)), in: slice)
-        } else {
-            slice
-                .fill(.ultraThinMaterial)
-        }
-    }
-
     @ViewBuilder
     private func sliceLabel(item: RadialMenuItem, index: Int, isHighlighted: Bool, color: Color, isOuterRing: Bool) -> some View {
         let angle = sliceCenterAngle(for: index, isOuterRing: isOuterRing)
@@ -306,24 +327,6 @@ struct RadialMenuView: View {
 }
 
 // MARK: - Ring Shape (for masking)
-
-struct Ring: Shape {
-    let innerRadiusRatio: Double
-
-    func path(in rect: CGRect) -> Path {
-        let outerRadius = min(rect.width, rect.height) / 2
-        let innerRadius = outerRadius * innerRadiusRatio
-        var path = Path()
-        path.addEllipse(in: rect)
-        path.addEllipse(in: CGRect(
-            x: rect.midX - innerRadius,
-            y: rect.midY - innerRadius,
-            width: innerRadius * 2,
-            height: innerRadius * 2
-        ))
-        return path
-    }
-}
 
 // MARK: - Pie Slice Shape
 
