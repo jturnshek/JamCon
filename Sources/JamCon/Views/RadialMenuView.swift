@@ -1,6 +1,13 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Layout Constants
+
+private enum RadialMenuLayout {
+    /// Gap between adjacent slices, in points.
+    static let sliceGapWidth: CGFloat = 4.0
+}
+
 // MARK: - Colors Helper
 
 /// Rainbow spectrum colors for radial menu segments
@@ -82,7 +89,7 @@ struct RadialMenuView: View {
                     PieSlice(
                         index: index,
                         total: state.outerRingSliceCount,
-                        innerRadiusRatio: state.activeConfiguration.outerRingThreshold,
+                        innerRadiusRatio: outerRingInnerRatio,
                         outerRadiusRatio: 1.0,
                         rotationOffset: outerRingRotationRadians
                     )
@@ -92,7 +99,7 @@ struct RadialMenuView: View {
                     PieSlice(
                         index: index,
                         total: state.outerRingSliceCount,
-                        innerRadiusRatio: state.activeConfiguration.outerRingThreshold,
+                        innerRadiusRatio: outerRingInnerRatio,
                         outerRadiusRatio: 1.0,
                         rotationOffset: outerRingRotationRadians
                     )
@@ -104,14 +111,6 @@ struct RadialMenuView: View {
                     // Label for outer ring slice
                     sliceLabel(item: item, index: index, isHighlighted: isHighlighted, color: sliceColor, isOuterRing: true)
                 }
-
-                // Divider circle between inner and outer ring
-                Circle()
-                    .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
-                    .frame(
-                        width: state.outerRingInnerRadius * 2,
-                        height: state.outerRingInnerRadius * 2
-                    )
             }
 
             // Center hole border
@@ -133,9 +132,33 @@ struct RadialMenuView: View {
 
     /// Inner ring outer edge ratio (depends on whether outer ring is enabled)
     private var innerRingOuterRatio: Double {
-        state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0
-            ? state.activeConfiguration.outerRingThreshold
-            : 1.0
+        guard state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0 else {
+            return 1.0
+        }
+        return max(state.activeConfiguration.outerRingThreshold - ringGapHalfRatio, state.activeConfiguration.innerRadiusRatio)
+    }
+
+    /// Outer ring inner edge ratio (adds a visual gap between rings).
+    private var outerRingInnerRatio: Double {
+        guard state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0 else {
+            return state.activeConfiguration.outerRingThreshold
+        }
+        return min(state.activeConfiguration.outerRingThreshold + ringGapHalfRatio, 1.0)
+    }
+
+    /// Half of the radial gap between inner/outer rings, expressed as a radius ratio.
+    private var ringGapHalfRatio: Double {
+        guard state.activeConfiguration.outerRingEnabled && state.outerRingSliceCount > 0 else { return 0 }
+
+        let radius = Double(menuSize / 2)
+        guard radius > 0 else { return 0 }
+
+        let config = state.activeConfiguration
+        let base = config.outerRingThreshold
+        let desiredHalfGap = Double(RadialMenuLayout.sliceGapWidth / 2) / radius
+        let innerThickness = max(0, base - config.innerRadiusRatio)
+        let outerThickness = max(0, 1.0 - base)
+        return min(desiredHalfGap, innerThickness / 2, outerThickness / 2)
     }
 
     // MARK: - Ghost Cursor
@@ -238,7 +261,7 @@ struct RadialMenuView: View {
     private func sliceLabel(item: RadialMenuItem, index: Int, isHighlighted: Bool, color: Color, isOuterRing: Bool) -> some View {
         let angle = sliceCenterAngle(for: index, isOuterRing: isOuterRing)
         let distance: CGFloat = isOuterRing
-            ? menuSize / 2 * (state.activeConfiguration.outerRingThreshold + 1.0) / 2
+            ? menuSize / 2 * (outerRingInnerRatio + 1.0) / 2
             : menuSize / 2 * (state.activeConfiguration.innerRadiusRatio + innerRingOuterRatio) / 2
 
         // Calculate max width based on ring size and slice count
@@ -324,7 +347,7 @@ struct PieSlice: InsettableShape {
         let endAngle = startAngle + sliceAngle
 
         // Fixed gap width in points (creates rectangular gaps with parallel edges)
-        let gapWidth: Double = 4.0
+        let gapWidth: Double = Double(RadialMenuLayout.sliceGapWidth)
 
         // Calculate perpendicular offsets at each radius
         let outerOffset = asin(min((gapWidth / 2) / outerRadius, 0.99))
