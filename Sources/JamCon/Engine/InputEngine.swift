@@ -287,10 +287,9 @@ final class InputEngine {
 
     /// Get list of available controllers
     var availableControllers: [ControllerInfo] {
-        let senseInfos = senseController.discoveredControllers.map { $0.info }
-        let joyInfos = joyConController.discoveredControllers.map { $0.info }
-        let mouseInfos = g502xController.discoveredMice.map { $0.info }
-        return senseInfos + joyInfos + mouseInfos
+        senseController.controllerInfosSnapshot()
+            + joyConController.controllerInfosSnapshot()
+            + g502xController.mouseInfosSnapshot()
     }
 
     /// Current connection state
@@ -359,8 +358,8 @@ final class InputEngine {
             // Reset stick calibration on reconnect so we capture the new rest position
             if connected {
                 // Determine which side based on the controller that just connected
-                if let controller = self.joyConController.discoveredControllers.first(where: { $0.id == controllerID }) {
-                    let isLeft = controller.productID == JoyConHIDProtocol.leftProductID
+                if let productID = self.joyConController.productID(forControllerID: controllerID) {
+                    let isLeft = productID == JoyConHIDProtocol.leftProductID
                     if isLeft {
                         self.joyConLeftMapping.calibration.reset()
                     } else {

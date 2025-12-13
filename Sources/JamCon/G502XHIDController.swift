@@ -2,7 +2,7 @@ import Foundation
 import IOKit
 import IOKit.hid
 import QuartzCore
-import os
+import os.lock
 
 /// Represents a discovered G502X mouse (internal use only)
 /// A single physical mouse may have multiple HID interfaces
@@ -155,17 +155,36 @@ class G502XHIDController {
     }
     private var pendingHIDPPRequest: PendingHIDPPRequest?
 
-    /// All discovered G502X mice (grouped by physical device)
-    private(set) var discoveredMice: [DiscoveredG502X] = []
+    // MARK: - Thread-safe state (read from UI / other threads)
+
+    private struct ControllerState {
+        var discoveredMice: [DiscoveredG502X] = []
+        var selectedMouseID: String?
+        var preferredMouseID: String?
+        var isConnected: Bool = false
+        var mouseName: String?
+    }
+
+    private let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
+
+    /// UI-safe snapshot of all discovered G502X mice.
+    func mouseInfosSnapshot() -> [ControllerInfo] {
+        stateLock.withLock { $0.discoveredMice.map(\.info) }
+    }
 
     /// Map from device to mouse ID for quick lookup
     private var deviceToMouseID: [ObjectIdentifier: String] = [:]
 
-    /// Currently selected mouse ID
-    private(set) var selectedMouseID: String?
+    /// Currently selected mouse ID (thread-safe).
+    var selectedMouseID: String? {
+        stateLock.withLock { $0.selectedMouseID }
+    }
 
-    /// Preferred mouse ID (persisted from last user selection)
-    var preferredMouseID: String?
+    /// Preferred mouse ID (persisted from last user selection). (thread-safe)
+    var preferredMouseID: String? {
+        get { stateLock.withLock { $0.preferredMouseID } }
+        set { stateLock.withLock { $0.preferredMouseID = newValue } }
+    }
 
     /// Input report structure for button data
     struct InputReport {
@@ -186,11 +205,15 @@ class G502XHIDController {
     /// Callback for debug/status messages
     var onDebugMessage: ((_ message: String) -> Void)?
 
-    /// Whether a mouse is currently connected and active
-    private(set) var isConnected: Bool = false
+    /// Whether a mouse is currently connected and active (thread-safe).
+    var isConnected: Bool {
+        stateLock.withLock { $0.isConnected }
+    }
 
-    /// Name of the connected mouse
-    private(set) var mouseName: String?
+    /// Name of the connected mouse (thread-safe).
+    var mouseName: String? {
+        stateLock.withLock { $0.mouseName }
+    }
 
     /// Whether we currently have a vendor-side mechanism that reliably reports button down/up.
     /// When true, we don't need CGEventTap fallback for releases.
@@ -229,8 +252,12 @@ class G502XHIDController {
 
     /// Update the cached interface info (call from HID thread after processing reports)
     private func updateCachedInterfaceInfo() {
-        guard let mouseID = selectedMouseID,
-              let mouse = discoveredMice.first(where: { $0.id == mouseID }) else {
+        let selectedMouseSnapshot: DiscoveredG502X? = stateLock.withLock { state in
+            guard let mouseID = state.selectedMouseID else { return nil }
+            return state.discoveredMice.first(where: { $0.id == mouseID })
+        }
+
+        guard let mouse = selectedMouseSnapshot else {
             interfaceInfoLock.lock()
             cachedInterfaceInfo = []
             interfaceInfoLock.unlock()
@@ -410,11 +437,13 @@ class G502XHIDController {
                 IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
                 hidManager = nil
             }
-            discoveredMice.removeAll()
             deviceToMouseID.removeAll()
-            selectedMouseID = nil
-            isConnected = false
-            mouseName = nil
+            stateLock.withLock { state in
+                state.discoveredMice.removeAll(keepingCapacity: true)
+                state.selectedMouseID = nil
+                state.isConnected = false
+                state.mouseName = nil
+            }
             return
         }
 
@@ -446,11 +475,13 @@ class G502XHIDController {
                 self.hidManager = nil
             }
 
-            self.discoveredMice.removeAll()
             self.deviceToMouseID.removeAll()
-            self.selectedMouseID = nil
-            self.isConnected = false
-            self.mouseName = nil
+            self.stateLock.withLock { state in
+                state.discoveredMice.removeAll(keepingCapacity: true)
+                state.selectedMouseID = nil
+                state.isConnected = false
+                state.mouseName = nil
+            }
 
             CFRunLoopStop(runLoop)
         }
@@ -462,7 +493,9 @@ class G502XHIDController {
 
     /// Select a mouse by ID
     func selectMouse(id: String) {
-        guard let mouse = discoveredMice.first(where: { $0.id == id }) else {
+        guard let mouse = stateLock.withLock({ state in
+            state.discoveredMice.first(where: { $0.id == id })
+        }) else {
             log("Mouse \(id) not found")
             return
         }
@@ -478,8 +511,10 @@ class G502XHIDController {
 
     /// Deselect the current mouse (stop receiving input)
     func deselectMouse() {
-        selectedMouseID = nil
-        preferredMouseID = nil
+        stateLock.withLock { state in
+            state.selectedMouseID = nil
+            state.preferredMouseID = nil
+        }
         deactivateCurrentMouse()
     }
 
@@ -557,9 +592,11 @@ class G502XHIDController {
             }
         }
 
-        self.selectedMouseID = mouse.id
-        self.mouseName = mouse.name
-        self.isConnected = !activeInterfaces.isEmpty
+        stateLock.withLock { state in
+            state.selectedMouseID = mouse.id
+            state.mouseName = mouse.name
+            state.isConnected = !activeInterfaces.isEmpty
+        }
 
         // Update cached interface info for debug UI
         updateCachedInterfaceInfo()
@@ -575,8 +612,9 @@ class G502XHIDController {
         }
 
         // Capture values before dispatching
-        let name = self.mouseName
-        let mouseID = self.selectedMouseID
+        let (name, mouseID) = stateLock.withLock { state in
+            (state.mouseName, state.selectedMouseID)
+        }
         DispatchQueue.main.async {
             self.onConnectionChange?(true, name, mouseID)
         }
@@ -602,10 +640,13 @@ class G502XHIDController {
         bufferPointerToDeviceID.removeAll()
         deviceToMouseID.removeAll()
 
-        isConnected = false
-        let name = mouseName
-        let mouseID = selectedMouseID
-        mouseName = nil
+        let (name, mouseID) = stateLock.withLock { state in
+            state.isConnected = false
+            let name = state.mouseName
+            let mouseID = state.selectedMouseID
+            state.mouseName = nil
+            return (name, mouseID)
+        }
 
         // Reset HID++ state
         hidppLock.withLock {
@@ -658,39 +699,52 @@ class G502XHIDController {
         let physicalDeviceID = locationID & 0xFFFFFF00
         let uniqueID = "loc-\(String(format: "%08X", physicalDeviceID))-pid-\(productID)"
 
-        // Check if this mouse already exists
-        if let index = discoveredMice.firstIndex(where: { $0.id == uniqueID }) {
-            // Add this interface to existing mouse
-            if !discoveredMice[index].interfaces.contains(where: { $0 == device }) {
-                discoveredMice[index].interfaces.append(device)
-                log("Added interface to existing mouse: \(name) (now \(discoveredMice[index].interfaces.count) interfaces)")
-            }
-        } else {
-            // New mouse - create entry
-            let mouse = DiscoveredG502X(
-                id: uniqueID,
-                name: name,
-                productID: productID,
-                interfaces: [device]
-            )
-            discoveredMice.append(mouse)
-            log("G502X mouse discovered: \(name)")
+        let update = stateLock.withLock { state -> (addedNewMouse: Bool, addedInterface: Bool, interfaceCount: Int, mouse: DiscoveredG502X?, selectedMouseID: String?, preferredMouseID: String?) in
+            var addedNewMouse = false
+            var addedInterface = false
+            let interfaceCount: Int
 
-            DispatchQueue.main.async {
-                self.onControllersChanged?()
+            if let index = state.discoveredMice.firstIndex(where: { $0.id == uniqueID }) {
+                if !state.discoveredMice[index].interfaces.contains(where: { $0 == device }) {
+                    state.discoveredMice[index].interfaces.append(device)
+                    addedInterface = true
+                }
+                interfaceCount = state.discoveredMice[index].interfaces.count
+            } else {
+                let mouse = DiscoveredG502X(
+                    id: uniqueID,
+                    name: name,
+                    productID: productID,
+                    interfaces: [device]
+                )
+                state.discoveredMice.append(mouse)
+                addedNewMouse = true
+                addedInterface = true
+                interfaceCount = 1
             }
+
+            let mouse = state.discoveredMice.first(where: { $0.id == uniqueID })
+            return (addedNewMouse, addedInterface, interfaceCount, mouse, state.selectedMouseID, state.preferredMouseID)
+        }
+
+        if update.addedNewMouse {
+            log("G502X mouse discovered: \(name)")
+            DispatchQueue.main.async { [weak self] in
+                self?.onControllersChanged?()
+            }
+        } else if update.addedInterface {
+            log("Added interface to existing mouse: \(name) (now \(update.interfaceCount) interfaces)")
         }
 
         // Auto-select if this was previously selected
-        if let mouse = discoveredMice.first(where: { $0.id == uniqueID }) {
-            if selectedMouseID == uniqueID {
-                // Already selected, but new interface - activate it too
-                if !activeInterfaces.contains(where: { $0 == device }) {
-                    activateInterface(device, for: mouse)
-                }
-            } else if selectedMouseID == nil && preferredMouseID == uniqueID {
-                activateMouse(mouse)
+        guard let mouse = update.mouse else { return }
+        if update.selectedMouseID == uniqueID {
+            // Already selected, but new interface - activate it too
+            if !activeInterfaces.contains(where: { $0 == device }) {
+                activateInterface(device, for: mouse)
             }
+        } else if update.selectedMouseID == nil && update.preferredMouseID == uniqueID {
+            activateMouse(mouse)
         }
     }
 
@@ -743,57 +797,81 @@ class G502XHIDController {
     }
 
     private func handleDeviceDisconnected(_ device: IOHIDDevice) {
-        // Find which mouse this interface belongs to
-        for i in discoveredMice.indices {
-            if let interfaceIndex = discoveredMice[i].interfaces.firstIndex(where: { $0 == device }) {
-                let mouse = discoveredMice[i]
-                log("Interface disconnected from: \(mouse.name)")
+        struct RemovalResult {
+            let mouse: DiscoveredG502X
+            let didRemoveMouse: Bool
+            let wasSelectedMouse: Bool
+        }
 
-                // Close the device
-                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        let removal: RemovalResult? = stateLock.withLock { state in
+            guard let mouseIndex = state.discoveredMice.firstIndex(where: { $0.interfaces.contains(where: { $0 == device }) }) else {
+                return nil
+            }
+            guard let interfaceIndex = state.discoveredMice[mouseIndex].interfaces.firstIndex(where: { $0 == device }) else {
+                return nil
+            }
 
-                // Remove from active interfaces if present
-                if let activeIndex = activeInterfaces.firstIndex(where: { $0 == device }) {
-                    activeInterfaces.remove(at: activeIndex)
+            let mouse = state.discoveredMice[mouseIndex]
+            state.discoveredMice[mouseIndex].interfaces.remove(at: interfaceIndex)
+
+            let didRemoveMouse: Bool
+            if state.discoveredMice[mouseIndex].interfaces.isEmpty {
+                state.discoveredMice.remove(at: mouseIndex)
+                didRemoveMouse = true
+            } else {
+                didRemoveMouse = false
+            }
+
+            let wasSelectedMouse = (mouse.id == state.selectedMouseID)
+            if wasSelectedMouse && didRemoveMouse {
+                state.isConnected = false
+                state.mouseName = nil
+            }
+
+            return RemovalResult(mouse: mouse, didRemoveMouse: didRemoveMouse, wasSelectedMouse: wasSelectedMouse)
+        }
+
+        guard let removal else { return }
+        let mouse = removal.mouse
+
+        log("Interface disconnected from: \(mouse.name)")
+
+        // Close the device
+        IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        // Remove from active interfaces if present
+        if let activeIndex = activeInterfaces.firstIndex(where: { $0 == device }) {
+            activeInterfaces.remove(at: activeIndex)
+        }
+        let deviceID = ObjectIdentifier(device)
+        // Clean up buffer pointer mapping
+        if let buffer = interfaceBuffers[deviceID] {
+            buffer.bytes.withUnsafeMutableBufferPointer { bufferPtr in
+                if let baseAddr = bufferPtr.baseAddress {
+                    bufferPointerToDeviceID.removeValue(forKey: baseAddr)
                 }
-                let deviceID = ObjectIdentifier(device)
-                // Clean up buffer pointer mapping
-                if let buffer = interfaceBuffers[deviceID] {
-                    buffer.bytes.withUnsafeMutableBufferPointer { bufferPtr in
-                        if let baseAddr = bufferPtr.baseAddress {
-                            bufferPointerToDeviceID.removeValue(forKey: baseAddr)
-                        }
-                    }
+            }
+        }
+        interfaceBuffers.removeValue(forKey: deviceID)
+        deviceToMouseID.removeValue(forKey: deviceID)
+
+        // If no more interfaces, remove the mouse entirely
+        if removal.didRemoveMouse {
+            log("G502X mouse disconnected: \(mouse.name)")
+            DispatchQueue.main.async { [weak self] in
+                self?.onControllersChanged?()
+            }
+
+            // If this was the active mouse, report disconnect
+            if removal.wasSelectedMouse {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onConnectionChange?(false, mouse.name, mouse.id)
                 }
-                interfaceBuffers.removeValue(forKey: deviceID)
-                deviceToMouseID.removeValue(forKey: deviceID)
-
-                // Remove interface from mouse
-                discoveredMice[i].interfaces.remove(at: interfaceIndex)
-
-                // If no more interfaces, remove the mouse entirely
-                if discoveredMice[i].interfaces.isEmpty {
-                    log("G502X mouse disconnected: \(mouse.name)")
-                    discoveredMice.remove(at: i)
-
-                    DispatchQueue.main.async {
-                        self.onControllersChanged?()
-                    }
-
-                    // If this was the active mouse, deactivate
-                    if mouse.id == selectedMouseID {
-                        isConnected = false
-                        mouseName = nil
-                        DispatchQueue.main.async {
-                            self.onConnectionChange?(false, mouse.name, mouse.id)
-                        }
-                    }
-                } else if mouse.id == selectedMouseID && activeInterfaces.isEmpty {
-                    // All active interfaces gone but mouse still has interfaces
-                    isConnected = false
-                }
-
-                return
+            }
+        } else if removal.wasSelectedMouse && activeInterfaces.isEmpty {
+            // All active interfaces gone but mouse still has interfaces
+            stateLock.withLock { state in
+                state.isConnected = false
             }
         }
     }

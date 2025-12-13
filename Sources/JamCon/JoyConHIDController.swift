@@ -3,6 +3,7 @@ import IOKit
 import IOKit.hid
 import QuartzCore
 import MachO
+import os.lock
 
 private enum JoyCon {
     enum OutputType: UInt8 {
@@ -82,11 +83,51 @@ final class JoyConHIDController {
     private let hidRunLoopReady = DispatchSemaphore(value: 0)
     private var reportBuffer = [UInt8](repeating: 0, count: 64)
 
-    private(set) var discoveredControllers: [DiscoveredJoyCon] = []
-    private(set) var selectedControllerID: String?
-    var preferredControllerID: String?
-    private(set) var isConnected: Bool = false
-    private(set) var controllerName: String?
+    // MARK: - Thread-safe state (read from UI / other threads)
+
+    private struct ControllerState {
+        var discoveredControllers: [DiscoveredJoyCon] = []
+        var selectedControllerID: String?
+        var preferredControllerID: String?
+        var isConnected: Bool = false
+        var controllerName: String?
+    }
+
+    private let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
+
+    /// UI-safe snapshot of all discovered Joy-Con controllers.
+    func controllerInfosSnapshot() -> [ControllerInfo] {
+        stateLock.withLock { $0.discoveredControllers.map(\.info) }
+    }
+
+    /// Get the product ID for a discovered controller ID (thread-safe).
+    func productID(forControllerID id: String?) -> Int? {
+        guard let id else { return nil }
+        return stateLock.withLock { state in
+            state.discoveredControllers.first(where: { $0.id == id })?.productID
+        }
+    }
+
+    /// Currently selected controller ID (thread-safe).
+    var selectedControllerID: String? {
+        stateLock.withLock { $0.selectedControllerID }
+    }
+
+    /// Preferred controller ID (persisted from last user selection). (thread-safe)
+    var preferredControllerID: String? {
+        get { stateLock.withLock { $0.preferredControllerID } }
+        set { stateLock.withLock { $0.preferredControllerID = newValue } }
+    }
+
+    /// Whether a controller is currently connected and active (thread-safe).
+    var isConnected: Bool {
+        stateLock.withLock { $0.isConnected }
+    }
+
+    /// Name of the connected controller (thread-safe).
+    var controllerName: String? {
+        stateLock.withLock { $0.controllerName }
+    }
 
     private var outputPacketCounter: UInt8 = 0
 
@@ -132,10 +173,12 @@ final class JoyConHIDController {
                 self.hidManager = nil
             }
 
-            self.discoveredControllers.removeAll()
-            self.selectedControllerID = nil
-            self.isConnected = false
-            self.controllerName = nil
+            self.stateLock.withLock { state in
+                state.discoveredControllers.removeAll(keepingCapacity: true)
+                state.selectedControllerID = nil
+                state.isConnected = false
+                state.controllerName = nil
+            }
 
             CFRunLoopStop(runLoop)
         }
@@ -256,26 +299,36 @@ final class JoyConHIDController {
         let location = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int ?? 0
         let uniqueID = serial ?? "loc-\(location)-pid-\(productID)"
 
-        if discoveredControllers.contains(where: { $0.id == uniqueID }) {
-            return
+        let alreadyDiscovered = stateLock.withLock { state in
+            state.discoveredControllers.contains(where: { $0.id == uniqueID })
         }
+        if alreadyDiscovered { return }
 
         let controller = DiscoveredJoyCon(id: uniqueID, name: name, productID: productID, device: device)
-        discoveredControllers.append(controller)
+        stateLock.withLock { state in
+            state.discoveredControllers.append(controller)
+        }
         onControllersChanged?()
         log("Joy-Con discovered: \(name) (PID: 0x\(String(format: "%04X", productID)))")
 
-        if selectedControllerID == uniqueID || (selectedControllerID == nil && preferredControllerID == uniqueID) {
+        let shouldAutoSelect = stateLock.withLock { state in
+            state.selectedControllerID == uniqueID || (state.selectedControllerID == nil && state.preferredControllerID == uniqueID)
+        }
+        if shouldAutoSelect {
             activateController(controller)
         }
     }
 
     private func handleDeviceDisconnected(_ device: IOHIDDevice) {
-        if let index = discoveredControllers.firstIndex(where: { $0.device == device }) {
-            let controller = discoveredControllers[index]
+        let disconnected: DiscoveredJoyCon? = stateLock.withLock { state in
+            guard let index = state.discoveredControllers.firstIndex(where: { $0.device == device }) else { return nil }
+            let controller = state.discoveredControllers[index]
+            state.discoveredControllers.remove(at: index)
+            return controller
+        }
+        if let controller = disconnected {
             log("Joy-Con disconnected: \(controller.name)")
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            discoveredControllers.remove(at: index)
             onControllersChanged?()
 
             if controller.id == selectedControllerID {
@@ -285,7 +338,9 @@ final class JoyConHIDController {
     }
 
     func selectController(id: String) {
-        guard let controller = discoveredControllers.first(where: { $0.id == id }) else {
+        guard let controller = stateLock.withLock({ state in
+            state.discoveredControllers.first(where: { $0.id == id })
+        }) else {
             log("Joy-Con \(id) not found")
             return
         }
@@ -297,8 +352,10 @@ final class JoyConHIDController {
 
     /// Deselect the current controller (stop receiving input)
     func deselectController() {
-        selectedControllerID = nil
-        preferredControllerID = nil
+        stateLock.withLock { state in
+            state.selectedControllerID = nil
+            state.preferredControllerID = nil
+        }
         deactivateCurrentController()
     }
 
@@ -311,9 +368,11 @@ final class JoyConHIDController {
         }
 
         activeDevice = device
-        selectedControllerID = controller.id
-        controllerName = controller.name
-        isConnected = true
+        stateLock.withLock { state in
+            state.selectedControllerID = controller.id
+            state.controllerName = controller.name
+            state.isConnected = true
+        }
 
         // Register input report callback
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -346,8 +405,11 @@ final class JoyConHIDController {
         sendSubcommand(.enableVibration, data: [0x01]) // keep LEDs happy
         sendSubcommand(.setPlayerLights, data: [0x01])
 
-        onConnectionChange?(true, controllerName, selectedControllerID)
-        log("Joy-Con activated: \(controllerName ?? controller.side)")
+        let (name, controllerID) = stateLock.withLock { state in
+            (state.controllerName, state.selectedControllerID)
+        }
+        onConnectionChange?(true, name, controllerID)
+        log("Joy-Con activated: \(name ?? controller.side)")
     }
 
     private func deactivateCurrentController() {
@@ -355,10 +417,13 @@ final class JoyConHIDController {
             IOHIDDeviceRegisterInputReportCallback(device, &reportBuffer, reportBuffer.count, nil, nil)
         }
         activeDevice = nil
-        isConnected = false
-        let name = controllerName
-        let controllerID = selectedControllerID
-        controllerName = nil
+        let (name, controllerID) = stateLock.withLock { state in
+            state.isConnected = false
+            let name = state.controllerName
+            let controllerID = state.selectedControllerID
+            state.controllerName = nil
+            return (name, controllerID)
+        }
         onConnectionChange?(false, name, controllerID)
     }
 

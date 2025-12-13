@@ -3,6 +3,7 @@ import IOKit
 import IOKit.hid
 import QuartzCore
 import MachO
+import os.lock
 
 /// Represents a discovered Sense controller (internal use only - contains IOHIDDevice)
 struct DiscoveredController: Identifiable, Equatable {
@@ -44,15 +45,34 @@ class SenseController {
     private var hidThread: Thread?
     private let hidRunLoopReady = DispatchSemaphore(value: 0)
 
-    /// All discovered Sense controllers
-    private(set) var discoveredControllers: [DiscoveredController] = []
+    // MARK: - Thread-safe state (read from UI / other threads)
 
-    /// Currently selected controller ID
-    private(set) var selectedControllerID: String?
+    private struct ControllerState {
+        var discoveredControllers: [DiscoveredController] = []
+        var selectedControllerID: String?
+        var preferredControllerID: String?
+        var isConnected: Bool = false
+        var controllerName: String?
+    }
 
-    /// Preferred controller ID (persisted from last user selection)
-    /// Used to auto-select only previously selected controllers
-    var preferredControllerID: String?
+    private let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
+
+    /// UI-safe snapshot of all discovered Sense controllers.
+    func controllerInfosSnapshot() -> [ControllerInfo] {
+        stateLock.withLock { $0.discoveredControllers.map(\.info) }
+    }
+
+    /// Currently selected controller ID (thread-safe).
+    var selectedControllerID: String? {
+        stateLock.withLock { $0.selectedControllerID }
+    }
+
+    /// Preferred controller ID (persisted from last user selection).
+    /// Used to auto-select only previously selected controllers. (thread-safe)
+    var preferredControllerID: String? {
+        get { stateLock.withLock { $0.preferredControllerID } }
+        set { stateLock.withLock { $0.preferredControllerID = newValue } }
+    }
 
     /// Callback for gyro data (x, y, z in raw units, timestamp)
     var onGyroData: ((_ x: Int16, _ y: Int16, _ z: Int16, _ timestamp: TimeInterval) -> Void)?
@@ -86,11 +106,15 @@ class SenseController {
     /// Callback for debug/status messages
     var onDebugMessage: ((_ message: String) -> Void)?
 
-    /// Whether a controller is currently connected and active
-    private(set) var isConnected: Bool = false
+    /// Whether a controller is currently connected and active (thread-safe).
+    var isConnected: Bool {
+        stateLock.withLock { $0.isConnected }
+    }
 
-    /// Name of the connected controller
-    private(set) var controllerName: String?
+    /// Name of the connected controller (thread-safe).
+    var controllerName: String? {
+        stateLock.withLock { $0.controllerName }
+    }
 
     // MARK: - Timestamped Value Handling
 
@@ -244,10 +268,12 @@ class SenseController {
                 IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
                 hidManager = nil
             }
-            discoveredControllers.removeAll()
-            selectedControllerID = nil
-            isConnected = false
-            controllerName = nil
+            stateLock.withLock { state in
+                state.discoveredControllers.removeAll(keepingCapacity: true)
+                state.selectedControllerID = nil
+                state.isConnected = false
+                state.controllerName = nil
+            }
             return
         }
 
@@ -266,10 +292,12 @@ class SenseController {
                 self.hidManager = nil
             }
 
-            self.discoveredControllers.removeAll()
-            self.selectedControllerID = nil
-            self.isConnected = false
-            self.controllerName = nil
+            self.stateLock.withLock { state in
+                state.discoveredControllers.removeAll(keepingCapacity: true)
+                state.selectedControllerID = nil
+                state.isConnected = false
+                state.controllerName = nil
+            }
 
             CFRunLoopStop(runLoop)
         }
@@ -282,7 +310,9 @@ class SenseController {
 
     /// Select a controller by ID
     func selectController(id: String) {
-        guard let controller = discoveredControllers.first(where: { $0.id == id }) else {
+        guard let controller = stateLock.withLock({ state in
+            state.discoveredControllers.first(where: { $0.id == id })
+        }) else {
             log("Controller \(id) not found")
             return
         }
@@ -298,8 +328,10 @@ class SenseController {
 
     /// Deselect the current controller (stop receiving input)
     func deselectController() {
-        selectedControllerID = nil
-        preferredControllerID = nil
+        stateLock.withLock { state in
+            state.selectedControllerID = nil
+            state.preferredControllerID = nil
+        }
         deactivateCurrentController()
     }
 
@@ -314,9 +346,11 @@ class SenseController {
         }
 
         self.activeDevice = device
-        self.selectedControllerID = controller.id
-        self.controllerName = "\(controller.name) (\(controller.side))"
-        self.isConnected = true
+        stateLock.withLock { state in
+            state.selectedControllerID = controller.id
+            state.controllerName = "\(controller.name) (\(controller.side))"
+            state.isConnected = true
+        }
 
         // Register input report callback
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -346,8 +380,9 @@ class SenseController {
         log("Activated: \(controllerName ?? "Unknown")")
 
         // Capture values before dispatching to avoid data races
-        let name = self.controllerName
-        let controllerID = self.selectedControllerID
+        let (name, controllerID) = stateLock.withLock { state in
+            (state.controllerName, state.selectedControllerID)
+        }
         DispatchQueue.main.async {
             self.onConnectionChange?(true, name, controllerID)
         }
@@ -358,10 +393,13 @@ class SenseController {
             IOHIDDeviceRegisterInputReportCallback(device, &reportBuffer, reportBuffer.count, nil, nil)
         }
         activeDevice = nil
-        isConnected = false
-        let name = controllerName
-        let controllerID = selectedControllerID
-        controllerName = nil
+        let (name, controllerID) = stateLock.withLock { state in
+            state.isConnected = false
+            let name = state.controllerName
+            let controllerID = state.selectedControllerID
+            state.controllerName = nil
+            return (name, controllerID)
+        }
 
         DispatchQueue.main.async {
             self.onConnectionChange?(false, name, controllerID)
@@ -403,9 +441,10 @@ class SenseController {
         let uniqueID = serialNumber ?? "loc-\(locationID)-pid-\(productID)"
 
         // Check if already discovered
-        if discoveredControllers.contains(where: { $0.id == uniqueID }) {
-            return
+        let alreadyDiscovered = stateLock.withLock { state in
+            state.discoveredControllers.contains(where: { $0.id == uniqueID })
         }
+        if alreadyDiscovered { return }
 
         let controller = DiscoveredController(
             id: uniqueID,
@@ -414,7 +453,9 @@ class SenseController {
             device: device
         )
 
-        discoveredControllers.append(controller)
+        stateLock.withLock { state in
+            state.discoveredControllers.append(controller)
+        }
         log("Sense \(controller.side) Controller discovered!")
 
         DispatchQueue.main.async {
@@ -423,22 +464,27 @@ class SenseController {
 
         // Only auto-select if this controller was previously selected by user
         // (matches saved preference) or is reconnecting current session's selection
-        if selectedControllerID == uniqueID ||
-           (selectedControllerID == nil && preferredControllerID == uniqueID) {
+        let shouldAutoSelect = stateLock.withLock { state in
+            state.selectedControllerID == uniqueID || (state.selectedControllerID == nil && state.preferredControllerID == uniqueID)
+        }
+        if shouldAutoSelect {
             activateController(controller)
         }
     }
 
     private func handleDeviceDisconnected(_ device: IOHIDDevice) {
         // Find and remove the disconnected controller
-        if let index = discoveredControllers.firstIndex(where: { $0.device == device }) {
-            let controller = discoveredControllers[index]
+        let disconnected: DiscoveredController? = stateLock.withLock { state in
+            guard let index = state.discoveredControllers.firstIndex(where: { $0.device == device }) else { return nil }
+            let controller = state.discoveredControllers[index]
+            state.discoveredControllers.remove(at: index)
+            return controller
+        }
+        if let controller = disconnected {
             log("Sense \(controller.side) Controller disconnected")
 
             // Close the seized device to release exclusive access
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-
-            discoveredControllers.remove(at: index)
 
             DispatchQueue.main.async {
                 self.onControllersChanged?()
