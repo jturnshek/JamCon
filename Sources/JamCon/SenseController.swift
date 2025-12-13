@@ -94,7 +94,7 @@ class SenseController {
         let timestamp: TimeInterval
     }
 
-    /// Callback for full report data (reuses internal buffer, includes decoded IMU)
+    /// Callback for full report data (bytes are a stable snapshot, includes decoded IMU)
     var onReportData: ((_ report: InputReport) -> Void)?
 
     /// Callback for connection state changes (includes controller ID to avoid data races)
@@ -543,16 +543,15 @@ class SenseController {
             onIMUData(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, effectiveTimestamp)
         }
 
-        // Copy full report into reused buffer for debug display
+        // Snapshot report bytes so consumers never observe a live IOHID callback buffer.
         let maxLength = min(SenseHIDProtocol.reportLength, min(length, reportBuffer.count))
-        for i in 0..<maxLength {
-            reportBuffer[i] = report[i]
-        }
+        var bytes = [UInt8](repeating: 0, count: maxLength)
+        for i in 0..<maxLength { bytes[i] = report[i] }
 
         if let onReportData {
             onReportData(
                 InputReport(
-                    bytes: reportBuffer,
+                    bytes: bytes,
                     length: maxLength,
                     gyroX: gyroX,
                     gyroY: gyroY,

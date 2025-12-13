@@ -23,6 +23,23 @@ final class InputEngine {
     private let joyConGyroProcessor: GyroProcessor
     private let actionExecutor: ActionExecutor
 
+    // MARK: - Threading
+
+    /// Serial queue that owns all engine state mutations and input processing.
+    private let engineQueue = DispatchQueue(label: "JamCon.engineQueue", qos: .userInitiated)
+    private let engineQueueKey = DispatchSpecificKey<Void>()
+
+    private func engineQueueSync<T>(_ work: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: engineQueueKey) != nil {
+            return work()
+        }
+        return engineQueue.sync(execute: work)
+    }
+
+    private func engineQueueAsync(_ work: @escaping () -> Void) {
+        engineQueue.async(execute: work)
+    }
+
     // MARK: - Button State (Internal - not observable)
 
     private var buttonStates: [Bool]
@@ -37,7 +54,6 @@ final class InputEngine {
     }
     private var buttonPressStates: [ButtonPressState?]
     private var holdTimers: [DispatchWorkItem?]
-    private let holdQueue = DispatchQueue(label: "JamCon.holdQueue", qos: .userInitiated)
 
     // MARK: - Device Selection (managed)
 
@@ -139,6 +155,7 @@ final class InputEngine {
     init(settings: SettingsStore, debugBuffer: DebugBuffer) {
         self.settings = settings
         self.debugBuffer = debugBuffer
+        engineQueue.setSpecific(key: engineQueueKey, value: ())
 
         // Initialize controllers
         self.senseController = SenseController()
@@ -174,8 +191,12 @@ final class InputEngine {
     // MARK: - Lifecycle
 
     func start() {
-        guard !isRunning else { return }
-        isRunning = true
+        let shouldStart = engineQueueSync {
+            guard !isRunning else { return false }
+            isRunning = true
+            return true
+        }
+        guard shouldStart else { return }
 
         setupCallbacks()
 
@@ -185,23 +206,27 @@ final class InputEngine {
     }
 
     func stop() {
-        guard isRunning else { return }
-        isRunning = false
+        let shouldStop = engineQueueSync {
+            guard isRunning else { return false }
+            isRunning = false
+
+            // Cancel all hold timers
+            for timer in holdTimers {
+                timer?.cancel()
+            }
+            for timer in joyConHoldTimers {
+                timer?.cancel()
+            }
+            for timer in g502xHoldTimers {
+                timer?.cancel()
+            }
+            return true
+        }
+        guard shouldStop else { return }
 
         senseController.stop()
         joyConController.stop()
         g502xController.stop()
-
-        // Cancel all hold timers
-        for timer in holdTimers {
-            timer?.cancel()
-        }
-        for timer in joyConHoldTimers {
-            timer?.cancel()
-        }
-        for timer in g502xHoldTimers {
-            timer?.cancel()
-        }
     }
 
     // MARK: - Controller Selection
@@ -209,57 +234,59 @@ final class InputEngine {
     /// Enable/disable processing for a specific physical device.
     /// Selection is per-kind (Sense, Joy-Con, G502X).
     func setDeviceManaged(id: String, kind: ControllerKind, isLeft: Bool, managed: Bool) {
-        switch kind {
-        case .sense:
-            if managed {
-                let profile = ControllerProfile(kind: .sense, isLeft: isLeft)
-                if selectedSenseID == id,
-                   selectedSenseProfile == profile,
-                   senseController.selectedControllerID == id,
-                   senseController.isConnected {
-                    return
+        engineQueueSync {
+            switch kind {
+            case .sense:
+                if managed {
+                    let profile = ControllerProfile(kind: .sense, isLeft: isLeft)
+                    if selectedSenseID == id,
+                       selectedSenseProfile == profile,
+                       senseController.selectedControllerID == id,
+                       senseController.isConnected {
+                        return
+                    }
+                    selectedSenseID = id
+                    selectedSenseProfile = profile
+                    senseController.selectController(id: id)
+                } else if senseController.selectedControllerID == id {
+                    selectedSenseID = nil
+                    selectedSenseProfile = nil
+                    senseController.deselectController()
                 }
-                selectedSenseID = id
-                selectedSenseProfile = profile
-                senseController.selectController(id: id)
-            } else if senseController.selectedControllerID == id {
-                selectedSenseID = nil
-                selectedSenseProfile = nil
-                senseController.deselectController()
-            }
 
-        case .joyCon:
-            if managed {
-                let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
-                if selectedJoyConID == id,
-                   selectedJoyConProfile == profile,
-                   joyConController.selectedControllerID == id,
-                   joyConController.isConnected {
-                    return
+            case .joyCon:
+                if managed {
+                    let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
+                    if selectedJoyConID == id,
+                       selectedJoyConProfile == profile,
+                       joyConController.selectedControllerID == id,
+                       joyConController.isConnected {
+                        return
+                    }
+                    selectedJoyConID = id
+                    selectedJoyConProfile = profile
+                    joyConController.selectController(id: id)
+                } else if joyConController.selectedControllerID == id {
+                    selectedJoyConID = nil
+                    selectedJoyConProfile = nil
+                    joyConController.deselectController()
                 }
-                selectedJoyConID = id
-                selectedJoyConProfile = profile
-                joyConController.selectController(id: id)
-            } else if joyConController.selectedControllerID == id {
-                selectedJoyConID = nil
-                selectedJoyConProfile = nil
-                joyConController.deselectController()
-            }
 
-        case .mouse:
-            if managed {
-                if selectedMouseID == id,
-                   g502xController.selectedMouseID == id,
-                   g502xController.isConnected {
-                    return
+            case .mouse:
+                if managed {
+                    if selectedMouseID == id,
+                       g502xController.selectedMouseID == id,
+                       g502xController.isConnected {
+                        return
+                    }
+                    selectedMouseID = id
+                    resetG502XButtonStateBaseline()
+                    g502xController.selectMouse(id: id)
+                } else if g502xController.selectedMouseID == id {
+                    selectedMouseID = nil
+                    resetG502XButtonStateBaseline()
+                    g502xController.deselectMouse()
                 }
-                selectedMouseID = id
-                resetG502XButtonStateBaseline()
-                g502xController.selectMouse(id: id)
-            } else if g502xController.selectedMouseID == id {
-                selectedMouseID = nil
-                resetG502XButtonStateBaseline()
-                g502xController.deselectMouse()
             }
         }
     }
@@ -270,19 +297,21 @@ final class InputEngine {
     }
 
     func deselectController() {
-        // Deselect in HID controllers (stop receiving input)
-        senseController.deselectController()
-        joyConController.deselectController()
-        g502xController.deselectMouse()
+        engineQueueSync {
+            // Deselect in HID controllers (stop receiving input)
+            senseController.deselectController()
+            joyConController.deselectController()
+            g502xController.deselectMouse()
 
-        selectedSenseID = nil
-        selectedSenseProfile = nil
-        selectedJoyConID = nil
-        selectedJoyConProfile = nil
-        selectedMouseID = nil
+            selectedSenseID = nil
+            selectedSenseProfile = nil
+            selectedJoyConID = nil
+            selectedJoyConProfile = nil
+            selectedMouseID = nil
 
-        // Reset battery
-        updateBatteryLevel(0)
+            // Reset battery
+            updateBatteryLevel(0)
+        }
     }
 
     /// Get list of available controllers
@@ -323,8 +352,10 @@ final class InputEngine {
 
     /// Recalibrate the gyro
     func recalibrate() {
-        senseGyroProcessor.reset()
-        joyConGyroProcessor.reset()
+        engineQueueSync {
+            senseGyroProcessor.reset()
+            joyConGyroProcessor.reset()
+        }
     }
 
     // MARK: - Callbacks Setup
@@ -332,15 +363,21 @@ final class InputEngine {
     private func setupCallbacks() {
         // Sense Controller
         senseController.onReportData = { [weak self] report in
-            self?.processSenseReport(report)
+            self?.engineQueueAsync { [weak self] in
+                self?.processSenseReport(report)
+            }
         }
 
         senseController.onConnectionChange = { [weak self] connected, name, _ in
-            self?.onConnectionChanged?(connected, name, .sense)
+            self?.engineQueueAsync { [weak self] in
+                self?.onConnectionChanged?(connected, name, .sense)
+            }
         }
 
         senseController.onControllersChanged = { [weak self] in
-            self?.onControllerListChanged?()
+            self?.engineQueueAsync { [weak self] in
+                self?.onControllerListChanged?()
+            }
         }
 
         senseController.onDebugMessage = { [weak self] message in
@@ -349,30 +386,36 @@ final class InputEngine {
 
         // Joy-Con Controller
         joyConController.onReportData = { [weak self] report in
-            self?.processJoyConReport(report)
+            self?.engineQueueAsync { [weak self] in
+                self?.processJoyConReport(report)
+            }
         }
 
         joyConController.onConnectionChange = { [weak self] connected, name, controllerID in
-            guard let self else { return }
+            self?.engineQueueAsync { [weak self] in
+                guard let self else { return }
 
-            // Reset stick calibration on reconnect so we capture the new rest position
-            if connected {
-                // Determine which side based on the controller that just connected
-                if let productID = self.joyConController.productID(forControllerID: controllerID) {
-                    let isLeft = productID == JoyConHIDProtocol.leftProductID
-                    if isLeft {
-                        self.joyConLeftMapping.calibration.reset()
-                    } else {
-                        self.joyConRightMapping.calibration.reset()
+                // Reset stick calibration on reconnect so we capture the new rest position
+                if connected {
+                    // Determine which side based on the controller that just connected
+                    if let productID = self.joyConController.productID(forControllerID: controllerID) {
+                        let isLeft = productID == JoyConHIDProtocol.leftProductID
+                        if isLeft {
+                            self.joyConLeftMapping.calibration.reset()
+                        } else {
+                            self.joyConRightMapping.calibration.reset()
+                        }
                     }
                 }
-            }
 
-            self.onConnectionChanged?(connected, name, .joyCon)
+                self.onConnectionChanged?(connected, name, .joyCon)
+            }
         }
 
         joyConController.onControllersChanged = { [weak self] in
-            self?.onControllerListChanged?()
+            self?.engineQueueAsync { [weak self] in
+                self?.onControllerListChanged?()
+            }
         }
 
         joyConController.onDebugMessage = { [weak self] message in
@@ -381,21 +424,23 @@ final class InputEngine {
 
         // G502X Mouse Controller
         g502xController.onReportData = { [weak self] report in
-            self?.processG502XReport(report)
+            self?.engineQueueAsync { [weak self] in
+                self?.processG502XReport(report)
+            }
         }
 
         g502xController.onConnectionChange = { [weak self] connected, name, _ in
-            guard let self else { return }
-            if connected {
+            self?.engineQueueAsync { [weak self] in
+                guard let self else { return }
                 self.resetG502XButtonStateBaseline()
-            } else {
-                self.resetG502XButtonStateBaseline()
+                self.onConnectionChanged?(connected, name, .mouse)
             }
-            self.onConnectionChanged?(connected, name, .mouse)
         }
 
         g502xController.onControllersChanged = { [weak self] in
-            self?.onControllerListChanged?()
+            self?.engineQueueAsync { [weak self] in
+                self?.onControllerListChanged?()
+            }
         }
 
         g502xController.onDebugMessage = { [weak self] message in
@@ -406,6 +451,8 @@ final class InputEngine {
     // MARK: - Sense Report Processing
 
     private func processSenseReport(_ report: SenseController.InputReport) {
+        guard isRunning else { return }
+
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
 
@@ -486,6 +533,8 @@ final class InputEngine {
     // MARK: - Joy-Con Report Processing
 
     private func processJoyConReport(_ report: JoyConHIDController.InputReport) {
+        guard isRunning else { return }
+
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
 
@@ -830,6 +879,7 @@ final class InputEngine {
         if actions.hold != .none {
             let timer = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
+                guard self.isRunning else { return }
                 guard var state = self.buttonPressStates[idx], !state.holdFired else { return }
 
                 state.holdFired = true
@@ -838,7 +888,7 @@ final class InputEngine {
             }
             holdTimers[idx]?.cancel()
             holdTimers[idx] = timer
-            holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+            engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
         }
     }
 
@@ -978,6 +1028,7 @@ final class InputEngine {
         if actions.hold != .none {
             let timer = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
+                guard self.isRunning else { return }
                 guard var state = self.joyConButtonPressStates[idx], !state.holdFired else { return }
 
                 state.holdFired = true
@@ -986,7 +1037,7 @@ final class InputEngine {
             }
             joyConHoldTimers[idx]?.cancel()
             joyConHoldTimers[idx] = timer
-            holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+            engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
         }
     }
 
@@ -1037,6 +1088,8 @@ final class InputEngine {
     // MARK: - G502X Report Processing
 
     private func processG502XReport(_ report: G502XHIDController.InputReport) {
+        guard isRunning else { return }
+
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
 
@@ -1204,6 +1257,7 @@ final class InputEngine {
         if actions.hold != .none {
             let timer = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
+                guard self.isRunning else { return }
                 guard var state = self.g502xButtonPressStates[idx], !state.holdFired else { return }
 
                 state.holdFired = true
@@ -1212,7 +1266,7 @@ final class InputEngine {
             }
             g502xHoldTimers[idx]?.cancel()
             g502xHoldTimers[idx] = timer
-            holdQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+            engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
         }
     }
 
