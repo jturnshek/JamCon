@@ -7,19 +7,20 @@ struct MouseControlTab: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TabHeader(appState: appState)
-
-            if appState.activeControllerKind == .mouse {
+            if appState.configurationProfile.kind == .mouse {
                 // Mouse devices don't have gyro
                 NoControllerView(
                     icon: "computermouse",
                     message: "Gyro mouse settings are not available for USB mice.\n\nThese settings control how controller gyroscope data is translated to mouse movement."
                 )
-            } else if appState.isConnected {
+            } else {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Profile indicator
                         GyroProfileIndicator(appState: appState)
+
+                        // Per-profile cursor enablement
+                        CursorControlSection(appState: appState)
 
                         // Main settings
                         VStack(spacing: 12) {
@@ -44,13 +45,27 @@ struct MouseControlTab: View {
                         .padding()
                     }
                 }
-            } else {
-                NoControllerView(
-                    icon: "gyroscope",
-                    message: "Connect a controller to configure gyro mouse settings"
-                )
             }
         }
+        .navigationTitle("Cursor & Gyro")
+    }
+}
+
+// MARK: - Cursor Control Enablement
+
+private struct CursorControlSection: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Enable Cursor Control", isOn: $appState.cursorControlEnabled)
+                .font(.subheadline.weight(.medium))
+
+            DescriptionText(text: "When off, this controller won't move the cursor or scroll. Button actions still run normally. USB mice are never affected.")
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.05))
+        .cornerRadius(8)
     }
 }
 
@@ -64,7 +79,7 @@ private struct GyroProfileIndicator: View {
             Image(systemName: "cpu")
                 .foregroundColor(.blue)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Configuring: \(appState.activeControllerKind.displayName)")
+                Text("Configuring: \(appState.configurationProfile.kind.displayName)")
                     .font(.caption.bold())
                 Text("Gyro settings are saved separately for each controller type")
                     .font(.caption2)
@@ -181,7 +196,7 @@ private struct FilteringSection: View {
                     Divider()
 
                     // Joy-Con timing fallback (only shown for Joy-Con)
-                    if appState.activeControllerKind == .joyCon {
+                    if appState.configurationProfile.kind == .joyCon {
                         VStack(alignment: .leading, spacing: 8) {
                             Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
                                 .font(.subheadline)

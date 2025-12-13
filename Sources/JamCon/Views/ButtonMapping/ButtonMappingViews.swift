@@ -61,7 +61,7 @@ struct ButtonMappingsSection: View {
                     Text("Trigger Threshold")
                         .font(.system(size: 12, weight: .medium))
                     Spacer()
-                    Text("\(appState.triggerThreshold)")
+                    Text("\(appState.buttonMappingProfile.triggerThreshold)")
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
@@ -72,8 +72,8 @@ struct ButtonMappingsSection: View {
                         .foregroundColor(.secondary)
                     Slider(
                         value: Binding(
-                            get: { Double(appState.triggerThreshold) },
-                            set: { appState.triggerThreshold = UInt8($0) }
+                            get: { Double(appState.buttonMappingProfile.triggerThreshold) },
+                            set: { appState.buttonMappingProfile.triggerThreshold = UInt8($0) }
                         ),
                         in: 0...255,
                         step: 1
@@ -94,7 +94,7 @@ struct ButtonMappingsSection: View {
                     Text("Hold Threshold")
                         .font(.system(size: 12, weight: .medium))
                     Spacer()
-                    Text(String(format: "%.1fs", appState.holdThreshold))
+                    Text(String(format: "%.1fs", appState.buttonMappingProfile.holdThreshold))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
@@ -104,7 +104,10 @@ struct ButtonMappingsSection: View {
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                     Slider(
-                        value: $appState.holdThreshold,
+                        value: Binding(
+                            get: { appState.buttonMappingProfile.holdThreshold },
+                            set: { appState.buttonMappingProfile.holdThreshold = $0 }
+                        ),
                         in: 0.1...1.0,
                         step: 0.1
                     )

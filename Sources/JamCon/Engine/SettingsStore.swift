@@ -25,6 +25,12 @@ final class SettingsStore: @unchecked Sendable {
         var joyConButtonMappings: [ControllerProfile: JoyConButtonMappingProfile] = [:]
         var g502xButtonMappings: [ControllerProfile: G502XButtonMappingProfile] = [:]
 
+        // MARK: - Per-Profile Cursor Control
+
+        /// Whether this controller profile is allowed to emit cursor/scroll output (gyro + stick scroll).
+        /// Defaults to true for all non-mouse profiles.
+        var cursorControlEnabledByProfile: [ControllerProfile: Bool] = [:]
+
         // Global button settings
         var triggerThreshold: UInt8 = 128
         var holdThreshold: Double = 0.3
@@ -41,6 +47,10 @@ final class SettingsStore: @unchecked Sendable {
 
         /// Enables expensive debug recording in the engine (runtime only; not stored in UserDefaults).
         var debugRecordingEnabled: Bool = false
+
+        /// Optional debug capture target (runtime only). When set, the engine records debug samples
+        /// only for that controller kind.
+        var debugRecordingTargetKind: ControllerKind?
 
         // MARK: - Convenience Accessors
 
@@ -251,6 +261,16 @@ final class SettingsStore: @unchecked Sendable {
                 settings.g502xButtonMappings[mouseProfile] = .load(for: mouseProfile)
             } else {
                 settings.g502xButtonMappings[mouseProfile] = .default
+            }
+
+            // Load per-profile cursor control (defaults to true if unset).
+            for profile in ControllerProfile.allProfiles where profile.kind != .mouse {
+                let key = "cursorControlEnabled.\(profile.persistenceKey)"
+                if UserDefaults.standard.object(forKey: key) != nil {
+                    settings.cursorControlEnabledByProfile[profile] = UserDefaults.standard.bool(forKey: key)
+                } else {
+                    settings.cursorControlEnabledByProfile[profile] = true
+                }
             }
 
             // Load global trigger/hold thresholds

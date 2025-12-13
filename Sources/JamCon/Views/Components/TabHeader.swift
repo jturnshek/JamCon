@@ -19,11 +19,7 @@ struct TabHeader<TrailingContent: View>: View {
     }
 
     private var displayName: String {
-        if appState.isConnected {
-            return appState.controllerName
-        } else {
-            return "No controller selected"
-        }
+        appState.controllerName
     }
 
     var body: some View {
@@ -42,5 +38,26 @@ struct TabHeader<TrailingContent: View>: View {
         .padding(.horizontal)
         .padding(.vertical, 14)
         .background(Color.secondary.opacity(0.05))
+    }
+}
+
+/// Picker for choosing which controller profile the settings UI is editing.
+struct ConfigurationTargetControl: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Configuring")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Picker("", selection: $appState.configurationProfile) {
+                ForEach(ControllerProfile.allProfiles, id: \.self) { profile in
+                    Text(profile.displayName)
+                        .tag(profile)
+                }
+            }
+            .pickerStyle(.menu)
+        }
     }
 }

@@ -2,78 +2,127 @@ import SwiftUI
 
 // MARK: - Settings View
 
-/// Main settings window with tabbed interface
+/// Main settings window with explicit hierarchical navigation
 struct SettingsView: View {
     @ObservedObject var appState: AppState
-    @State private var selectedTab: AppState.ActiveTab = .controller
+
+    private enum SidebarSelection: Hashable {
+        case devices
+        case profile(ControllerProfile)
+        case radialMenu
+        case log
+    }
+
+    @State private var selection: SidebarSelection? = .devices
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        NavigationSplitView {
+            List(selection: $selection) {
+                Section("Devices") {
+                    NavigationLink(value: SidebarSelection.devices) {
+                        Label("Manage Devices", systemImage: "gamecontroller")
+                    }
+                }
+
+                Section("Profiles") {
+                    ForEach(ControllerProfile.allProfiles, id: \.self) { profile in
+                        NavigationLink(value: SidebarSelection.profile(profile)) {
+                            Label(profile.displayName, systemImage: iconName(for: profile))
+                        }
+                    }
+                }
+
+                Section("Global") {
+                    NavigationLink(value: SidebarSelection.radialMenu) {
+                        Label("Radial Menu", systemImage: "circle.hexagongrid")
+                    }
+                    NavigationLink(value: SidebarSelection.log) {
+                        Label("Log", systemImage: "doc.text")
+                    }
+                }
+            }
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
+        } detail: {
+            NavigationStack {
+                detailView
+            }
+            .id(selection)
+        }
+        .frame(minWidth: 760, minHeight: 520)
+        .onAppear {
+            if selection == nil {
+                selection = .devices
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var detailView: some View {
+        switch selection {
+        case .devices, .none:
             ControllerTab(appState: appState)
-                .tabItem {
-                    Label("Controller", systemImage: "gamecontroller")
-                }
-                .tag(AppState.ActiveTab.controller)
 
-            MouseControlTab(appState: appState)
-                .tabItem {
-                    Label("Mouse", systemImage: "computermouse")
-                }
-                .tag(AppState.ActiveTab.mouse)
+        case .profile(let profile):
+            ProfileHubView(appState: appState, profile: profile)
 
-            ButtonsTab(appState: appState)
-                .tabItem {
+        case .radialMenu:
+            RadialMenuTab(appState: appState)
+
+        case .log:
+            LogTab(appState: appState)
+        }
+    }
+
+    private func iconName(for profile: ControllerProfile) -> String {
+        switch profile.kind {
+        case .sense, .joyCon:
+            return profile.isLeft ? "l.joystick" : "r.joystick"
+        case .mouse:
+            return "computermouse"
+        }
+    }
+}
+
+private struct ProfileHubView: View {
+    @ObservedObject var appState: AppState
+    let profile: ControllerProfile
+
+    var body: some View {
+        List {
+            Section {
+                if profile.kind != .mouse {
+                    NavigationLink {
+                        MouseControlTab(appState: appState)
+                    } label: {
+                        Label("Cursor & Gyro", systemImage: "cursorarrow.motionlines")
+                    }
+                }
+
+                NavigationLink {
+                    ButtonsTab(appState: appState)
+                } label: {
                     Label("Buttons", systemImage: "circle.grid.3x3")
                 }
-                .tag(AppState.ActiveTab.buttons)
 
-            JoystickTab(appState: appState)
-                .tabItem {
-                    Label("Joystick", systemImage: "l.joystick")
+                if profile.kind.hasJoystick {
+                    NavigationLink {
+                        JoystickTab(appState: appState)
+                    } label: {
+                        Label("Joystick", systemImage: "l.joystick")
+                    }
                 }
-                .tag(AppState.ActiveTab.joystick)
-
-            RadialMenuTab(appState: appState)
-                .tabItem {
-                    Label("Radial", systemImage: "circle.hexagongrid")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Profiles are shared templates by controller type/side.")
+                    Text("Devices are managed separately in “Manage Devices”.")
                 }
-                .tag(AppState.ActiveTab.radial)
-
-            DebugTab(appState: appState)
-                .tabItem {
-                    Label("Debug", systemImage: "ladybug")
-                }
-                .tag(AppState.ActiveTab.debug)
-
-            LogTab(appState: appState)
-                .tabItem {
-                    Label("Log", systemImage: "doc.text")
-                }
-                .tag(AppState.ActiveTab.log)
-        }
-        .frame(minWidth: 500, minHeight: 450)
-        .onChange(of: selectedTab) { _, newTab in
-            appState.activeTab = newTab
-
-            if newTab == .log {
-                appState.startLogPolling()
-            } else {
-                appState.stopLogPolling()
-            }
-
-            if newTab != .debug {
-                appState.stopDebugPolling()
+                .font(.caption)
+                .foregroundColor(.secondary)
             }
         }
+        .navigationTitle(profile.displayName)
         .onAppear {
-            appState.activeTab = selectedTab
-            if selectedTab == .log {
-                appState.startLogPolling()
-            }
-        }
-        .onDisappear {
-            appState.stopLogPolling()
-            appState.stopDebugPolling()
+            appState.configurationProfile = profile
         }
     }
 }

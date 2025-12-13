@@ -1,5 +1,213 @@
 import SwiftUI
 
+// MARK: - Device Debug View (Device-scoped)
+
+struct DeviceDebugView: View {
+    @ObservedObject var appState: AppState
+    let controller: ControllerInfo
+
+    private let bytesPerRow = 8
+    private let decaySeconds: Double = 5.0
+
+    private var isManaged: Bool { appState.isDeviceManaged(controller) }
+
+    private var liveBinding: Binding<Bool> {
+        Binding(
+            get: { appState.debugPollingEnabled },
+            set: { enabled in
+                if enabled {
+                    guard isManaged else { return }
+                    appState.startDebugPolling(targetKind: controller.kind)
+                } else {
+                    appState.stopDebugPolling()
+                }
+            }
+        )
+    }
+
+    private var totalBytes: Int {
+        if appState.reportLength > 0 {
+            return appState.reportLength
+        }
+        switch controller.kind {
+        case .mouse:
+            return 16
+        case .joyCon:
+            return JoyConHIDProtocol.reportLength
+        case .sense:
+            return SenseHIDProtocol.reportLength
+        }
+    }
+
+    private var byte11: UInt8 { appState.safeReportByte(SenseHIDProtocol.Offset.touchStates) }
+    private var faceTopTouch: Bool { (byte11 & 0x01) != 0 }
+    private var faceBottomTouch: Bool { (byte11 & 0x02) != 0 }
+    private var stickTouch: Bool { (byte11 & SenseHIDProtocol.TouchStateMask.joystickTouch) != 0 }
+
+    var body: some View {
+        Group {
+            if !isManaged {
+                ContentUnavailableView {
+                    Label("Not Managed", systemImage: "checkmark.circle.badge.xmark")
+                } description: {
+                    Text("Toggle Managed for this device in Devices to enable input, then turn on Live.")
+                }
+            } else if !appState.debugPollingEnabled {
+                ContentUnavailableView {
+                    Label("Live Rendering Paused", systemImage: "pause.circle")
+                } description: {
+                    Text("Enable Live to see real-time data.")
+                }
+            } else {
+                switch controller.kind {
+                case .mouse:
+                    TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                        MouseDebugView(
+                            appState: appState,
+                            bytesPerRow: bytesPerRow,
+                            totalBytes: totalBytes,
+                            decaySeconds: decaySeconds,
+                            currentTime: timeline.date
+                        )
+                    }
+
+                case .joyCon:
+                    TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                        JoyConDebugView(
+                            appState: appState,
+                            isLeft: controller.isLeft,
+                            bytesPerRow: bytesPerRow,
+                            totalBytes: totalBytes,
+                            decaySeconds: decaySeconds,
+                            currentTime: timeline.date
+                        )
+                    }
+
+                case .sense:
+                    TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 16) {
+                                // Section 1: Gyro Pipeline (all 3 stages)
+                                GyroPipelineView(appState: appState)
+
+                                Divider()
+
+                                // Section 2: Buttons
+                                DebugButtonsSection(
+                                    appState: appState,
+                                    isLeft: controller.isLeft,
+                                    faceTopTouch: faceTopTouch,
+                                    faceBottomTouch: faceBottomTouch,
+                                    stickTouch: stickTouch
+                                )
+
+                                Divider()
+
+                                // Section 3: Stick
+                                DebugStickSection(appState: appState, isLeft: controller.isLeft, stickTouch: stickTouch)
+
+                                Divider()
+
+                                // Section 4: Raw HID Report
+                                DebugRawReportSection(
+                                    appState: appState,
+                                    currentTime: timeline.date,
+                                    bytesPerRow: bytesPerRow,
+                                    totalBytes: totalBytes,
+                                    decaySeconds: decaySeconds
+                                )
+
+                                Divider()
+
+                                // Section 5: Button Lab
+                                ButtonLabView(
+                                    buttonName: "Circle, X, Grip (R1)",
+                                    candidateBytes: [9],
+                                    reportBytes: appState.reportBytes,
+                                    bitLastChanged: appState.bitLastChanged,
+                                    currentTime: timeline.date
+                                )
+
+                                ButtonLabView(
+                                    buttonName: "Joystick Click, Start, PlayStation",
+                                    candidateBytes: [10],
+                                    reportBytes: appState.reportBytes,
+                                    bitLastChanged: appState.bitLastChanged,
+                                    currentTime: timeline.date
+                                )
+
+                                JoystickLabView(
+                                    xByte: 2,
+                                    yByte: 3,
+                                    useJoyConPacking: false,
+                                    reportBytes: appState.reportBytes
+                                )
+
+                                AnalogLabView(
+                                    title: "Analog Inputs",
+                                    inputs: [
+                                        ("Trigger (R2)", 4),
+                                    ],
+                                    reportBytes: appState.reportBytes
+                                )
+
+                                AnalogLabView(
+                                    title: "Capacitive / Proximity (Analog)",
+                                    inputs: [
+                                        ("Trigger Proximity", 5),
+                                        ("Grip Touch", 6),
+                                    ],
+                                    reportBytes: appState.reportBytes
+                                )
+
+                                ButtonLabView(
+                                    buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
+                                    candidateBytes: [11],
+                                    reportBytes: appState.reportBytes,
+                                    bitLastChanged: appState.bitLastChanged,
+                                    currentTime: timeline.date
+                                )
+
+                                LogicalButtonTestView(
+                                    buttonStates: appState.buttonStates,
+                                    isLeftController: controller.isLeft,
+                                    triggerValue: appState.safeReportByte(4),
+                                    joystickX: appState.safeReportByte(2),
+                                    joystickY: appState.safeReportByte(3)
+                                )
+
+                                Divider()
+                                    .padding(.vertical, 8)
+
+                                Text("Sensor Data (Confirmed)")
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.green)
+
+                                IMUAxisTesterView(reportBytes: appState.reportBytes)
+
+                                BatteryStatusView(reportBytes: appState.reportBytes)
+                            }
+                            .padding()
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Live Debug")
+        .toolbar {
+            ToolbarItem {
+                Toggle("Live", isOn: liveBinding)
+                    .toggleStyle(.switch)
+                    .disabled(!isManaged)
+            }
+        }
+        .onDisappear {
+            appState.stopDebugPolling()
+        }
+    }
+}
+
 // MARK: - Debug Tab
 
 struct DebugTab: View {
@@ -62,6 +270,7 @@ struct DebugTab: View {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         JoyConDebugView(
                             appState: appState,
+                            isLeft: isLeft,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
                             decaySeconds: decaySeconds,
@@ -209,12 +418,11 @@ struct DebugTab: View {
 
 private struct JoyConDebugView: View {
     @ObservedObject var appState: AppState
+    let isLeft: Bool
     let bytesPerRow: Int
     let totalBytes: Int
     let decaySeconds: Double
     let currentTime: Date
-
-    private var isLeft: Bool { appState.isLeftController }
 
     // Joystick start byte differs by controller side
     private var joystickStartByte: Int {
@@ -231,6 +439,7 @@ private struct JoyConDebugView: View {
 
                 JoyConQuickRows(
                     appState: appState,
+                    isLeft: isLeft,
                     currentTime: currentTime
                 )
 
@@ -606,9 +815,8 @@ private struct DebugRawReportSection: View {
 
 private struct JoyConQuickRows: View {
     @ObservedObject var appState: AppState
+    let isLeft: Bool
     let currentTime: Date
-
-    private var isLeft: Bool { appState.isLeftController }
 
     private let motionBytes = Array(36...47)  // Hypothesis: latest IMU sample block
     private let batteryBytes = [2]            // Battery nibble (upper)
@@ -629,7 +837,7 @@ private struct JoyConQuickRows: View {
             JoyConRow(title: "Buttons (\(isLeft ? "Left: bytes 4-5" : "Right: bytes 3-4"))", bytes: buttonBytes, appState: appState, currentTime: currentTime)
             JoyConRow(title: "Joystick (\(isLeft ? "Left: bytes 6-8" : "Right: bytes 9-11"))", bytes: joystickBytes, appState: appState, currentTime: currentTime)
             JoyConRow(title: "Battery", bytes: batteryBytes, appState: appState, currentTime: currentTime)
-            JoyConButtonTester(appState: appState, currentTime: currentTime)
+            JoyConButtonTester(appState: appState, isLeft: isLeft, currentTime: currentTime)
         }
         .padding()
         .background(Color.secondary.opacity(0.03))
@@ -639,9 +847,8 @@ private struct JoyConQuickRows: View {
 
 private struct JoyConButtonTester: View {
     @ObservedObject var appState: AppState
+    let isLeft: Bool
     let currentTime: Date
-
-    private var isLeft: Bool { appState.isLeftController }
 
     private struct JoyConButtonEntry: Identifiable {
         let id = UUID()

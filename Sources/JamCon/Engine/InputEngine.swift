@@ -19,7 +19,8 @@ final class InputEngine {
     let joyConController: JoyConHIDController
     let g502xController: G502XHIDController
     private let mouseController: MouseController
-    private let gyroProcessor: GyroProcessor
+    private let senseGyroProcessor: GyroProcessor
+    private let joyConGyroProcessor: GyroProcessor
     private let actionExecutor: ActionExecutor
 
     // MARK: - Button State (Internal - not observable)
@@ -38,10 +39,27 @@ final class InputEngine {
     private var holdTimers: [DispatchWorkItem?]
     private let holdQueue = DispatchQueue(label: "JamCon.holdQueue", qos: .userInitiated)
 
-    // Gyro mode tracking
-    private var dragButtonHeld: Bool = false
-    private var scrollButtonHeld: Bool = false
-    private var radialMenuButtonHeld: Bool = false
+    // MARK: - Device Selection (managed)
+
+    private var selectedSenseID: String?
+    private var selectedSenseProfile: ControllerProfile?
+    private var selectedJoyConID: String?
+    private var selectedJoyConProfile: ControllerProfile?
+    private var selectedMouseID: String?
+
+    // MARK: - Gyro Mode Tracking (per kind)
+
+    private struct GyroModeState {
+        var dragButtonHeld: Bool = false
+        var scrollButtonHeld: Bool = false
+        var radialMenuButtonHeld: Bool = false
+    }
+
+    private var senseMode = GyroModeState()
+    private var joyConMode = GyroModeState()
+    private var mouseMode = GyroModeState()
+
+    private var radialMenuOwnerKind: ControllerKind?
 
     // Cached button mappings (avoid allocation on hot path)
     private let leftMapping = SenseButtonMapping(isLeft: true)
@@ -127,7 +145,8 @@ final class InputEngine {
         self.joyConController = JoyConHIDController()
         self.g502xController = G502XHIDController()
         self.mouseController = MouseController()
-        self.gyroProcessor = GyroProcessor()
+        self.senseGyroProcessor = GyroProcessor()
+        self.joyConGyroProcessor = GyroProcessor()
         self.actionExecutor = ActionExecutor(mouseController: mouseController)
 
         // Initialize Sense button state arrays
@@ -160,17 +179,6 @@ final class InputEngine {
 
         setupCallbacks()
 
-        // Load preferred controller IDs from UserDefaults
-        if let savedID = UserDefaults.standard.string(forKey: "lastSelectedControllerID") {
-            senseController.preferredControllerID = savedID
-        }
-        if let savedJoyCon = UserDefaults.standard.string(forKey: "lastSelectedJoyConControllerID") {
-            joyConController.preferredControllerID = savedJoyCon
-        }
-        if let savedMouse = UserDefaults.standard.string(forKey: "lastSelectedMouseID") {
-            g502xController.preferredMouseID = savedMouse
-        }
-
         senseController.start()
         joyConController.start()
         g502xController.start()
@@ -198,42 +206,80 @@ final class InputEngine {
 
     // MARK: - Controller Selection
 
-    func selectController(id: String, kind: ControllerKind, isLeft: Bool) {
-        let profile = ControllerProfile(kind: kind, isLeft: isLeft)
-        settings.update {
-            $0.activeProfile = profile
-            $0.isEnabled = true
-        }
-
+    /// Enable/disable processing for a specific physical device.
+    /// Selection is per-kind (Sense, Joy-Con, G502X).
+    func setDeviceManaged(id: String, kind: ControllerKind, isLeft: Bool, managed: Bool) {
         switch kind {
         case .sense:
-            UserDefaults.standard.set(id, forKey: "lastSelectedControllerID")
-            senseController.selectController(id: id)
+            if managed {
+                let profile = ControllerProfile(kind: .sense, isLeft: isLeft)
+                if selectedSenseID == id,
+                   selectedSenseProfile == profile,
+                   senseController.selectedControllerID == id,
+                   senseController.isConnected {
+                    return
+                }
+                selectedSenseID = id
+                selectedSenseProfile = profile
+                senseController.selectController(id: id)
+            } else if senseController.selectedControllerID == id {
+                selectedSenseID = nil
+                selectedSenseProfile = nil
+                senseController.deselectController()
+            }
+
         case .joyCon:
-            UserDefaults.standard.set(id, forKey: "lastSelectedJoyConControllerID")
-            joyConController.selectController(id: id)
+            if managed {
+                let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
+                if selectedJoyConID == id,
+                   selectedJoyConProfile == profile,
+                   joyConController.selectedControllerID == id,
+                   joyConController.isConnected {
+                    return
+                }
+                selectedJoyConID = id
+                selectedJoyConProfile = profile
+                joyConController.selectController(id: id)
+            } else if joyConController.selectedControllerID == id {
+                selectedJoyConID = nil
+                selectedJoyConProfile = nil
+                joyConController.deselectController()
+            }
+
         case .mouse:
-            UserDefaults.standard.set(id, forKey: "lastSelectedMouseID")
-            resetG502XButtonStateBaseline()
-            g502xController.selectMouse(id: id)
+            if managed {
+                if selectedMouseID == id,
+                   g502xController.selectedMouseID == id,
+                   g502xController.isConnected {
+                    return
+                }
+                selectedMouseID = id
+                resetG502XButtonStateBaseline()
+                g502xController.selectMouse(id: id)
+            } else if g502xController.selectedMouseID == id {
+                selectedMouseID = nil
+                resetG502XButtonStateBaseline()
+                g502xController.deselectMouse()
+            }
         }
     }
 
+    func selectController(id: String, kind: ControllerKind, isLeft: Bool) {
+        settings.update { $0.activeProfile = ControllerProfile(kind: kind, isLeft: isLeft) }
+        setDeviceManaged(id: id, kind: kind, isLeft: isLeft, managed: true)
+    }
+
     func deselectController() {
-        // Disable input processing
-        settings.update {
-            $0.isEnabled = false
-        }
-
-        // Clear saved preferences
-        UserDefaults.standard.removeObject(forKey: "lastSelectedControllerID")
-        UserDefaults.standard.removeObject(forKey: "lastSelectedJoyConControllerID")
-        UserDefaults.standard.removeObject(forKey: "lastSelectedMouseID")
-
-        // Deselect in HID controllers
+        // Deselect in HID controllers (stop receiving input)
         senseController.deselectController()
         joyConController.deselectController()
         g502xController.deselectMouse()
+
+        selectedSenseID = nil
+        selectedSenseProfile = nil
+        selectedJoyConID = nil
+        selectedJoyConProfile = nil
+        selectedMouseID = nil
 
         // Reset battery
         updateBatteryLevel(0)
@@ -278,7 +324,8 @@ final class InputEngine {
 
     /// Recalibrate the gyro
     func recalibrate() {
-        gyroProcessor.reset()
+        senseGyroProcessor.reset()
+        joyConGyroProcessor.reset()
     }
 
     // MARK: - Callbacks Setup
@@ -363,23 +410,25 @@ final class InputEngine {
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
 
-        // Only process if this controller type is active
-        guard s.activeControllerKind == .sense else { return }
         guard s.isEnabled else { return }
 
-        let mapping = s.isLeftController ? leftMapping : rightMapping
+        guard let profile = selectedSenseProfile else { return }
+
+        let mapping = profile.isLeft ? leftMapping : rightMapping
+        let buttonProfile = s.senseButtonMappings[profile] ?? .load(for: profile)
+        let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
         // 1. Process buttons (updates internal state, fires actions)
         processButtonActions(
             bytes: report.bytes,
             mapping: mapping,
-            profile: s.buttonMappingProfile,
-            triggerThreshold: s.triggerThreshold,
-            holdThreshold: s.holdThreshold
+            profile: buttonProfile,
+            triggerThreshold: buttonProfile.triggerThreshold,
+            holdThreshold: buttonProfile.holdThreshold
         )
 
         // 2. Process joystick scroll if enabled
-        if s.joystickScrollEnabled {
+        if s.joystickScrollEnabled, cursorEnabled {
             processJoystickScroll(bytes: report.bytes, mapping: mapping, settings: s)
         }
 
@@ -390,19 +439,27 @@ final class InputEngine {
             rawZ: report.gyroZ,
             controllerKind: .sense
         )
-        var gyroSettings = s.toGyroSettingsState()
-        gyroSettings.gyroScale = effectiveGyroScale(for: .sense, userScale: s.gyroScale)
+        var gyroSettings = s.gyroSettings[.sense] ?? .defaultForKind(.sense)
+        let userScale = gyroSettings.gyroScale
+        gyroSettings.gyroScale = effectiveGyroScale(for: .sense, userScale: userScale)
         gyroSettings.expectedSampleRate = 60.0
         gyroSettings.biasMotionThreshold = 50.0
-        gyroSettings.autoNeutralEnabled = s.autoNeutralEnabled
-        if let (dx, dy) = gyroProcessor.process(
+        if let (dx, dy) = senseGyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
             rawZ: pipeline.remapped.roll,
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
-            routeGyroMovement(dx: dx, dy: dy, profile: s.buttonMappingProfile, configuration: s.radialMenuConfiguration)
+            routeGyroMovement(
+                kind: .sense,
+                dx: dx,
+                dy: dy,
+                cursorEnabled: cursorEnabled,
+                hasDragMapping: buttonProfile.hasDragMapping,
+                configuration: s.radialMenuConfiguration,
+                modeState: senseMode
+            )
         }
 
         // 4. Update battery level (from byte 43)
@@ -412,7 +469,7 @@ final class InputEngine {
         }
 
         // 5. Record to debug buffer with all pipeline stages
-        if s.debugRecordingEnabled {
+        if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .sense) {
             debugBuffer.record(
                 bytes: report.bytes,
                 length: report.length,
@@ -422,7 +479,7 @@ final class InputEngine {
                 accel: (report.accelX, report.accelY, report.accelZ),
                 buttonStates: buttonStates,
                 controllerKind: .sense,
-                gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
+                gyroDebug: mapGyroDebug(from: senseGyroProcessor.lastDebugState)
             )
         }
     }
@@ -433,16 +490,18 @@ final class InputEngine {
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
 
-        // Only process if this controller type is active
-        guard s.activeControllerKind == .joyCon else { return }
         guard s.isEnabled else { return }
+
+        guard let profile = selectedJoyConProfile else { return }
 
         // Keep Joy-Con timing mode in sync with settings
         joyConController.useTimerFallback = s.joyConTimerFallbackEnabled
         joyConController.useTimerHybrid = s.joyConTimerHybridEnabled
 
         // Get the appropriate mapping (mutable reference for calibration)
-        let isLeft = s.isLeftController
+        let isLeft = profile.isLeft
+        let buttonProfile: JoyConButtonMappingProfile = s.joyConButtonMappings[profile] ?? .defaultProfile(for: profile)
+        let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
         // Continuous auto-calibration: updates center when stick is stationary
         if isLeft {
@@ -459,8 +518,8 @@ final class InputEngine {
         processJoyConButtonActions(
             bytes: report.bytes,
             mapping: joyConMapping,
-            profile: s.joyConButtonMappingProfile,
-            holdThreshold: s.joyConButtonMappingProfile.holdThreshold
+            profile: buttonProfile,
+            holdThreshold: buttonProfile.holdThreshold
         )
 
         // 2. Process gyro through unified pipeline
@@ -474,23 +533,31 @@ final class InputEngine {
         )
 
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
-        var gyroSettings = s.toGyroSettingsState()
-        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: s.gyroScale)
+        var gyroSettings = s.gyroSettings[.joyCon] ?? .defaultForKind(.joyCon)
+        let userScale = gyroSettings.gyroScale
+        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
         gyroSettings.expectedSampleRate = 66.0  // ~66 Hz since we use only the newest sample per packet
         gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
-        gyroSettings.autoNeutralEnabled = s.autoNeutralEnabled
-        if let (dx, dy) = gyroProcessor.process(
+        if let (dx, dy) = joyConGyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
             rawZ: pipeline.remapped.roll,
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
-            routeJoyConGyroMovement(dx: dx, dy: dy, profile: s.joyConButtonMappingProfile, configuration: s.radialMenuConfiguration)
+            routeGyroMovement(
+                kind: .joyCon,
+                dx: dx,
+                dy: dy,
+                cursorEnabled: cursorEnabled,
+                hasDragMapping: buttonProfile.hasDragMapping,
+                configuration: s.radialMenuConfiguration,
+                modeState: joyConMode
+            )
         }
 
         // 3. Process joystick scroll (if enabled)
-        if s.joystickScrollEnabled {
+        if s.joystickScrollEnabled, cursorEnabled {
             processJoyConJoystickScroll(bytes: report.bytes, mapping: joyConMapping, settings: s)
         }
 
@@ -500,7 +567,7 @@ final class InputEngine {
         }
 
         // 4. Record to debug buffer with all pipeline stages
-        if s.debugRecordingEnabled {
+        if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .joyCon) {
             debugBuffer.record(
                 bytes: report.bytes,
                 length: report.length,
@@ -510,7 +577,7 @@ final class InputEngine {
                 accel: (report.accelX, report.accelY, report.accelZ),
                 buttonStates: joyConButtonStates,
                 controllerKind: .joyCon,
-                gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
+                gyroDebug: mapGyroDebug(from: joyConGyroProcessor.lastDebugState)
             )
         }
     }
@@ -540,6 +607,39 @@ final class InputEngine {
 
     // MARK: - Gyro Mode Routing
 
+    private func updateModeState(for kind: ControllerKind, _ update: (inout GyroModeState) -> Void) {
+        switch kind {
+        case .sense:
+            update(&senseMode)
+        case .joyCon:
+            update(&joyConMode)
+        case .mouse:
+            update(&mouseMode)
+        }
+    }
+
+    private func beginRadialMenu(kind: ControllerKind, pointerStyle: RadialMenuPointerStyle) {
+        if radialMenuOwnerKind == nil {
+            radialMenuOwnerKind = kind
+        }
+        guard radialMenuOwnerKind == kind else { return }
+
+        updateModeState(for: kind) { $0.radialMenuButtonHeld = true }
+        radialMenuLock.withLock { radialMenuAccumulator = .zero }
+
+        let position = NSEvent.mouseLocation
+        let config = settings.snapshot().radialMenuConfiguration
+
+        if pointerStyle == .ghostCursor {
+            mouseController.hideCursor()
+        }
+        onRadialMenuShow?(position, config, pointerStyle)
+
+        if pointerStyle == .systemCursor {
+            startRadialMenuCursorTracking(anchor: position)
+        }
+    }
+
     private enum GyroMode {
         case none       // No cursor movement (drag mapped but not held)
         case normal     // Normal cursor movement
@@ -548,56 +648,38 @@ final class InputEngine {
         case radialMenu // Radial menu active
     }
 
-    private func currentGyroMode(profile: SenseButtonMappingProfile) -> GyroMode {
-        if radialMenuButtonHeld { return .radialMenu }
-        if scrollButtonHeld { return .scroll }
-        if dragButtonHeld { return .drag }
-        if profile.hasDragMapping { return .none }
+    private func currentGyroMode(kind: ControllerKind, hasDragMapping: Bool, modeState: GyroModeState) -> GyroMode {
+        if modeState.radialMenuButtonHeld, radialMenuOwnerKind == kind { return .radialMenu }
+        if modeState.scrollButtonHeld { return .scroll }
+        if modeState.dragButtonHeld { return .drag }
+        if hasDragMapping { return .none }
         return .normal
     }
 
-    private func routeGyroMovement(dx: CGFloat, dy: CGFloat, profile: SenseButtonMappingProfile, configuration: RadialMenuConfiguration) {
-        let mode = currentGyroMode(profile: profile)
+    private func routeGyroMovement(
+        kind: ControllerKind,
+        dx: CGFloat,
+        dy: CGFloat,
+        cursorEnabled: Bool,
+        hasDragMapping: Bool,
+        configuration: RadialMenuConfiguration,
+        modeState: GyroModeState
+    ) {
+        let mode = currentGyroMode(kind: kind, hasDragMapping: hasDragMapping, modeState: modeState)
 
         switch mode {
         case .none:
             break
         case .normal, .drag:
-            mouseController.moveRelative(dx: dx, dy: dy)
-        case .scroll:
-            mouseController.scroll(dx: dx, dy: dy)
-        case .radialMenu:
-            let scale = max(0.1, configuration.radialMovementScale)
-            let scaledDx = dx * scale
-            let scaledDy = dy * scale
-            radialMenuLock.withLock {
-                radialMenuAccumulator.x += scaledDx
-                radialMenuAccumulator.y += scaledDy
+            if cursorEnabled {
+                mouseController.moveRelative(dx: dx, dy: dy)
             }
-            onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
-        }
-    }
-
-    // Joy-Con gyro mode routing (uses JoyConButtonMappingProfile)
-    private func currentJoyConGyroMode(profile: JoyConButtonMappingProfile) -> GyroMode {
-        if radialMenuButtonHeld { return .radialMenu }
-        if scrollButtonHeld { return .scroll }
-        if dragButtonHeld { return .drag }
-        if profile.hasDragMapping { return .none }
-        return .normal
-    }
-
-    private func routeJoyConGyroMovement(dx: CGFloat, dy: CGFloat, profile: JoyConButtonMappingProfile, configuration: RadialMenuConfiguration) {
-        let mode = currentJoyConGyroMode(profile: profile)
-
-        switch mode {
-        case .none:
-            break
-        case .normal, .drag:
-            mouseController.moveRelative(dx: dx, dy: dy)
         case .scroll:
-            mouseController.scroll(dx: dx, dy: dy)
+            if cursorEnabled {
+                mouseController.scroll(dx: dx, dy: dy)
+            }
         case .radialMenu:
+            guard radialMenuOwnerKind == kind else { return }
             let scale = max(0.1, configuration.radialMovementScale)
             let scaledDx = dx * scale
             let scaledDy = dy * scale
@@ -692,7 +774,7 @@ final class InputEngine {
                 if isPressed {
                     handleButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleButtonUp(button: button)
+                    handleButtonUp(button: button, mappingProfile: profile)
                 }
             }
 
@@ -709,7 +791,7 @@ final class InputEngine {
             if triggerPressed {
                 handleButtonDown(button: .trigger, actions: actions, holdThreshold: holdThreshold)
             } else {
-                handleButtonUp(button: .trigger)
+                handleButtonUp(button: .trigger, mappingProfile: profile)
             }
         }
 
@@ -724,16 +806,11 @@ final class InputEngine {
         if actions.pressIsGyroMode {
             switch actions.press {
             case .drag:
-                dragButtonHeld = true
+                senseMode.dragButtonHeld = true
             case .scroll:
-                scrollButtonHeld = true
+                senseMode.scrollButtonHeld = true
             case .radialMenu:
-                radialMenuButtonHeld = true
-                radialMenuLock.withLock { radialMenuAccumulator = .zero }
-                let position = NSEvent.mouseLocation
-                let config = settings.snapshot().radialMenuConfiguration
-                mouseController.hideCursor()
-                onRadialMenuShow?(position, config, .ghostCursor)
+                beginRadialMenu(kind: .sense, pointerStyle: .ghostCursor)
             default:
                 break
             }
@@ -766,7 +843,7 @@ final class InputEngine {
         }
     }
 
-    private func handleButtonUp(button: LogicalButton) {
+    private func handleButtonUp(button: LogicalButton, mappingProfile: SenseButtonMappingProfile) {
         let idx = button.index
 
         // Cancel hold timer
@@ -775,16 +852,15 @@ final class InputEngine {
 
         // Check for gyro mode button release
         if let state = buttonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(action: state.actions.press)
+            handleGyroModeRelease(kind: .sense, action: state.actions.press)
             buttonPressStates[idx] = nil
             return
         }
 
         // Also check current mapping for gyro modes
-        let profile = settings.snapshot().buttonMappingProfile
-        let actions = profile.actions(for: button)
+        let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(action: actions.press)
+            handleGyroModeRelease(kind: .sense, action: actions.press)
             return
         }
 
@@ -811,14 +887,19 @@ final class InputEngine {
         buttonPressStates[idx] = nil
     }
 
-    private func handleGyroModeRelease(action: ButtonAction) {
+    private func handleGyroModeRelease(kind: ControllerKind, action: ButtonAction) {
         switch action {
         case .drag:
-            dragButtonHeld = false
+            updateModeState(for: kind) { $0.dragButtonHeld = false }
         case .scroll:
-            scrollButtonHeld = false
+            updateModeState(for: kind) { $0.scrollButtonHeld = false }
         case .radialMenu:
-            radialMenuButtonHeld = false
+            guard radialMenuOwnerKind == kind else { return }
+            if kind == .mouse {
+                stopRadialMenuCursorTracking()
+            }
+            radialMenuOwnerKind = nil
+            updateModeState(for: kind) { $0.radialMenuButtonHeld = false }
 
             // Determine selected item based on accumulated movement
             let selectedItem = calculateRadialMenuSelection()
@@ -828,7 +909,9 @@ final class InputEngine {
             if let item = selectedItem {
                 executeRadialMenuAction(item.action)
             }
-            mouseController.showCursor()
+            if kind != .mouse {
+                mouseController.showCursor()
+            }
         default:
             break
         }
@@ -855,7 +938,7 @@ final class InputEngine {
                 if isPressed {
                     handleJoyConButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleJoyConButtonUp(button: button)
+                    handleJoyConButtonUp(button: button, mappingProfile: profile)
                 }
             }
 
@@ -871,16 +954,11 @@ final class InputEngine {
         if actions.pressIsGyroMode {
             switch actions.press {
             case .drag:
-                dragButtonHeld = true
+                joyConMode.dragButtonHeld = true
             case .scroll:
-                scrollButtonHeld = true
+                joyConMode.scrollButtonHeld = true
             case .radialMenu:
-                radialMenuButtonHeld = true
-                radialMenuLock.withLock { radialMenuAccumulator = .zero }
-                let position = NSEvent.mouseLocation
-                let config = settings.snapshot().radialMenuConfiguration
-                mouseController.hideCursor()
-                onRadialMenuShow?(position, config, .ghostCursor)
+                beginRadialMenu(kind: .joyCon, pointerStyle: .ghostCursor)
             default:
                 break
             }
@@ -913,7 +991,7 @@ final class InputEngine {
         }
     }
 
-    private func handleJoyConButtonUp(button: JoyConLogicalButton) {
+    private func handleJoyConButtonUp(button: JoyConLogicalButton, mappingProfile: JoyConButtonMappingProfile) {
         let idx = button.index
 
         // Cancel hold timer
@@ -922,16 +1000,15 @@ final class InputEngine {
 
         // Check for gyro mode button release
         if let state = joyConButtonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(action: state.actions.press)
+            handleGyroModeRelease(kind: .joyCon, action: state.actions.press)
             joyConButtonPressStates[idx] = nil
             return
         }
 
         // Also check current mapping for gyro modes
-        let profile = settings.snapshot().joyConButtonMappingProfile
-        let actions = profile.actions(for: button)
+        let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(action: actions.press)
+            handleGyroModeRelease(kind: .joyCon, action: actions.press)
             return
         }
 
@@ -964,22 +1041,10 @@ final class InputEngine {
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
 
-        if s.debugRecordingEnabled, s.activeControllerKind == .mouse {
-            debugBuffer.record(
-                bytes: report.bytes,
-                length: report.length,
-                rawGyro: (0, 0, 0),           // Mouse has no gyro
-                remappedGyro: (0, 0, 0),
-                normalizedGyro: (0, 0, 0),
-                accel: (0, 0, 0),
-                buttonStates: g502xPreviousButtonStates,
-                controllerKind: .mouse
-            )
-        }
-
-        // Only process if mouse controller type is active
-        guard s.activeControllerKind == .mouse else { return }
         guard s.isEnabled else { return }
+
+        let profile = ControllerProfile.mouse
+        let buttonProfile = s.g502xButtonMappings[profile] ?? .default
 
         // Prime initial button state to avoid false "pressed" edges on startup/connect.
         // The Lightspeed receiver can deliver a non-zero snapshot while we are still setting up HID++.
@@ -993,9 +1058,22 @@ final class InputEngine {
         processG502XButtonActions(
             bytes: report.bytes,
             mapping: g502xMapping,
-            profile: s.g502xButtonMappingProfile,
-            holdThreshold: s.g502xButtonMappingProfile.holdThreshold
+            profile: buttonProfile,
+            holdThreshold: buttonProfile.holdThreshold
         )
+
+        if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .mouse) {
+            debugBuffer.record(
+                bytes: report.bytes,
+                length: report.length,
+                rawGyro: (0, 0, 0),           // Mouse has no gyro
+                remappedGyro: (0, 0, 0),
+                normalizedGyro: (0, 0, 0),
+                accel: (0, 0, 0),
+                buttonStates: g502xPreviousButtonStates,
+                controllerKind: .mouse
+            )
+        }
     }
 
     private func resetG502XButtonStateBaseline() {
@@ -1033,7 +1111,7 @@ final class InputEngine {
         timer.schedule(deadline: .now(), repeating: .milliseconds(16))  // ~60Hz
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            guard self.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
+            guard self.radialMenuOwnerKind == .mouse, self.mouseMode.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
 
             let current = NSEvent.mouseLocation
             let dx = current.x - anchor.x
@@ -1081,7 +1159,7 @@ final class InputEngine {
                 if isPressed {
                     handleG502XButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleG502XButtonUp(button: button)
+                    handleG502XButtonUp(button: button, mappingProfile: profile)
                 }
             }
 
@@ -1098,19 +1176,14 @@ final class InputEngine {
             switch actions.press {
             case .radialMenu:
                 debugBuffer.log("[G502X] Opening radial menu (button=\(button))")
-                radialMenuButtonHeld = true
-                radialMenuLock.withLock { radialMenuAccumulator = .zero }
-                let position = NSEvent.mouseLocation
-                let config = settings.snapshot().radialMenuConfiguration
-                onRadialMenuShow?(position, config, .systemCursor)
-                startRadialMenuCursorTracking(anchor: position)
+                beginRadialMenu(kind: .mouse, pointerStyle: .systemCursor)
             case .drag, .scroll:
                 // These don't make sense for mouse (it already has native cursor/scroll)
                 // but we handle them for consistency
                 if actions.press == .drag {
-                    dragButtonHeld = true
+                    mouseMode.dragButtonHeld = true
                 } else {
-                    scrollButtonHeld = true
+                    mouseMode.scrollButtonHeld = true
                 }
             default:
                 break
@@ -1144,7 +1217,7 @@ final class InputEngine {
         }
     }
 
-    private func handleG502XButtonUp(button: G502XLogicalButton) {
+    private func handleG502XButtonUp(button: G502XLogicalButton, mappingProfile: G502XButtonMappingProfile) {
         let idx = button.index
 
         // Cancel hold timer
@@ -1153,16 +1226,15 @@ final class InputEngine {
 
         // Check for gyro mode button release
         if let state = g502xButtonPressStates[idx], state.actions.pressIsGyroMode {
-            handleG502XGyroModeRelease(action: state.actions.press)
+            handleGyroModeRelease(kind: .mouse, action: state.actions.press)
             g502xButtonPressStates[idx] = nil
             return
         }
 
         // Also check current mapping for gyro modes
-        let profile = settings.snapshot().g502xButtonMappingProfile
-        let actions = profile.actions(for: button)
+        let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleG502XGyroModeRelease(action: actions.press)
+            handleGyroModeRelease(kind: .mouse, action: actions.press)
             return
         }
 
@@ -1187,32 +1259,6 @@ final class InputEngine {
         }
 
         g502xButtonPressStates[idx] = nil
-    }
-
-    private func handleG502XGyroModeRelease(action: ButtonAction) {
-        switch action {
-        case .drag:
-            dragButtonHeld = false
-        case .scroll:
-            scrollButtonHeld = false
-        case .radialMenu:
-            guard radialMenuButtonHeld else {
-                return
-            }
-            stopRadialMenuCursorTracking()
-            radialMenuButtonHeld = false
-
-            // Determine selected item based on accumulated movement
-            let selectedItem = calculateRadialMenuSelection()
-            onRadialMenuHide?(selectedItem)
-
-            // Execute the selected action
-            if let item = selectedItem {
-                executeRadialMenuAction(item.action)
-            }
-        default:
-            break
-        }
     }
 
     // NOTE: We intentionally do not "passthrough" mouse buttons by re-posting CGEvents.

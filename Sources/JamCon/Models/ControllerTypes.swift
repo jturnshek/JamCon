@@ -92,6 +92,12 @@ struct ControllerInfo: Identifiable, Equatable, Sendable {
     let productID: Int
     let kind: ControllerKind
 
+    /// Stable key for persisting per-device "managed" state.
+    /// Includes kind to avoid cross-device ID collisions.
+    var managementKey: String {
+        "\(kind.rawValue):\(id)"
+    }
+
     var isLeft: Bool {
         switch kind {
         case .sense:

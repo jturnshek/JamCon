@@ -27,31 +27,48 @@ final class AppState: ObservableObject {
     /// Available controllers (refreshed on demand)
     @Published var availableControllers: [ControllerInfo] = []
 
-    /// Selected controller ID
-    @Published var selectedControllerID: String?
+    /// Devices the app should manage (persisted across restarts).
+    @Published private(set) var managedDeviceKeys: Set<String> = [] {
+        didSet {
+            if oldValue != managedDeviceKeys {
+                saveManagedDeviceKeys()
+                applyManagedDevicesToEngine()
+                syncConnectionState()
+            }
+        }
+    }
 
     /// Connection status
     @Published var isConnected: Bool = false
-    @Published var controllerName: String = "Not connected"
+    @Published var controllerName: String = "No devices managed"
     @Published var activeControllerKind: ControllerKind = .sense {
         didSet {
             if oldValue != activeControllerKind {
-                reloadSettingsForCurrentProfile()
                 updateG502XInterfaceDebugMode()
             }
         }
     }
-    @Published var isLeftController: Bool = false {
+    @Published var isLeftController: Bool = false
+
+    /// Profile currently being edited in the settings UI (independent of the active device).
+    @Published var configurationProfile: ControllerProfile = .senseRight {
         didSet {
-            if oldValue != isLeftController {
-                reloadButtonMappingForCurrentProfile()
+            if oldValue != configurationProfile {
+                saveConfigurationProfile()
+                reloadSettingsForConfigurationProfile()
             }
         }
     }
 
-    /// Current active profile (derived from activeControllerKind and isLeftController)
-    var activeProfile: ControllerProfile {
+    /// Currently active runtime profile (derived from activeControllerKind and isLeftController).
+    var runtimeProfile: ControllerProfile {
         ControllerProfile(kind: activeControllerKind, isLeft: isLeftController)
+    }
+
+    private enum DefaultsKeys {
+        static let configurationKind = "configurationProfile.kind"
+        static let configurationIsLeft = "configurationProfile.isLeft"
+        static let managedDeviceKeys = "managedDeviceKeys"
     }
 
     /// Status message for UI
@@ -69,108 +86,104 @@ final class AppState: ObservableObject {
         didSet { settingsStore.update { $0.isEnabled = isEnabled } }
     }
 
+    /// Whether the current configuration profile is allowed to emit cursor/scroll output.
+    /// (USB mice are never affected.)
+    @Published var cursorControlEnabled: Bool = true {
+        didSet {
+            let profile = configurationProfile
+            guard profile.kind != .mouse else { return }
+            saveCursorControlEnabled(for: profile, enabled: cursorControlEnabled)
+            settingsStore.update { $0.cursorControlEnabledByProfile[profile] = cursorControlEnabled }
+        }
+    }
+
     // Gyro settings
     @Published var sensitivity: Double = 50.0 {
         didSet {
-            settingsStore.update { $0.sensitivity = sensitivity }
             saveGyroSettings()
         }
     }
 
     @Published var gyroScale: Double = 1.0 / 16.0 {
         didSet {
-            settingsStore.update { $0.gyroScale = gyroScale }
             saveGyroSettings()
         }
     }
 
     @Published var filterEnabled: Bool = true {
         didSet {
-            settingsStore.update { $0.filterEnabled = filterEnabled }
             saveGyroSettings()
         }
     }
 
     @Published var minCutoff: Double = 0.5 {
         didSet {
-            settingsStore.update { $0.minCutoff = minCutoff }
             saveGyroSettings()
         }
     }
 
     @Published var beta: Double = 1.0 {
         didSet {
-            settingsStore.update { $0.beta = beta }
             saveGyroSettings()
         }
     }
 
     @Published var adaptiveSmoothingMode: AdaptiveSmoothingMode = .speed {
         didSet {
-            settingsStore.update { $0.adaptiveSmoothingMode = adaptiveSmoothingMode }
             saveGyroSettings()
         }
     }
 
     @Published var accelerationMode: AccelerationMode = .simple {
         didSet {
-            settingsStore.update { $0.accelerationMode = accelerationMode }
             saveGyroSettings()
         }
     }
 
     @Published var simpleAcceleration: Double = 5.0 {
         didSet {
-            settingsStore.update { $0.simpleAcceleration = simpleAcceleration }
             saveGyroSettings()
         }
     }
 
     @Published var accelerationCurve: AccelerationCurve = .power {
         didSet {
-            settingsStore.update { $0.accelerationCurve = accelerationCurve }
             saveGyroSettings()
         }
     }
 
     @Published var accelerationStrength: Double = 10.0 {
         didSet {
-            settingsStore.update { $0.accelerationStrength = accelerationStrength }
             saveGyroSettings()
         }
     }
 
     @Published var sensitivityCap: Double = 20.0 {
         didSet {
-            settingsStore.update { $0.sensitivityCap = sensitivityCap }
             saveGyroSettings()
         }
     }
 
     @Published var curveExponent: Double = 1.0 {
         didSet {
-            settingsStore.update { $0.curveExponent = curveExponent }
             saveGyroSettings()
         }
     }
 
     @Published var rampSpeed: Double = 150.0 {
         didSet {
-            settingsStore.update { $0.rampSpeed = rampSpeed }
             saveGyroSettings()
         }
     }
 
     @Published var softCutoffThreshold: Double = 0.5 {
         didSet {
-            settingsStore.update { $0.softCutoffThreshold = softCutoffThreshold }
             saveGyroSettings()
         }
     }
 
     @Published var recoveryThreshold: Double = 1.5 {
         didSet {
-            settingsStore.update { $0.recoveryThreshold = recoveryThreshold }
             saveGyroSettings()
         }
     }
@@ -178,40 +191,30 @@ final class AppState: ObservableObject {
     // Button mapping (per-profile)
     @Published var buttonMappingProfile: SenseButtonMappingProfile = .load() {
         didSet {
-            buttonMappingProfile.save(for: activeProfile)
-            settingsStore.update { $0.buttonMappingProfile = buttonMappingProfile }
-        }
-    }
-
-    @Published var triggerThreshold: UInt8 = 128 {
-        didSet {
-            buttonMappingProfile.triggerThreshold = triggerThreshold
-            buttonMappingProfile.save(for: activeProfile)
-            settingsStore.update { $0.triggerThreshold = triggerThreshold }
-        }
-    }
-
-    @Published var holdThreshold: Double = 0.3 {
-        didSet {
-            buttonMappingProfile.holdThreshold = holdThreshold
-            buttonMappingProfile.save(for: activeProfile)
-            settingsStore.update { $0.holdThreshold = holdThreshold }
+            guard configurationProfile.kind == .sense else { return }
+            let profile = configurationProfile
+            buttonMappingProfile.save(for: profile)
+            settingsStore.update { $0.senseButtonMappings[profile] = buttonMappingProfile }
         }
     }
 
     // Joy-Con button mapping (per-profile)
     @Published var joyConButtonMappingProfile: JoyConButtonMappingProfile = .load() {
         didSet {
-            joyConButtonMappingProfile.save(for: activeProfile)
-            settingsStore.update { $0.joyConButtonMappingProfile = joyConButtonMappingProfile }
+            guard configurationProfile.kind == .joyCon else { return }
+            let profile = configurationProfile
+            joyConButtonMappingProfile.save(for: profile)
+            settingsStore.update { $0.joyConButtonMappings[profile] = joyConButtonMappingProfile }
         }
     }
 
     // G502X button mapping (per-profile)
     @Published var g502xButtonMappingProfile: G502XButtonMappingProfile = .load() {
         didSet {
-            g502xButtonMappingProfile.save(for: activeProfile)
-            settingsStore.update { $0.g502xButtonMappingProfile = g502xButtonMappingProfile }
+            guard configurationProfile.kind == .mouse else { return }
+            let profile = configurationProfile
+            g502xButtonMappingProfile.save(for: profile)
+            settingsStore.update { $0.g502xButtonMappings[profile] = g502xButtonMappingProfile }
         }
     }
 
@@ -239,28 +242,24 @@ final class AppState: ObservableObject {
 
     @Published var joyConTimerFallbackEnabled: Bool = true {
         didSet {
-            settingsStore.update { $0.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled }
             saveGyroSettings()
         }
     }
 
     @Published var joyConTimerHybridEnabled: Bool = false {
         didSet {
-            settingsStore.update { $0.joyConTimerHybridEnabled = joyConTimerHybridEnabled }
             saveGyroSettings()
         }
     }
 
     @Published var autoTuneSampleRate: Bool = false {
         didSet {
-            settingsStore.update { $0.autoTuneSampleRate = autoTuneSampleRate }
             saveGyroSettings()
         }
     }
 
     @Published var autoNeutralEnabled: Bool = true {
         didSet {
-            settingsStore.update { $0.autoNeutralEnabled = autoNeutralEnabled }
             saveGyroSettings()
         }
     }
@@ -352,11 +351,41 @@ final class AppState: ObservableObject {
 
     private var engineDidStart: Bool = false
 
+    private static func loadSavedConfigurationProfile() -> ControllerProfile? {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.string(forKey: DefaultsKeys.configurationKind),
+              let kind = ControllerKind(rawValue: raw) else {
+            return nil
+        }
+
+        let isLeft = defaults.bool(forKey: DefaultsKeys.configurationIsLeft)
+        return ControllerProfile(kind: kind, isLeft: kind.hasSides ? isLeft : false)
+    }
+
+    private func saveConfigurationProfile() {
+        let defaults = UserDefaults.standard
+        defaults.set(configurationProfile.kind.rawValue, forKey: DefaultsKeys.configurationKind)
+        defaults.set(configurationProfile.isLeft, forKey: DefaultsKeys.configurationIsLeft)
+    }
+
+    private static func cursorControlEnabledKey(for profile: ControllerProfile) -> String {
+        "cursorControlEnabled.\(profile.persistenceKey)"
+    }
+
+    private func saveCursorControlEnabled(for profile: ControllerProfile, enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.cursorControlEnabledKey(for: profile))
+    }
+
     init() {
         // Create the core components
         self.settingsStore = SettingsStore()
         self.debugBuffer = DebugBuffer()
         self.engine = InputEngine(settings: settingsStore, debugBuffer: debugBuffer)
+
+        _managedDeviceKeys = Published(initialValue: Self.loadManagedDeviceKeys())
+
+        // Restore last configuration target (independent of which device is active).
+        _configurationProfile = Published(initialValue: Self.loadSavedConfigurationProfile() ?? .senseRight)
 
         // Load settings from store into published properties
         loadSettingsFromStore()
@@ -398,22 +427,53 @@ final class AppState: ObservableObject {
     private func syncConnectionState() {
         refreshControllerList()
 
-        if engine.isConnected {
-            isConnected = true
-            selectedControllerID = engine.selectedControllerID
+        let managedAvailable = availableControllers.filter { managedDeviceKeys.contains($0.managementKey) }
+        isConnected = engine.isConnected
 
-            // Find the controller info to get the kind, side, and name
-            if let id = selectedControllerID,
-               let info = availableControllers.first(where: { $0.id == id }) {
-                activeControllerKind = info.kind
-                isLeftController = info.isLeft
-                controllerName = info.name  // Use the Bluetooth device name
+        guard !managedAvailable.isEmpty else {
+            activeControllerKind = .sense
+            isLeftController = false
+            if managedDeviceKeys.isEmpty {
+                controllerName = "No devices managed"
             } else {
-                controllerName = engine.connectedControllerName ?? "Controller"
+                controllerName = "Waiting for managed devices..."
             }
+            if !isConnected {
+                batteryLevel = 0
+            }
+            return
+        }
+
+        func kindSortIndex(_ kind: ControllerKind) -> Int {
+            switch kind {
+            case .sense: return 0
+            case .joyCon: return 1
+            case .mouse: return 2
+            }
+        }
+
+        let primary = managedAvailable.sorted { a, b in
+            if kindSortIndex(a.kind) != kindSortIndex(b.kind) {
+                return kindSortIndex(a.kind) < kindSortIndex(b.kind)
+            }
+            if a.isLeft != b.isLeft {
+                return a.isLeft && !b.isLeft
+            }
+            return a.name < b.name
+        }.first!
+
+        activeControllerKind = primary.kind
+        isLeftController = primary.isLeft
+
+        if managedAvailable.count == 1 {
+            controllerName = primary.kind.hasSides ? "\(primary.name) (\(primary.side))" : primary.name
         } else {
-            // Try to restore saved controller (if available)
-            tryRestoreSavedController()
+            controllerName = "Managing \(managedAvailable.count) devices"
+        }
+
+        // On first run (no saved configuration target), default to configuring the primary managed device.
+        if UserDefaults.standard.string(forKey: DefaultsKeys.configurationKind) == nil {
+            configurationProfile = ControllerProfile(from: primary)
         }
     }
 
@@ -434,42 +494,21 @@ final class AppState: ObservableObject {
 
         // Don't trigger didSet during init
         _isEnabled = Published(initialValue: s.isEnabled)
-        _sensitivity = Published(initialValue: s.sensitivity)
-        _gyroScale = Published(initialValue: s.gyroScale)
-        _filterEnabled = Published(initialValue: s.filterEnabled)
-        _minCutoff = Published(initialValue: s.minCutoff)
-        _beta = Published(initialValue: s.beta)
-        _adaptiveSmoothingMode = Published(initialValue: s.adaptiveSmoothingMode)
-        _accelerationMode = Published(initialValue: s.accelerationMode)
-        _simpleAcceleration = Published(initialValue: s.simpleAcceleration)
-        _accelerationCurve = Published(initialValue: s.accelerationCurve)
-        _accelerationStrength = Published(initialValue: s.accelerationStrength)
-        _sensitivityCap = Published(initialValue: s.sensitivityCap)
-        _curveExponent = Published(initialValue: s.curveExponent)
-        _rampSpeed = Published(initialValue: s.rampSpeed)
-        _softCutoffThreshold = Published(initialValue: s.softCutoffThreshold)
-        _recoveryThreshold = Published(initialValue: s.recoveryThreshold)
-
-        _buttonMappingProfile = Published(initialValue: s.buttonMappingProfile)
-        _triggerThreshold = Published(initialValue: s.triggerThreshold)
-        _holdThreshold = Published(initialValue: s.holdThreshold)
-        _joyConButtonMappingProfile = Published(initialValue: s.joyConButtonMappingProfile)
-        _g502xButtonMappingProfile = Published(initialValue: s.g502xButtonMappingProfile)
 
         _joystickScrollEnabled = Published(initialValue: s.joystickScrollEnabled)
         _joystickScrollSpeed = Published(initialValue: s.joystickScrollSpeed)
         _joystickScrollAcceleration = Published(initialValue: s.joystickScrollAcceleration)
-        _joyConTimerFallbackEnabled = Published(initialValue: s.joyConTimerFallbackEnabled)
-        _joyConTimerHybridEnabled = Published(initialValue: s.joyConTimerHybridEnabled)
-        _autoTuneSampleRate = Published(initialValue: s.autoTuneSampleRate)
-        _autoNeutralEnabled = Published(initialValue: s.autoNeutralEnabled)
 
         _radialMenuConfiguration = Published(initialValue: s.radialMenuConfiguration)
+
+        // Load settings for the restored configuration target.
+        reloadSettingsForConfigurationProfile()
     }
 
     private func saveGyroSettings() {
         // Save to per-type gyro settings for persistence
-        var state = GyroSettingsState.load(for: activeControllerKind)
+        let kind = configurationProfile.kind
+        var state = GyroSettingsState.load(for: kind)
         state.sensitivity = sensitivity
         state.gyroScale = gyroScale
         state.filterEnabled = filterEnabled
@@ -489,17 +528,20 @@ final class AppState: ObservableObject {
         state.autoNeutralEnabled = autoNeutralEnabled
 
         // Joy-Con specific
-        if activeControllerKind == .joyCon {
+        if kind == .joyCon {
             state.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled
             state.joyConTimerHybridEnabled = joyConTimerHybridEnabled
         }
 
-        state.save(for: activeControllerKind)
+        state.save(for: kind)
+        settingsStore.update { $0.gyroSettings[kind] = state }
     }
 
-    /// Reload all settings when controller type changes
-    private func reloadSettingsForCurrentProfile() {
-        let gyroState = GyroSettingsState.load(for: activeControllerKind)
+    /// Reload all configurable settings for the current configuration target.
+    private func reloadSettingsForConfigurationProfile() {
+        let kind = configurationProfile.kind
+        let profile = configurationProfile
+        let gyroState = GyroSettingsState.load(for: kind)
 
         // Update published properties without triggering saves
         _sensitivity = Published(initialValue: gyroState.sensitivity)
@@ -521,59 +563,61 @@ final class AppState: ObservableObject {
         _autoNeutralEnabled = Published(initialValue: gyroState.autoNeutralEnabled)
 
         // Joy-Con specific
-        if activeControllerKind == .joyCon {
+        if kind == .joyCon {
             _joyConTimerFallbackEnabled = Published(initialValue: gyroState.joyConTimerFallbackEnabled)
             _joyConTimerHybridEnabled = Published(initialValue: gyroState.joyConTimerHybridEnabled)
         }
 
         // Update settings store
         settingsStore.update { s in
-            s.activeProfile = activeProfile
-            s.gyroSettings[activeControllerKind] = gyroState
+            s.gyroSettings[kind] = gyroState
+        }
+
+        // Cursor control enablement (per profile; default true).
+        if profile.kind != .mouse {
+            let enabled = settingsStore.snapshot().cursorControlEnabledByProfile[profile] ?? true
+            _cursorControlEnabled = Published(initialValue: enabled)
+            settingsStore.update { $0.cursorControlEnabledByProfile[profile] = enabled }
+        } else {
+            _cursorControlEnabled = Published(initialValue: true)
         }
 
         // Also reload button mappings
-        reloadButtonMappingForCurrentProfile()
+        reloadButtonMappingForConfigurationProfile()
 
         // Notify UI of refresh
         objectWillChange.send()
     }
 
-    /// Reload button mappings when controller side changes
-    private func reloadButtonMappingForCurrentProfile() {
-        switch activeControllerKind {
+    /// Reload per-profile button mappings for the current configuration target.
+    private func reloadButtonMappingForConfigurationProfile() {
+        let profile = configurationProfile
+        switch profile.kind {
         case .sense:
-            let profile = SenseButtonMappingProfile.load(for: activeProfile)
-            _buttonMappingProfile = Published(initialValue: profile)
-            _triggerThreshold = Published(initialValue: profile.triggerThreshold)
-            _holdThreshold = Published(initialValue: profile.holdThreshold)
-            settingsStore.update { $0.senseButtonMappings[activeProfile] = profile }
+            let mapping = SenseButtonMappingProfile.load(for: profile)
+            _buttonMappingProfile = Published(initialValue: mapping)
+            settingsStore.update { $0.senseButtonMappings[profile] = mapping }
 
         case .joyCon:
-            let profile: JoyConButtonMappingProfile
-            if JoyConButtonMappingProfile.hasPerProfileSettings(for: activeProfile) {
-                profile = .load(for: activeProfile)
+            let mapping: JoyConButtonMappingProfile
+            if JoyConButtonMappingProfile.hasPerProfileSettings(for: profile) {
+                mapping = .load(for: profile)
             } else {
-                profile = .defaultProfile(for: activeProfile)
+                mapping = .defaultProfile(for: profile)
             }
-            _joyConButtonMappingProfile = Published(initialValue: profile)
-            _holdThreshold = Published(initialValue: profile.holdThreshold)
-            settingsStore.update { $0.joyConButtonMappings[activeProfile] = profile }
+            _joyConButtonMappingProfile = Published(initialValue: mapping)
+            settingsStore.update { $0.joyConButtonMappings[profile] = mapping }
 
         case .mouse:
-            let profile: G502XButtonMappingProfile
-            if G502XButtonMappingProfile.hasPerProfileSettings(for: activeProfile) {
-                profile = .load(for: activeProfile)
+            let mapping: G502XButtonMappingProfile
+            if G502XButtonMappingProfile.hasPerProfileSettings(for: profile) {
+                mapping = .load(for: profile)
             } else {
-                profile = .default
+                mapping = .default
             }
-            _g502xButtonMappingProfile = Published(initialValue: profile)
-            _holdThreshold = Published(initialValue: profile.holdThreshold)
-            settingsStore.update { $0.g502xButtonMappings[activeProfile] = profile }
+            _g502xButtonMappingProfile = Published(initialValue: mapping)
+            settingsStore.update { $0.g502xButtonMappings[profile] = mapping }
         }
-
-        // Update settings store with active profile
-        settingsStore.update { $0.activeProfile = activeProfile }
 
         // Notify UI of refresh
         objectWillChange.send()
@@ -585,19 +629,16 @@ final class AppState: ObservableObject {
         engine.onControllerListChanged = { [weak self] in
             Task { @MainActor in
                 self?.refreshControllerList()
-                self?.tryRestoreSavedController()
+                self?.applyManagedDevicesToEngine()
+                self?.syncConnectionState()
             }
         }
 
         engine.onConnectionChanged = { [weak self] connected, name, kind in
             Task { @MainActor in
-                self?.isConnected = connected
-                self?.controllerName = name ?? (connected ? "Controller" : "Not connected")
-                self?.activeControllerKind = kind
-                self?.statusMessage = connected ? "Connected: \(name ?? "Controller")" : "Disconnected"
-                if !connected {
-                    self?.batteryLevel = 0
-                }
+                guard let self else { return }
+                self.syncConnectionState()
+                self.statusMessage = self.isConnected ? "Connected" : "Disconnected"
             }
         }
 
@@ -645,45 +686,60 @@ final class AppState: ObservableObject {
         availableControllers = engine.availableControllers
     }
 
-    /// Try to restore a previously saved controller selection
-    private func tryRestoreSavedController() {
-        // Only restore if not already connected
-        guard !isConnected else { return }
+    func isDeviceManaged(_ controller: ControllerInfo) -> Bool {
+        managedDeviceKeys.contains(controller.managementKey)
+    }
 
-        // Check if we have a saved selection and the controller is available
-        if let savedID = UserDefaults.standard.string(forKey: "selectedControllerID"),
-           availableControllers.contains(where: { $0.id == savedID }) {
-            selectController(id: savedID)
+    func setDeviceManaged(_ controller: ControllerInfo, managed: Bool) {
+        var updated = managedDeviceKeys
+        if managed {
+            // Current engine/HID drivers select one device per kind.
+            // Enforce that in the UI so the "managed" state matches reality.
+            let prefix = "\(controller.kind.rawValue):"
+            updated = Set(updated.filter { !$0.hasPrefix(prefix) })
+            updated.insert(controller.managementKey)
+        } else {
+            updated.remove(controller.managementKey)
         }
+        managedDeviceKeys = updated
     }
 
-    func selectController(id: String) {
-        guard let info = availableControllers.first(where: { $0.id == id }) else { return }
+    private static func loadManagedDeviceKeys() -> Set<String> {
+        let defaults = UserDefaults.standard
+        if let raw = defaults.array(forKey: DefaultsKeys.managedDeviceKeys) as? [String] {
+            return Set(raw)
+        }
 
-        selectedControllerID = id
-        activeControllerKind = info.kind
-        isLeftController = info.isLeft
+        // Migration: seed managed devices from legacy single-selection keys (if present).
+        var migrated: Set<String> = []
+        if let id = defaults.string(forKey: "lastSelectedControllerID") {
+            migrated.insert("\(ControllerKind.sense.rawValue):\(id)")
+        }
+        if let id = defaults.string(forKey: "lastSelectedJoyConControllerID") {
+            migrated.insert("\(ControllerKind.joyCon.rawValue):\(id)")
+        }
+        if let id = defaults.string(forKey: "lastSelectedMouseID") {
+            migrated.insert("\(ControllerKind.mouse.rawValue):\(id)")
+        }
 
-        // Save selection for persistence across restarts
-        UserDefaults.standard.set(id, forKey: "selectedControllerID")
-
-        engine.selectController(id: id, kind: info.kind, isLeft: info.isLeft)
-
-        // Update connection status - use the Bluetooth device name
-        isConnected = true
-        controllerName = info.name
+        if !migrated.isEmpty {
+            defaults.set(Array(migrated).sorted(), forKey: DefaultsKeys.managedDeviceKeys)
+        }
+        return migrated
     }
 
-    func deselectController() {
-        selectedControllerID = nil
-        isConnected = false
-        controllerName = "Not connected"
-        batteryLevel = 0
+    private func saveManagedDeviceKeys() {
+        let defaults = UserDefaults.standard
+        defaults.set(Array(managedDeviceKeys).sorted(), forKey: DefaultsKeys.managedDeviceKeys)
+    }
 
-        // Clear saved selection
-        UserDefaults.standard.removeObject(forKey: "selectedControllerID")
-
-        engine.deselectController()
+    private func applyManagedDevicesToEngine() {
+        guard engineDidStart else { return }
+        // Ensure engine selections track our persisted managed set.
+        for controller in availableControllers {
+            let managed = managedDeviceKeys.contains(controller.managementKey)
+            engine.setDeviceManaged(id: controller.id, kind: controller.kind, isLeft: controller.isLeft, managed: managed)
+        }
     }
 
     func recalibrate() {
@@ -701,10 +757,17 @@ final class AppState: ObservableObject {
     // MARK: - Debug Polling
 
     func startDebugPolling() {
+        startDebugPolling(targetKind: nil)
+    }
+
+    func startDebugPolling(targetKind: ControllerKind?) {
         guard !debugPollingEnabled else { return }
         debugPollingEnabled = true
         debugBuffer.startRecording()
-        settingsStore.update { $0.debugRecordingEnabled = true }
+        settingsStore.update {
+            $0.debugRecordingEnabled = true
+            $0.debugRecordingTargetKind = targetKind
+        }
         updateG502XInterfaceDebugMode()
 
         debugPollingTask?.cancel()
@@ -720,7 +783,10 @@ final class AppState: ObservableObject {
     func stopDebugPolling() {
         debugPollingEnabled = false
         debugBuffer.stopRecording()
-        settingsStore.update { $0.debugRecordingEnabled = false }
+        settingsStore.update {
+            $0.debugRecordingEnabled = false
+            $0.debugRecordingTargetKind = nil
+        }
         debugPollingTask?.cancel()
         debugPollingTask = nil
         updateG502XInterfaceDebugMode()
@@ -780,7 +846,8 @@ final class AppState: ObservableObject {
     }
 
     private func updateG502XInterfaceDebugMode() {
-        engine.g502xController.setInterfaceDebugEnabled(debugPollingEnabled && activeControllerKind == .mouse)
+        let target = settingsStore.snapshot().debugRecordingTargetKind
+        engine.g502xController.setInterfaceDebugEnabled(debugPollingEnabled && (target == nil || target == .mouse))
     }
 
     // MARK: - Log Polling
@@ -851,7 +918,7 @@ final class AppState: ObservableObject {
     // MARK: - Gyro Settings Reset
 
     func resetGyroSettings() {
-        let defaults = GyroSettingsState.defaultForKind(activeControllerKind)
+        let defaults = GyroSettingsState.defaultForKind(configurationProfile.kind)
 
         sensitivity = defaults.sensitivity
         gyroScale = defaults.gyroScale
@@ -871,7 +938,7 @@ final class AppState: ObservableObject {
         autoTuneSampleRate = defaults.autoTuneSampleRate
         autoNeutralEnabled = defaults.autoNeutralEnabled
 
-        if activeControllerKind == .joyCon {
+        if configurationProfile.kind == .joyCon {
             joyConTimerFallbackEnabled = defaults.joyConTimerFallbackEnabled
             joyConTimerHybridEnabled = defaults.joyConTimerHybridEnabled
         }

@@ -8,26 +8,23 @@ struct RadialMenuTab: View {
     @StateObject private var previewState = RadialMenuState()
 
     var body: some View {
-        VStack(spacing: 0) {
-            TabHeader(appState: appState)
+        ScrollView {
+            VStack(spacing: 16) {
+                // Menu preview
+                menuPreview
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Menu preview
-                    menuPreview
+                // Inner ring configuration (segments, rotation, size)
+                innerRingSection
 
-                    // Inner ring configuration (segments, rotation, size)
-                    innerRingSection
+                // Outer ring toggle and configuration
+                outerRingSection
 
-                    // Outer ring toggle and configuration
-                    outerRingSection
-
-                    // Usage tip
-                    usageTip
-                }
-                .padding()
+                // Usage tip
+                usageTip
             }
+            .padding()
         }
+        .navigationTitle("Radial Menu")
         .onAppear {
             keyCaptureManager.onCapture = { _, combo, _ in
                 // Find the segment being captured for and update it

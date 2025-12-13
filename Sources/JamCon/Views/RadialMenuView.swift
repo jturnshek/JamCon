@@ -527,11 +527,15 @@ class RadialMenuWindowController {
 
 // MARK: - Preview
 
-#Preview {
-    let state = RadialMenuState()
-    state.highlightedIndex = 0
-    state.ghostPosition = CGPoint(x: 50, y: -30)
-    return RadialMenuView(state: state)
-        .frame(width: 300, height: 300)
-        .background(Color.gray.opacity(0.3))
+#if DEBUG
+struct RadialMenuView_Previews: PreviewProvider {
+    static var previews: some View {
+        let state = RadialMenuState()
+        state.highlightedIndex = 0
+        state.ghostPosition = CGPoint(x: 50, y: -30)
+        return RadialMenuView(state: state)
+            .frame(width: 300, height: 300)
+            .background(Color.gray.opacity(0.3))
+    }
 }
+#endif

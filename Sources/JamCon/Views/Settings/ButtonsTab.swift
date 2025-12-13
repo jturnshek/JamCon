@@ -8,104 +8,95 @@ struct ButtonsTab: View {
     @StateObject private var joyConKeyCaptureManager = JoyConKeyCaptureManager()
     @StateObject private var g502xKeyCaptureManager = G502XKeyCaptureManager()
 
-    private var isLeft: Bool { appState.isLeftController }
-    private var controllerKind: ControllerKind { appState.activeControllerKind }
+    private var isLeft: Bool { appState.configurationProfile.isLeft }
+    private var controllerKind: ControllerKind { appState.configurationProfile.kind }
 
     var body: some View {
         VStack(spacing: 0) {
-            TabHeader(appState: appState)
+            ButtonProfileIndicator(appState: appState)
 
-            if appState.isConnected {
-                // Profile indicator
-                ButtonProfileIndicator(appState: appState)
+            ScrollView {
+                switch controllerKind {
+                case .joyCon:
+                    VStack(spacing: 16) {
+                        JoyConButtonMappingsSection(
+                            appState: appState,
+                            keyCaptureManager: joyConKeyCaptureManager,
+                            isLeft: isLeft
+                        )
 
-                ScrollView {
-                    switch controllerKind {
-                    case .joyCon:
-                        VStack(spacing: 16) {
-                            JoyConButtonMappingsSection(
-                                appState: appState,
-                                keyCaptureManager: joyConKeyCaptureManager,
-                                isLeft: isLeft
-                            )
-
-                            // Tip about Home button
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "info.circle")
-                                    .foregroundColor(.blue)
-                                Text("If the Home button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(Color.blue.opacity(0.05))
-                            .cornerRadius(8)
+                        // Tip about Home button
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                            Text("If the Home button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                         .padding()
-
-                    case .mouse:
-                        VStack(spacing: 16) {
-                            G502XButtonMappingsSection(
-                                appState: appState,
-                                keyCaptureManager: g502xKeyCaptureManager
-                            )
-
-                            // Tip about unmapped buttons
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "info.circle")
-                                    .foregroundColor(.blue)
-                                Text("Unmapped buttons (left, right, middle click) will pass through to apps normally. Only buttons with assigned actions are intercepted.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(Color.blue.opacity(0.05))
-                            .cornerRadius(8)
-                        }
-                        .padding()
-
-                    case .sense:
-                        VStack(spacing: 16) {
-                            ButtonMappingsSection(
-                                appState: appState,
-                                keyCaptureManager: keyCaptureManager,
-                                isLeft: isLeft
-                            )
-
-                            // Tip about PlayStation button
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "info.circle")
-                                    .foregroundColor(.blue)
-                                Text("If the PlayStation button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(Color.blue.opacity(0.05))
-                            .cornerRadius(8)
-
-                            // Warning about Square/Circle buttons
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .foregroundColor(.orange)
-                                Text("Square and Circle buttons may trigger unwanted keyboard shortcuts in macOS. For best results, use Triangle, X, triggers, or bumpers for mappings.")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding()
-                            .background(Color.orange.opacity(0.05))
-                            .cornerRadius(8)
-                        }
-                        .padding()
+                        .background(Color.blue.opacity(0.05))
+                        .cornerRadius(8)
                     }
+                    .padding()
+
+                case .mouse:
+                    VStack(spacing: 16) {
+                        G502XButtonMappingsSection(
+                            appState: appState,
+                            keyCaptureManager: g502xKeyCaptureManager
+                        )
+
+                        // Tip about unmapped buttons
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                            Text("Unmapped buttons (left, right, middle click) will pass through to apps normally. Only buttons with assigned actions are intercepted.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color.blue.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                    .padding()
+
+                case .sense:
+                    VStack(spacing: 16) {
+                        ButtonMappingsSection(
+                            appState: appState,
+                            keyCaptureManager: keyCaptureManager,
+                            isLeft: isLeft
+                        )
+
+                        // Tip about PlayStation button
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                            Text("If the PlayStation button opens Launchpad, disable it in System Settings \u{2192} Game Controllers \u{2192} \"Press Home button to open Launchpad\"")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color.blue.opacity(0.05))
+                        .cornerRadius(8)
+
+                        // Warning about Square/Circle buttons
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text("Square and Circle buttons may trigger unwanted keyboard shortcuts in macOS. For best results, use Triangle, X, triggers, or bumpers for mappings.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding()
+                        .background(Color.orange.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                    .padding()
                 }
-            } else {
-                NoControllerView(
-                    icon: "button.horizontal",
-                    message: "Connect a device to configure button mappings"
-                )
             }
         }
+        .navigationTitle("Buttons")
         .onAppear {
             keyCaptureManager.onCapture = { button, combo, isHold in
                 if isHold {
@@ -137,14 +128,20 @@ struct ButtonsTab: View {
 private struct ButtonProfileIndicator: View {
     @ObservedObject var appState: AppState
 
+    private var helperText: String {
+        appState.configurationProfile.kind.hasSides
+        ? "Button mappings are saved separately for each controller side"
+        : "Button mappings are saved separately per controller type"
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "hand.raised")
                 .foregroundColor(.green)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Configuring: \(appState.activeProfile.displayName)")
+                Text("Configuring: \(appState.configurationProfile.displayName)")
                     .font(.caption.bold())
-                Text("Button mappings are saved separately for each controller side")
+                Text(helperText)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

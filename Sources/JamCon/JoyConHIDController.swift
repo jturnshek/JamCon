@@ -267,9 +267,6 @@ final class JoyConHIDController {
 
         if selectedControllerID == uniqueID || (selectedControllerID == nil && preferredControllerID == uniqueID) {
             activateController(controller)
-        } else if selectedControllerID == nil && preferredControllerID == nil {
-            // Auto-select first discovered if nothing chosen yet
-            activateController(controller)
         }
     }
 
@@ -362,7 +359,6 @@ final class JoyConHIDController {
         let name = controllerName
         let controllerID = selectedControllerID
         controllerName = nil
-        selectedControllerID = nil
         onConnectionChange?(false, name, controllerID)
     }
 
