@@ -4,10 +4,22 @@ import SwiftUI
 
 struct DebugTab: View {
     @ObservedObject var appState: AppState
-    @State private var liveRenderingEnabled: Bool = false
 
     private let bytesPerRow = 8
     private let decaySeconds: Double = 5.0
+
+    private var liveBinding: Binding<Bool> {
+        Binding(
+            get: { appState.debugPollingEnabled },
+            set: { enabled in
+                if enabled {
+                    appState.startDebugPolling()
+                } else {
+                    appState.stopDebugPolling()
+                }
+            }
+        )
+    }
 
     private var isMouse: Bool { appState.activeControllerKind == .mouse }
     private var isJoyCon: Bool { appState.activeControllerKind == .joyCon }
@@ -31,18 +43,11 @@ struct DebugTab: View {
     var body: some View {
         VStack(spacing: 0) {
             TabHeader(appState: appState) {
-                Toggle("Live", isOn: $liveRenderingEnabled)
+                Toggle("Live", isOn: liveBinding)
                     .toggleStyle(.switch)
-                    .onChange(of: liveRenderingEnabled) { _, enabled in
-                        if enabled {
-                            appState.startDebugPolling()
-                        } else {
-                            appState.stopDebugPolling()
-                        }
-                    }
             }
 
-            if liveRenderingEnabled && appState.isConnected {
+            if appState.debugPollingEnabled && appState.isConnected {
                 if isMouse {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         MouseDebugView(
@@ -195,9 +200,7 @@ struct DebugTab: View {
         }
         .onDisappear {
             // Stop polling when leaving this tab
-            if liveRenderingEnabled {
-                appState.stopDebugPolling()
-            }
+            appState.stopDebugPolling()
         }
     }
 }

@@ -87,6 +87,7 @@ final class InputEngine {
 
     var onControllerListChanged: (() -> Void)?
     var onConnectionChanged: ((_ connected: Bool, _ name: String?, _ kind: ControllerKind) -> Void)?
+    var onBatteryLevelChanged: ((_ level: Int) -> Void)?
 
     // MARK: - Battery Level (thread-safe, polled by UI)
 
@@ -99,7 +100,16 @@ final class InputEngine {
     }
 
     private func updateBatteryLevel(_ level: Int) {
-        batteryLock.withLock { _batteryLevel = level }
+        let didChange = batteryLock.withLock {
+            if _batteryLevel == level {
+                return false
+            }
+            _batteryLevel = level
+            return true
+        }
+        if didChange {
+            onBatteryLevelChanged?(level)
+        }
     }
 
     // MARK: - Running State
@@ -402,17 +412,19 @@ final class InputEngine {
         }
 
         // 5. Record to debug buffer with all pipeline stages
-        debugBuffer.record(
-            bytes: report.bytes,
-            length: report.length,
-            rawGyro: pipeline.raw,
-            remappedGyro: pipeline.remapped,
-            normalizedGyro: pipeline.normalized,
-            accel: (report.accelX, report.accelY, report.accelZ),
-            buttonStates: buttonStates,
-            controllerKind: .sense,
-            gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
-        )
+        if s.debugRecordingEnabled {
+            debugBuffer.record(
+                bytes: report.bytes,
+                length: report.length,
+                rawGyro: pipeline.raw,
+                remappedGyro: pipeline.remapped,
+                normalizedGyro: pipeline.normalized,
+                accel: (report.accelX, report.accelY, report.accelZ),
+                buttonStates: buttonStates,
+                controllerKind: .sense,
+                gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
+            )
+        }
     }
 
     // MARK: - Joy-Con Report Processing
@@ -488,17 +500,19 @@ final class InputEngine {
         }
 
         // 4. Record to debug buffer with all pipeline stages
-        debugBuffer.record(
-            bytes: report.bytes,
-            length: report.length,
-            rawGyro: pipeline.raw,
-            remappedGyro: pipeline.remapped,
-            normalizedGyro: pipeline.normalized,
-            accel: (report.accelX, report.accelY, report.accelZ),
-            buttonStates: joyConButtonStates,
-            controllerKind: .joyCon,
-            gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
-        )
+        if s.debugRecordingEnabled {
+            debugBuffer.record(
+                bytes: report.bytes,
+                length: report.length,
+                rawGyro: pipeline.raw,
+                remappedGyro: pipeline.remapped,
+                normalizedGyro: pipeline.normalized,
+                accel: (report.accelX, report.accelY, report.accelZ),
+                buttonStates: joyConButtonStates,
+                controllerKind: .joyCon,
+                gyroDebug: mapGyroDebug(from: gyroProcessor.lastDebugState)
+            )
+        }
     }
 
     // MARK: - Shared gyro scaling
@@ -947,20 +961,21 @@ final class InputEngine {
     // MARK: - G502X Report Processing
 
     private func processG502XReport(_ report: G502XHIDController.InputReport) {
-        // Record to debug buffer FIRST (before any guards) so we can always see HID data
-        debugBuffer.record(
-            bytes: report.bytes,
-            length: report.length,
-            rawGyro: (0, 0, 0),           // Mouse has no gyro
-            remappedGyro: (0, 0, 0),
-            normalizedGyro: (0, 0, 0),
-            accel: (0, 0, 0),
-            buttonStates: g502xPreviousButtonStates,
-            controllerKind: .mouse
-        )
-
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
+
+        if s.debugRecordingEnabled, s.activeControllerKind == .mouse {
+            debugBuffer.record(
+                bytes: report.bytes,
+                length: report.length,
+                rawGyro: (0, 0, 0),           // Mouse has no gyro
+                remappedGyro: (0, 0, 0),
+                normalizedGyro: (0, 0, 0),
+                accel: (0, 0, 0),
+                buttonStates: g502xPreviousButtonStates,
+                controllerKind: .mouse
+            )
+        }
 
         // Only process if mouse controller type is active
         guard s.activeControllerKind == .mouse else { return }

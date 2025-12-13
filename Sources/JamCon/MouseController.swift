@@ -22,6 +22,7 @@ class MouseController {
     private let notificationCenter: NotificationCenter
     private var cachedPosition: CGPoint
     private var resyncTimer: Timer?
+    private var notificationTokens: [NSObjectProtocol] = []
 
     // MARK: - Initialization
 
@@ -35,7 +36,9 @@ class MouseController {
 
     deinit {
         resyncTimer?.invalidate()
-        notificationCenter.removeObserver(self)
+        for token in notificationTokens {
+            notificationCenter.removeObserver(token)
+        }
     }
 
     /// Move the mouse by a relative amount, clamped to screen bounds
@@ -240,7 +243,7 @@ class MouseController {
     }
 
     private func observeScreenChanges() {
-        notificationCenter.addObserver(
+        let token = notificationCenter.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: nil
@@ -249,6 +252,7 @@ class MouseController {
             self.cachedBounds = MouseController.computeScreenBounds()
             self.cachedPosition = NSEvent.mouseLocation
         }
+        notificationTokens.append(token)
     }
 
     private static func computeScreenBounds() -> CGRect {
@@ -264,20 +268,23 @@ class MouseController {
 
     private func startPeriodicResync() {
         // Resync on activation/launch to catch external warps
-        notificationCenter.addObserver(
+        let didBecomeActiveToken = notificationCenter.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
             self?.resyncPosition()
         }
-        notificationCenter.addObserver(
+        notificationTokens.append(didBecomeActiveToken)
+
+        let didFinishLaunchingToken = notificationCenter.addObserver(
             forName: NSApplication.didFinishLaunchingNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
             self?.resyncPosition()
         }
+        notificationTokens.append(didFinishLaunchingToken)
         // Periodic safety resync to align with external cursor moves
         resyncTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             self?.resyncPosition()

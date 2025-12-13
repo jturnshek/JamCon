@@ -390,6 +390,10 @@ class JoyConKeyCaptureManager: ObservableObject {
         capturingButton = nil
         modifiersDisplay = ""
     }
+
+    deinit {
+        stopCapture()
+    }
 }
 
 // MARK: - G502X Button Mappings Section
@@ -625,5 +629,9 @@ class G502XKeyCaptureManager: ObservableObject {
         }
         capturingButton = nil
         modifiersDisplay = ""
+    }
+
+    deinit {
+        stopCapture()
     }
 }

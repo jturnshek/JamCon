@@ -37,6 +37,7 @@ final class AppState: ObservableObject {
         didSet {
             if oldValue != activeControllerKind {
                 reloadSettingsForCurrentProfile()
+                updateG502XInterfaceDebugMode()
             }
         }
     }
@@ -335,13 +336,11 @@ final class AppState: ObservableObject {
 
     @Published var debugLog: [String] = []
 
-    // MARK: - Timers
+    // MARK: - Polling Tasks
 
-    private var debugPollingTimer: Timer?
-    private var logPollingTimer: Timer?
-    private var accessibilityTimer: Timer?
-    private var accessibilityPollCount = 0
-    private var batteryPollingTimer: Timer?
+    private var debugPollingTask: Task<Void, Never>?
+    private var logPollingTask: Task<Void, Never>?
+    private var accessibilityPollingTask: Task<Void, Never>?
 
     // MARK: - Tab Enum
 
@@ -350,6 +349,8 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - Initialization
+
+    private var engineDidStart: Bool = false
 
     init() {
         // Create the core components
@@ -365,20 +366,24 @@ final class AppState: ObservableObject {
     }
 
     deinit {
-        debugPollingTimer?.invalidate()
-        logPollingTimer?.invalidate()
-        accessibilityTimer?.invalidate()
-        batteryPollingTimer?.invalidate()
+        debugPollingTask?.cancel()
+        logPollingTask?.cancel()
+        accessibilityPollingTask?.cancel()
     }
 
     // MARK: - Engine Lifecycle
 
     /// Start the input engine - call after UI is ready
     func startEngine() {
+        if engineDidStart {
+            refreshControllerList()
+            syncConnectionState()
+            return
+        }
+        engineDidStart = true
+
         engine.start()
         refreshControllerList()
-        startBatteryPolling()
-        startLogPolling()
 
         // Sync connection state after a short delay to let HID controllers discover devices
         Task {
@@ -406,9 +411,6 @@ final class AppState: ObservableObject {
             } else {
                 controllerName = engine.connectedControllerName ?? "Controller"
             }
-
-            // Update battery
-            pollBatteryLevel()
         } else {
             // Try to restore saved controller (if available)
             tryRestoreSavedController()
@@ -417,30 +419,12 @@ final class AppState: ObservableObject {
 
     /// Stop the input engine
     func stopEngine() {
+        guard engineDidStart else { return }
+        engineDidStart = false
+
         engine.stop()
-        stopBatteryPolling()
         stopLogPolling()
-    }
-
-    // MARK: - Battery Polling
-
-    private func startBatteryPolling() {
-        batteryPollingTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pollBatteryLevel()
-            }
-        }
-        // Poll immediately once
-        pollBatteryLevel()
-    }
-
-    private func stopBatteryPolling() {
-        batteryPollingTimer?.invalidate()
-        batteryPollingTimer = nil
-    }
-
-    private func pollBatteryLevel() {
-        batteryLevel = engine.batteryLevel
+        stopDebugPolling()
     }
 
     // MARK: - Settings Loading
@@ -611,6 +595,15 @@ final class AppState: ObservableObject {
                 self?.controllerName = name ?? (connected ? "Controller" : "Not connected")
                 self?.activeControllerKind = kind
                 self?.statusMessage = connected ? "Connected: \(name ?? "Controller")" : "Disconnected"
+                if !connected {
+                    self?.batteryLevel = 0
+                }
+            }
+        }
+
+        engine.onBatteryLevelChanged = { [weak self] level in
+            Task { @MainActor in
+                self?.batteryLevel = level
             }
         }
 
@@ -711,10 +704,15 @@ final class AppState: ObservableObject {
         guard !debugPollingEnabled else { return }
         debugPollingEnabled = true
         debugBuffer.startRecording()
+        settingsStore.update { $0.debugRecordingEnabled = true }
+        updateG502XInterfaceDebugMode()
 
-        debugPollingTimer = Timer.scheduledTimer(withTimeInterval: 1/30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pollDebugData()
+        debugPollingTask?.cancel()
+        debugPollingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, self.debugPollingEnabled {
+                self.pollDebugData()
+                try? await Task.sleep(nanoseconds: 33_333_333) // ~30Hz
             }
         }
     }
@@ -722,8 +720,10 @@ final class AppState: ObservableObject {
     func stopDebugPolling() {
         debugPollingEnabled = false
         debugBuffer.stopRecording()
-        debugPollingTimer?.invalidate()
-        debugPollingTimer = nil
+        settingsStore.update { $0.debugRecordingEnabled = false }
+        debugPollingTask?.cancel()
+        debugPollingTask = nil
+        updateG502XInterfaceDebugMode()
     }
 
     private func pollDebugData() {
@@ -779,22 +779,31 @@ final class AppState: ObservableObject {
         debugRefreshTrigger += 1
     }
 
+    private func updateG502XInterfaceDebugMode() {
+        engine.g502xController.setInterfaceDebugEnabled(debugPollingEnabled && activeControllerKind == .mouse)
+    }
+
     // MARK: - Log Polling
 
     func startLogPolling() {
-        stopLogPolling()
-        logPollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pollLogMessages()
-            }
-        }
+        guard logPollingTask == nil else { return }
+
         // Poll immediately once
         pollLogMessages()
+
+        logPollingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { break }
+                self.pollLogMessages()
+            }
+        }
     }
 
     func stopLogPolling() {
-        logPollingTimer?.invalidate()
-        logPollingTimer = nil
+        logPollingTask?.cancel()
+        logPollingTask = nil
     }
 
     private func pollLogMessages() {
@@ -826,18 +835,15 @@ final class AppState: ObservableObject {
     }
 
     private func startAccessibilityPolling() {
-        accessibilityPollCount = 0
-        accessibilityTimer?.invalidate()
-        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.accessibilityPollCount += 1
+        accessibilityPollingTask?.cancel()
+        accessibilityPollingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<60 where !Task.isCancelled {
                 self.checkAccessibilityPermission()
-                // Stop polling after permission granted or 60 seconds (user probably dismissed the prompt)
-                if self.hasAccessibilityPermission || self.accessibilityPollCount >= 60 {
-                    self.accessibilityTimer?.invalidate()
-                    self.accessibilityTimer = nil
+                if self.hasAccessibilityPermission {
+                    break
                 }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }

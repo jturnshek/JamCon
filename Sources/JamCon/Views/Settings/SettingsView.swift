@@ -54,9 +54,26 @@ struct SettingsView: View {
         .frame(minWidth: 500, minHeight: 450)
         .onChange(of: selectedTab) { _, newTab in
             appState.activeTab = newTab
+
+            if newTab == .log {
+                appState.startLogPolling()
+            } else {
+                appState.stopLogPolling()
+            }
+
+            if newTab != .debug {
+                appState.stopDebugPolling()
+            }
         }
         .onAppear {
             appState.activeTab = selectedTab
+            if selectedTab == .log {
+                appState.startLogPolling()
+            }
+        }
+        .onDisappear {
+            appState.stopLogPolling()
+            appState.stopDebugPolling()
         }
     }
 }

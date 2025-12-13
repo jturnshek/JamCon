@@ -69,19 +69,23 @@ class G502XHIDController {
 
     /// Class wrapper for report buffers - provides stable memory address for callback identification
     private class InterfaceBuffer {
+        private static let debugByteLimit = 64
         var bytes: [UInt8]
         private var previousBytes: [UInt8]
         private(set) var byteLastChanged: [Date]
         private(set) var lastLength: Int = 0
+        let maxReportSize: Int
         let deviceID: ObjectIdentifier
         let usagePage: Int
         let usage: Int
         var reportCount: Int = 0
 
-        init(size: Int, deviceID: ObjectIdentifier, usagePage: Int, usage: Int) {
+        init(size: Int, maxReportSize: Int, deviceID: ObjectIdentifier, usagePage: Int, usage: Int) {
             self.bytes = [UInt8](repeating: 0, count: size)
-            self.previousBytes = self.bytes
-            self.byteLastChanged = Array(repeating: .distantPast, count: size)
+            let trackedSize = min(size, Self.debugByteLimit)
+            self.previousBytes = [UInt8](repeating: 0, count: trackedSize)
+            self.byteLastChanged = Array(repeating: .distantPast, count: trackedSize)
+            self.maxReportSize = maxReportSize
             self.deviceID = deviceID
             self.usagePage = usagePage
             self.usage = usage
@@ -91,22 +95,13 @@ class G502XHIDController {
             let copyLength = min(length, bytes.count)
             lastLength = copyLength
 
-            for i in 0..<copyLength {
+            // Only track changes for the first N bytes used by the debug UI.
+            let trackedCount = min(copyLength, previousBytes.count)
+            for i in 0..<trackedCount {
                 let newByte = report[i]
                 if newByte != previousBytes[i] {
                     byteLastChanged[i] = now
                     previousBytes[i] = newByte
-                }
-                bytes[i] = newByte
-            }
-
-            if copyLength < bytes.count {
-                for i in copyLength..<bytes.count {
-                    if previousBytes[i] != 0 {
-                        byteLastChanged[i] = now
-                        previousBytes[i] = 0
-                    }
-                    bytes[i] = 0
                 }
             }
         }
@@ -207,6 +202,8 @@ class G502XHIDController {
     private let interfaceInfoLock = NSLock()
     private var cachedInterfaceInfo: [G502XInterfaceInfo] = []
     private var lastInterfaceInfoUpdate: TimeInterval = 0
+    private let interfaceDebugEnabledLock = OSAllocatedUnfairLock()
+    private var _interfaceDebugEnabled: Bool = false
 
     /// Get info about all discovered interfaces for the selected mouse (for debug UI)
     /// Thread-safe: returns a cached snapshot
@@ -214,6 +211,20 @@ class G502XHIDController {
         interfaceInfoLock.lock()
         defer { interfaceInfoLock.unlock() }
         return cachedInterfaceInfo
+    }
+
+    /// Enable/disable the expensive per-interface debug cache updates.
+    /// When disabled, cached snapshots are cleared to free memory and avoid background work.
+    func setInterfaceDebugEnabled(_ enabled: Bool) {
+        interfaceDebugEnabledLock.withLock {
+            _interfaceDebugEnabled = enabled
+        }
+        if !enabled {
+            interfaceInfoLock.lock()
+            cachedInterfaceInfo.removeAll(keepingCapacity: true)
+            interfaceInfoLock.unlock()
+            lastInterfaceInfoUpdate = 0
+        }
     }
 
     /// Update the cached interface info (call from HID thread after processing reports)
@@ -229,19 +240,45 @@ class G502XHIDController {
         let newInfo = mouse.interfaces.enumerated().map { index, device -> G502XInterfaceInfo in
             let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
             let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
-            let maxReportSize = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0
             let deviceID = ObjectIdentifier(device)
             let isActive = activeInterfaces.contains(where: { ObjectIdentifier($0) == deviceID })
             let buffer = interfaceBuffers[deviceID]
 
+            let maxReportSize = buffer?.maxReportSize
+                ?? (IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0)
+
+            let snapshotLimit = min(64, buffer?.bytes.count ?? 0)
             let bytesSnapshot: [UInt8]
+            let byteLastChangedSnapshot: [Date]
+            let reportLength: Int
             if let buffer {
                 // IMPORTANT: Deep copy so we don't share storage with the live callback buffer.
                 // Sharing would trigger copy-on-write on the next update and invalidate the
                 // pointer passed to IOHIDDeviceRegisterInputReportCallback, causing crashes.
-                bytesSnapshot = buffer.bytes.withUnsafeBufferPointer { Array($0) }
+                reportLength = buffer.lastLength
+
+                var snapshot = Array(buffer.bytes.prefix(snapshotLimit))
+                if reportLength < snapshot.count {
+                    for i in reportLength..<snapshot.count {
+                        snapshot[i] = 0
+                    }
+                }
+                bytesSnapshot = snapshot
+
+                var changed = Array(buffer.byteLastChanged.prefix(snapshotLimit))
+                if changed.count < snapshot.count {
+                    changed += Array(repeating: .distantPast, count: snapshot.count - changed.count)
+                }
+                if reportLength < changed.count {
+                    for i in reportLength..<changed.count {
+                        changed[i] = .distantPast
+                    }
+                }
+                byteLastChangedSnapshot = changed
             } else {
                 bytesSnapshot = []
+                byteLastChangedSnapshot = []
+                reportLength = 0
             }
 
             return G502XInterfaceInfo(
@@ -252,8 +289,8 @@ class G502XHIDController {
                 isActive: isActive,
                 reportCount: buffer?.reportCount ?? 0,
                 lastReportBytes: bytesSnapshot,
-                reportLength: buffer?.lastLength ?? 0,
-                byteLastChanged: Array(buffer?.byteLastChanged ?? [])
+                reportLength: reportLength,
+                byteLastChanged: byteLastChangedSnapshot
             )
         }
 
@@ -485,7 +522,7 @@ class G502XHIDController {
             // Create report buffer wrapper for this interface (size based on max input report size)
             let maxInputReportSize = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0
             let bufferSize = max(64, maxInputReportSize)
-            let buffer = InterfaceBuffer(size: bufferSize, deviceID: deviceID, usagePage: usagePage, usage: usage)
+            let buffer = InterfaceBuffer(size: bufferSize, maxReportSize: maxInputReportSize, deviceID: deviceID, usagePage: usagePage, usage: usage)
             interfaceBuffers[deviceID] = buffer
 
             // Register input report callback
@@ -678,7 +715,7 @@ class G502XHIDController {
 
         let maxInputReportSize = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0
         let bufferSize = max(64, maxInputReportSize)
-        let buffer = InterfaceBuffer(size: bufferSize, deviceID: deviceID, usagePage: usagePage, usage: usage)
+        let buffer = InterfaceBuffer(size: bufferSize, maxReportSize: maxInputReportSize, deviceID: deviceID, usagePage: usagePage, usage: usage)
         interfaceBuffers[deviceID] = buffer
 
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -1131,6 +1168,11 @@ class G502XHIDController {
             return
         }
 
+        let debugInterfaceEnabled = interfaceDebugEnabledLock.withLock { _interfaceDebugEnabled }
+        let isVendor = buffer.usagePage >= 0xFF00
+        let isStandardMouse = buffer.usagePage == 0x0001 && buffer.usage == 0x0002
+        guard debugInterfaceEnabled || isVendor || isStandardMouse else { return }
+
         // Update this interface's stored bytes + per-byte change tracking
         buffer.update(from: report, length: length, at: now)
         let copyLength = buffer.lastLength
@@ -1143,14 +1185,12 @@ class G502XHIDController {
         }
 
         // Update cached interface info for debug UI (thread-safe), throttled to reduce overhead.
-        if timestamp - lastInterfaceInfoUpdate > (1.0 / 30.0) {
+        if debugInterfaceEnabled, timestamp - lastInterfaceInfoUpdate > (1.0 / 10.0) {
             updateCachedInterfaceInfo()
             lastInterfaceInfoUpdate = timestamp
         }
 
         // Only forward unified button reports from relevant interfaces (vendor + standard mouse).
-        let isVendor = buffer.usagePage >= 0xFF00
-        let isStandardMouse = buffer.usagePage == 0x0001 && buffer.usage == 0x0002
         guard isVendor || isStandardMouse else { return }
 
         if isVendor, copyLength >= 4 {

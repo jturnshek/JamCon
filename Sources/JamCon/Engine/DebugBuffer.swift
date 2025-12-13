@@ -126,10 +126,9 @@ final class DebugBuffer: @unchecked Sendable {
         controllerKind: ControllerKind,
         gyroDebug: GyroDebug? = nil
     ) {
-        let now = Date()
-
         lock.withLock {
             guard _isRecording else { return }
+            let now = Date()
 
             // Track byte/bit changes
             let maxIndex = min(length, previousBytes.count, bytes.count)
@@ -244,6 +243,7 @@ final class DebugBuffer: @unchecked Sendable {
     // MARK: - Log Messages
 
     private var logMessages: [String] = []
+    private var logWriteIndex: Int = 0
     private let logCapacity: Int = 500
 
     private static let timeFormatter: DateFormatter = {
@@ -254,23 +254,43 @@ final class DebugBuffer: @unchecked Sendable {
 
     /// Add a log message (thread-safe, called from any thread)
     func log(_ message: String) {
-        let timestamped = "[\(Self.timeFormatter.string(from: Date()))] \(message)"
         lock.withLock {
-            logMessages.append(timestamped)
-            if logMessages.count > logCapacity {
-                logMessages.removeFirst(logMessages.count - logCapacity)
+            let timestamped = "[\(Self.timeFormatter.string(from: Date()))] \(message)"
+
+            if logMessages.count < logCapacity {
+                logMessages.append(timestamped)
+            } else if !logMessages.isEmpty {
+                logMessages[logWriteIndex] = timestamped
+                logWriteIndex = (logWriteIndex + 1) % logCapacity
             }
         }
     }
 
     /// Get all log messages (thread-safe, called from main thread)
     func getLogMessages() -> [String] {
-        lock.withLock { logMessages }
+        lock.withLock {
+            guard !logMessages.isEmpty else { return [] }
+            if logMessages.count < logCapacity {
+                return logMessages
+            }
+
+            // Ring buffer is full - reconstruct chronological order
+            var result: [String] = []
+            result.reserveCapacity(logCapacity)
+            for i in 0..<logCapacity {
+                let index = (logWriteIndex + i) % logCapacity
+                result.append(logMessages[index])
+            }
+            return result
+        }
     }
 
     /// Clear all log messages
     func clearLog() {
-        lock.withLock { logMessages.removeAll() }
+        lock.withLock {
+            logMessages.removeAll(keepingCapacity: true)
+            logWriteIndex = 0
+        }
     }
 
     // MARK: - Utility

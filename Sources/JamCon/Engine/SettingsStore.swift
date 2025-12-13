@@ -37,6 +37,11 @@ final class SettingsStore: @unchecked Sendable {
         // MARK: - Global Radial Menu
         var radialMenuConfiguration: RadialMenuConfiguration = .load()
 
+        // MARK: - Debug (Non-persisted)
+
+        /// Enables expensive debug recording in the engine (runtime only; not stored in UserDefaults).
+        var debugRecordingEnabled: Bool = false
+
         // MARK: - Convenience Accessors
 
         /// Current gyro settings for the active controller type
