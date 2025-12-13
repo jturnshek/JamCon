@@ -126,8 +126,10 @@ class ActionExecutor {
 
     private func openLaunchpad() {
         // Open Launchpad via its app bundle
-        if let launchpadURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.launchpad.launcher") {
-            NSWorkspace.shared.openApplication(at: launchpadURL, configuration: NSWorkspace.OpenConfiguration())
+        Task { @MainActor in
+            if let launchpadURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.launchpad.launcher") {
+                NSWorkspace.shared.openApplication(at: launchpadURL, configuration: NSWorkspace.OpenConfiguration())
+            }
         }
     }
 
@@ -167,35 +169,37 @@ class ActionExecutor {
     }
 
     private func sendMediaKey(_ key: MediaKey) {
-        // Use NX_KEYTYPE constants for media keys
-        let keyCode = key.rawValue
+        Task { @MainActor in
+            // Use NX_KEYTYPE constants for media keys
+            let keyCode = key.rawValue
 
-        // Key down
-        let downEvent = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: NSEvent.ModifierFlags(rawValue: 0xa00),
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            subtype: 8,
-            data1: Int((keyCode << 16) | (0xa << 8)),
-            data2: -1
-        )
-        downEvent?.cgEvent?.post(tap: .cghidEventTap)
+            // Key down
+            let downEvent = NSEvent.otherEvent(
+                with: .systemDefined,
+                location: .zero,
+                modifierFlags: NSEvent.ModifierFlags(rawValue: 0xa00),
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                subtype: 8,
+                data1: Int((keyCode << 16) | (0xa << 8)),
+                data2: -1
+            )
+            downEvent?.cgEvent?.post(tap: .cghidEventTap)
 
-        // Key up
-        let upEvent = NSEvent.otherEvent(
-            with: .systemDefined,
-            location: .zero,
-            modifierFlags: NSEvent.ModifierFlags(rawValue: 0xb00),
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            subtype: 8,
-            data1: Int((keyCode << 16) | (0xb << 8)),
-            data2: -1
-        )
-        upEvent?.cgEvent?.post(tap: .cghidEventTap)
+            // Key up
+            let upEvent = NSEvent.otherEvent(
+                with: .systemDefined,
+                location: .zero,
+                modifierFlags: NSEvent.ModifierFlags(rawValue: 0xb00),
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                subtype: 8,
+                data1: Int((keyCode << 16) | (0xb << 8)),
+                data2: -1
+            )
+            upEvent?.cgEvent?.post(tap: .cghidEventTap)
+        }
     }
 }

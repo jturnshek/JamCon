@@ -1,6 +1,6 @@
 import Foundation
 import CoreGraphics
-import AppKit
+import QuartzCore
 
 /// Mouse controller using CGEvent with proper drag support
 class MouseController {
@@ -19,35 +19,34 @@ class MouseController {
     private var clickCount: Int64 = 0
 
     private var cachedBounds: CGRect
-    private let notificationCenter: NotificationCenter
     private var cachedPosition: CGPoint
-    private var resyncTimer: Timer?
-    private var notificationTokens: [NSObjectProtocol] = []
+    private var lastResyncTime: TimeInterval = 0
+
+    private let doubleClickInterval: TimeInterval
+    private let resyncInterval: TimeInterval
 
     // MARK: - Initialization
 
-    init(notificationCenter: NotificationCenter = .default) {
-        self.notificationCenter = notificationCenter
+    init(doubleClickInterval: TimeInterval = 0.5, resyncInterval: TimeInterval = 5.0) {
+        self.doubleClickInterval = doubleClickInterval
+        self.resyncInterval = resyncInterval
         self.cachedBounds = MouseController.computeScreenBounds()
-        self.cachedPosition = NSEvent.mouseLocation
-        observeScreenChanges()
-        startPeriodicResync()
+        self.cachedPosition = MouseController.currentCursorPosition()
+        self.lastResyncTime = CACurrentMediaTime()
     }
 
     deinit {
-        resyncTimer?.invalidate()
-        for token in notificationTokens {
-            notificationCenter.removeObserver(token)
-        }
     }
 
     /// Move the mouse by a relative amount, clamped to screen bounds
     func moveRelative(dx: CGFloat, dy: CGFloat) {
-        // Update cached position in Cocoa coords (origin bottom-left)
+        resyncIfNeeded()
+
+        // Update cached position in Quartz display coordinates (origin top-left)
         cachedPosition.x += dx
-        cachedPosition.y -= dy  // input dy is screen-down; Cocoa Y increases upward
+        cachedPosition.y += dy  // input dy is screen-down; Quartz Y increases downward
         cachedPosition = clamp(cachedPosition, to: cachedBounds)
-        let quartzPoint = toQuartzSpace(point: cachedPosition, in: cachedBounds)
+        let point = cachedPosition
 
         // Determine event type based on whether a mouse button is held
         let mouseType: CGEventType
@@ -75,7 +74,7 @@ class MouseController {
         guard let event = CGEvent(
             mouseEventSource: Self.eventSource,
             mouseType: mouseType,
-            mouseCursorPosition: quartzPoint,
+            mouseCursorPosition: point,
             mouseButton: mouseButton
         ) else {
             return
@@ -116,9 +115,10 @@ class MouseController {
 
     /// Press mouse button down
     func mouseDown(button: MouseButton) {
-        let currentPos = currentPosition()
-        let bounds = cachedBounds
-        let point = toQuartzSpace(point: currentPos, in: bounds)
+        resyncIfNeeded(force: true)
+        let currentPos = Self.currentCursorPosition()
+        cachedPosition = currentPos
+        let point = clamp(currentPos, to: cachedBounds)
 
         let eventType: CGEventType
         let cgButton: CGMouseButton
@@ -150,7 +150,6 @@ class MouseController {
         // Detect double/triple click based on timing and position
         let now = Date()
         let timeSinceLastClick = now.timeIntervalSince(lastClickTime)
-        let doubleClickInterval = NSEvent.doubleClickInterval
         let maxClickDistance: CGFloat = 4.0  // pixels
 
         let distance = hypot(currentPos.x - lastClickPosition.x, currentPos.y - lastClickPosition.y)
@@ -177,9 +176,10 @@ class MouseController {
 
     /// Release mouse button
     func mouseUp(button: MouseButton) {
-        let currentPos = currentPosition()
-        let bounds = cachedBounds
-        let point = toQuartzSpace(point: currentPos, in: bounds)
+        resyncIfNeeded(force: true)
+        let currentPos = Self.currentCursorPosition()
+        cachedPosition = currentPos
+        let point = clamp(currentPos, to: cachedBounds)
 
         let eventType: CGEventType
         let cgButton: CGMouseButton
@@ -225,9 +225,17 @@ class MouseController {
 
     // MARK: - Helpers
 
-    private func currentPosition() -> CGPoint {
-        // Use NSEvent to stay in the same (Cocoa) coordinate space as cached bounds
-        return NSEvent.mouseLocation
+    private func resyncIfNeeded(force: Bool = false) {
+        let now = CACurrentMediaTime()
+        guard force || now - lastResyncTime >= resyncInterval else { return }
+        cachedBounds = MouseController.computeScreenBounds()
+        cachedPosition = MouseController.currentCursorPosition()
+        lastResyncTime = now
+    }
+
+    private static func currentCursorPosition() -> CGPoint {
+        guard let event = CGEvent(source: nil) else { return .zero }
+        return event.location
     }
 
     private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
@@ -236,64 +244,17 @@ class MouseController {
         return CGPoint(x: x, y: y)
     }
 
-    private func toQuartzSpace(point: CGPoint, in bounds: CGRect) -> CGPoint {
-        let relativeY = point.y - bounds.minY
-        let quartzY = bounds.maxY - relativeY
-        return CGPoint(x: point.x, y: quartzY)
-    }
-
-    private func observeScreenChanges() {
-        let token = notificationCenter.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.cachedBounds = MouseController.computeScreenBounds()
-            self.cachedPosition = NSEvent.mouseLocation
-        }
-        notificationTokens.append(token)
-    }
-
     private static func computeScreenBounds() -> CGRect {
-        let screens = NSScreen.screens
-        guard var union = screens.first?.frame else {
+        let displayIDs = activeDisplayIDs()
+        guard let first = displayIDs.first else {
             return CGRect(x: 0, y: 0, width: 1920, height: 1080)
         }
-        for screen in screens.dropFirst() {
-            union = union.union(screen.frame)
+
+        var union = CGDisplayBounds(first)
+        for displayID in displayIDs.dropFirst() {
+            union = union.union(CGDisplayBounds(displayID))
         }
         return union
-    }
-
-    private func startPeriodicResync() {
-        // Resync on activation/launch to catch external warps
-        let didBecomeActiveToken = notificationCenter.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.resyncPosition()
-        }
-        notificationTokens.append(didBecomeActiveToken)
-
-        let didFinishLaunchingToken = notificationCenter.addObserver(
-            forName: NSApplication.didFinishLaunchingNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.resyncPosition()
-        }
-        notificationTokens.append(didFinishLaunchingToken)
-        // Periodic safety resync to align with external cursor moves
-        resyncTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            self?.resyncPosition()
-        }
-    }
-
-    private func resyncPosition() {
-        cachedPosition = NSEvent.mouseLocation
-        cachedBounds = MouseController.computeScreenBounds()
     }
 
     // MARK: - Cursor Visibility

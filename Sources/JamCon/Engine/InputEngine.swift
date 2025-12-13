@@ -1,6 +1,5 @@
 import Foundation
 import CoreGraphics
-import AppKit
 import os
 
 /// The real-time input processing engine
@@ -675,13 +674,13 @@ final class InputEngine {
         updateModeState(for: kind) { $0.radialMenuButtonHeld = true }
         radialMenuLock.withLock { radialMenuAccumulator = .zero }
 
-        let position = NSEvent.mouseLocation
+        guard let position = currentCursorPositionQuartz() else { return }
         let config = settings.snapshot().radialMenuConfiguration
 
         if pointerStyle == .ghostCursor {
             mouseController.hideCursor()
         }
-        onRadialMenuShow?(position, config, pointerStyle)
+        onRadialMenuShow?(quartzToCocoa(position), config, pointerStyle)
 
         if pointerStyle == .systemCursor {
             startRadialMenuCursorTracking(anchor: position)
@@ -1159,15 +1158,15 @@ final class InputEngine {
         stopRadialMenuCursorTracking()
         radialMenuCursorAnchor = anchor
 
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
+        let timer = DispatchSource.makeTimerSource(queue: engineQueue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(16))  // ~60Hz
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             guard self.radialMenuOwnerKind == .mouse, self.mouseMode.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
+            guard let current = self.currentCursorPositionQuartz() else { return }
 
-            let current = NSEvent.mouseLocation
             let dx = current.x - anchor.x
-            let dy = -(current.y - anchor.y) // NSEvent Y+ up; radial menu uses Y+ down
+            let dy = current.y - anchor.y
 
             self.radialMenuLock.withLock {
                 self.radialMenuAccumulator = CGPoint(x: dx, y: dy)
@@ -1183,6 +1182,15 @@ final class InputEngine {
         radialMenuCursorPollTimer?.cancel()
         radialMenuCursorPollTimer = nil
         radialMenuCursorAnchor = nil
+    }
+
+    private func currentCursorPositionQuartz() -> CGPoint? {
+        CGEvent(source: nil)?.location
+    }
+
+    private func quartzToCocoa(_ quartz: CGPoint) -> CGPoint {
+        let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
+        return CGPoint(x: quartz.x, y: mainHeight - quartz.y)
     }
 
     // MARK: - G502X Button Processing
