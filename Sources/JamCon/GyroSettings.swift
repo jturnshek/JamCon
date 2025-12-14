@@ -84,6 +84,9 @@ struct GyroSettingsState: Equatable {
     var joyConTimerFallbackEnabled: Bool = true
     /// Prefer packet timer even when device timestamps are present
     var joyConTimerHybridEnabled: Bool = false
+    /// Use an average of all IMU gyro samples (3 per packet) instead of only the newest sample.
+    /// Processing still happens at the packet (report) cadence.
+    var joyConUseAveragedGyroSamples: Bool = false
 
     // MARK: Acceleration
     var accelerationMode: AccelerationMode = .simple
@@ -325,6 +328,7 @@ extension GyroSettingsState {
         if kind == .joyCon {
             defaults.set(joyConTimerFallbackEnabled, forKey: "\(prefix).timerFallbackEnabled")
             defaults.set(joyConTimerHybridEnabled, forKey: "\(prefix).timerHybridEnabled")
+            defaults.set(joyConUseAveragedGyroSamples, forKey: "\(prefix).useAveragedGyroSamples")
         }
     }
 
@@ -402,6 +406,9 @@ extension GyroSettingsState {
             }
             if let v = defaults.object(forKey: "\(prefix).timerHybridEnabled") as? Bool {
                 state.joyConTimerHybridEnabled = v
+            }
+            if let v = defaults.object(forKey: "\(prefix).useAveragedGyroSamples") as? Bool {
+                state.joyConUseAveragedGyroSamples = v
             }
         }
 

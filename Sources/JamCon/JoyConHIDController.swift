@@ -66,6 +66,9 @@ final class JoyConHIDController {
     }
 
     // MARK: - Callbacks
+    //
+    // Callback contract:
+    // All callbacks are invoked on the controller's HID thread/run loop ("JamCon.JoyConHID").
 
     var onReportData: ((_ report: InputReport) -> Void)?
     var onConnectionChange: ((_ connected: Bool, _ name: String?, _ controllerID: String?) -> Void)?
@@ -174,6 +177,36 @@ final class JoyConHIDController {
     init() {}
 
     deinit { stop() }
+
+    private func dispatchToHIDThread(_ work: @escaping () -> Void) {
+        if Thread.current == hidThread {
+            work()
+            return
+        }
+
+        guard let runLoop = hidRunLoop else {
+            work()
+            return
+        }
+
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(runLoop)
+    }
+
+    private func performHIDOperation(_ work: @escaping () -> Void) {
+        if Thread.current == hidThread {
+            work()
+            return
+        }
+
+        guard let runLoop = hidRunLoop else {
+            // If the HID thread isn't running yet, don't perform IOKit operations on an arbitrary thread.
+            return
+        }
+
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(runLoop)
+    }
 
     func start() {
         startHIDThreadIfNeeded()
@@ -396,8 +429,13 @@ final class JoyConHIDController {
             state.managedControllerIDs.removeAll(keepingCapacity: true)
             return Array(state.activeControllers.keys)
         }
-        for id in activeIDs {
-            deactivateController(id: id)
+        guard !activeIDs.isEmpty else { return }
+
+        performHIDOperation { [weak self] in
+            guard let self else { return }
+            for id in activeIDs {
+                self.deactivateController(id: id)
+            }
         }
     }
 
@@ -412,16 +450,22 @@ final class JoyConHIDController {
                 // Not discovered yet; it'll auto-activate when it appears.
                 return
             }
-            activateController(controller)
+            performHIDOperation { [weak self] in
+                self?.activateController(controller)
+            }
         } else {
             stateLock.withLock { state in
                 _ = state.managedControllerIDs.remove(id)
             }
-            deactivateController(id: id)
+            performHIDOperation { [weak self] in
+                self?.deactivateController(id: id)
+            }
         }
     }
 
     private func activateController(_ controller: DiscoveredJoyCon) {
+        assert(Thread.current == hidThread, "JoyConHIDController.activateController must run on the HID thread")
+
         let controllerID = controller.id
         let needsActivation: Bool = stateLock.withLock { state in
             state.activeControllers[controllerID] == nil
@@ -482,6 +526,8 @@ final class JoyConHIDController {
     }
 
     private func deactivateController(id: String) {
+        assert(Thread.current == hidThread, "JoyConHIDController.deactivateController must run on the HID thread")
+
         let now = CACurrentMediaTime()
         let active: ActiveController? = stateLock.withLock { state in
             guard let active = state.activeControllers.removeValue(forKey: id) else { return nil }
@@ -664,6 +710,8 @@ final class JoyConHIDController {
 
     private func log(_ message: String) {
         print("[JoyCon] \(message)")
-        onDebugMessage?(message)
+        dispatchToHIDThread { [weak self] in
+            self?.onDebugMessage?(message)
+        }
     }
 }

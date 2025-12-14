@@ -110,6 +110,11 @@ class SenseController {
         }
     }
 
+    // MARK: - Callbacks
+    //
+    // Callback contract:
+    // All callbacks are invoked on the controller's HID thread/run loop ("JamCon.Sense.HID").
+
     /// Callback for gyro data (x, y, z in raw units, timestamp)
     var onGyroData: ((_ x: Int16, _ y: Int16, _ z: Int16, _ timestamp: TimeInterval) -> Void)?
 
@@ -179,10 +184,40 @@ class SenseController {
 
     init() {}
 
+    private func dispatchToHIDThread(_ work: @escaping () -> Void) {
+        if Thread.current == hidThread {
+            work()
+            return
+        }
+
+        guard let runLoop = hidRunLoop else {
+            work()
+            return
+        }
+
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(runLoop)
+    }
+
+    private func performHIDOperation(_ work: @escaping () -> Void) {
+        if Thread.current == hidThread {
+            work()
+            return
+        }
+
+        guard let runLoop = hidRunLoop else {
+            // If the HID thread isn't running yet, don't perform IOKit operations on an arbitrary thread.
+            return
+        }
+
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(runLoop)
+    }
+
     private func log(_ message: String) {
         print("[Sense] \(message)")
-        DispatchQueue.main.async {
-            self.onDebugMessage?(message)
+        dispatchToHIDThread { [weak self] in
+            self?.onDebugMessage?(message)
         }
     }
 
@@ -344,8 +379,13 @@ class SenseController {
             state.managedControllerIDs.removeAll(keepingCapacity: true)
             return Array(state.activeControllers.keys)
         }
-        for id in activeIDs {
-            deactivateController(id: id)
+        guard !activeIDs.isEmpty else { return }
+
+        performHIDOperation { [weak self] in
+            guard let self else { return }
+            for id in activeIDs {
+                self.deactivateController(id: id)
+            }
         }
     }
 
@@ -360,16 +400,24 @@ class SenseController {
                 // Not discovered yet; it'll auto-activate when it appears.
                 return
             }
-            activateController(controller)
+
+            performHIDOperation { [weak self] in
+                self?.activateController(controller)
+            }
         } else {
             stateLock.withLock { state in
                 _ = state.managedControllerIDs.remove(id)
             }
-            deactivateController(id: id)
+
+            performHIDOperation { [weak self] in
+                self?.deactivateController(id: id)
+            }
         }
     }
 
     private func activateController(_ controller: DiscoveredController) {
+        assert(Thread.current == hidThread, "SenseController.activateController must run on the HID thread")
+
         let controllerID = controller.id
         let needsActivation: Bool = stateLock.withLock { state in
             state.activeControllers[controllerID] == nil
@@ -422,13 +470,12 @@ class SenseController {
 
         let displayName = "\(controller.name) (\(controller.side))"
         log("Activated: \(displayName)")
-
-        DispatchQueue.main.async {
-            self.onConnectionChange?(true, displayName, controller.id)
-        }
+        onConnectionChange?(true, displayName, controller.id)
     }
 
     private func deactivateController(id: String) {
+        assert(Thread.current == hidThread, "SenseController.deactivateController must run on the HID thread")
+
         let now = CACurrentMediaTime()
         let active: ActiveController? = stateLock.withLock { state in
             guard let active = state.activeControllers.removeValue(forKey: id) else { return nil }
@@ -441,9 +488,7 @@ class SenseController {
         IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
         IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
         let displayName = "\(active.controller.name) (\(active.controller.side))"
-        DispatchQueue.main.async {
-            self.onConnectionChange?(false, displayName, active.controller.id)
-        }
+        onConnectionChange?(false, displayName, active.controller.id)
     }
 
     // MARK: - Device Callbacks
@@ -497,10 +542,7 @@ class SenseController {
             state.discoveredControllers.append(controller)
         }
         log("Sense \(controller.side) Controller discovered!")
-
-        DispatchQueue.main.async {
-            self.onControllersChanged?()
-        }
+        onControllersChanged?()
 
         // Auto-activate if this controller is currently managed.
         let shouldAutoActivate = stateLock.withLock { state in
@@ -527,10 +569,7 @@ class SenseController {
 
             // Close the seized device to release exclusive access
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-
-            DispatchQueue.main.async {
-                self.onControllersChanged?()
-            }
+            onControllersChanged?()
         }
     }
 

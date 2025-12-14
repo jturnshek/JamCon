@@ -155,6 +155,11 @@ final class SettingsStore: @unchecked Sendable {
             set { gyroSettings[.joyCon]?.joyConTimerHybridEnabled = newValue }
         }
 
+        var joyConUseAveragedGyroSamples: Bool {
+            get { gyroSettings[.joyCon]?.joyConUseAveragedGyroSamples ?? false }
+            set { gyroSettings[.joyCon]?.joyConUseAveragedGyroSamples = newValue }
+        }
+
         var accelerationMode: AccelerationMode {
             get { currentGyroSettings.accelerationMode }
             set { gyroSettings[activeProfile.kind]?.accelerationMode = newValue }

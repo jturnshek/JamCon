@@ -688,24 +688,50 @@ final class InputEngine {
             mapping: device.mapping,
             profile: buttonProfile,
             holdThreshold: buttonProfile.holdThreshold
-        )
+	        )
 
-        // 2. Process gyro through unified pipeline
-        // GyroRemapper handles the axis swapping for Joy-Con (different for left vs right)
-        let pipeline = GyroRemapper.process(
-            rawX: report.gyroX,
-            rawY: report.gyroY,
-            rawZ: report.gyroZ,
-            controllerKind: .joyCon,
-            isLeft: isLeft
-        )
+	        // 2. Process gyro through unified pipeline
+	        // GyroRemapper handles the axis swapping for Joy-Con (different for left vs right)
+	        let rawGyro: (x: Int16, y: Int16, z: Int16)
+	        if s.joyConUseAveragedGyroSamples,
+	           report.bytes.count >= JoyConHIDProtocol.Offset.imuSample2 + 12 {
+	            func readInt16LE(_ offset: Int) -> Int16 {
+	                Int16(bitPattern: UInt16(report.bytes[offset]) | (UInt16(report.bytes[offset + 1]) << 8))
+	            }
+
+	            let bases = [
+	                JoyConHIDProtocol.Offset.imuSample0,
+	                JoyConHIDProtocol.Offset.imuSample1,
+	                JoyConHIDProtocol.Offset.imuSample2
+	            ]
+
+	            var sumX: Int32 = 0
+	            var sumY: Int32 = 0
+	            var sumZ: Int32 = 0
+	            for base in bases {
+	                sumX += Int32(readInt16LE(base + 6))
+	                sumY += Int32(readInt16LE(base + 8))
+	                sumZ += Int32(readInt16LE(base + 10))
+	            }
+	            rawGyro = (x: Int16(sumX / 3), y: Int16(sumY / 3), z: Int16(sumZ / 3))
+	        } else {
+	            rawGyro = (x: report.gyroX, y: report.gyroY, z: report.gyroZ)
+	        }
+
+	        let pipeline = GyroRemapper.process(
+	            rawX: rawGyro.x,
+	            rawY: rawGyro.y,
+	            rawZ: rawGyro.z,
+	            controllerKind: .joyCon,
+	            isLeft: isLeft
+	        )
 
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
-        var gyroSettings = s.gyroSettings[.joyCon] ?? .defaultForKind(.joyCon)
-        let userScale = gyroSettings.gyroScale
-        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
-        gyroSettings.expectedSampleRate = 66.0  // ~66 Hz since we use only the newest sample per packet
-        gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
+	        var gyroSettings = s.gyroSettings[.joyCon] ?? .defaultForKind(.joyCon)
+	        let userScale = gyroSettings.gyroScale
+	        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
+	        gyroSettings.expectedSampleRate = 66.0  // Joy-Con packets are ~66 Hz (3 IMU samples per packet)
+	        gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
         if let (dx, dy) = device.gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,

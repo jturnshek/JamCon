@@ -75,7 +75,8 @@ class KeyCaptureManager: ObservableObject {
             options: .defaultTap,
             eventsOfInterest: CGEventMask(eventMask),
             callback: { proxy, type, event, refcon -> Unmanaged<CGEvent>? in
-                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+                // Pass-through events must be returned unretained; retaining here can leak events.
+                guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
                 let manager = Unmanaged<KeyCaptureManager>.fromOpaque(refcon).takeUnretainedValue()
                 return manager.handleCGEvent(proxy: proxy, type: type, event: event)
             },
@@ -112,12 +113,12 @@ class KeyCaptureManager: ObservableObject {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Check if we're capturing
         guard case .capturing(let button, let isHold) = captureState else {
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         // Extract modifiers from event flags

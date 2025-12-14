@@ -196,19 +196,25 @@ private struct FilteringSection: View {
                     Divider()
 
                     // Joy-Con timing fallback (only shown for Joy-Con)
-                    if appState.configurationProfile.kind == .joyCon {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
-                                .font(.subheadline)
-                            DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
-                        }
+	                    if appState.configurationProfile.kind == .joyCon {
+	                        VStack(alignment: .leading, spacing: 8) {
+	                            Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
+	                                .font(.subheadline)
+	                            DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
+	                        }
+	
+	                        VStack(alignment: .leading, spacing: 8) {
+	                            Toggle("Force Joy-Con timer hybrid", isOn: $appState.joyConTimerHybridEnabled)
+	                                .font(.subheadline)
+	                            DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
+	                        }
 
-                        VStack(alignment: .leading, spacing: 8) {
-                            Toggle("Force Joy-Con timer hybrid", isOn: $appState.joyConTimerHybridEnabled)
-                                .font(.subheadline)
-                            DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
-                        }
-                    }
+	                        VStack(alignment: .leading, spacing: 8) {
+	                            Toggle("Average Joy-Con gyro samples", isOn: $appState.joyConUseAveragedGyroSamples)
+	                                .font(.subheadline)
+	                            DescriptionText(text: "Joy-Con reports include 3 gyro samples per packet. When enabled, JamCon averages them before processing (still at the packet rate). When off, JamCon uses only the newest sample.")
+	                        }
+	                    }
 
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Auto-tune sample rate", isOn: $appState.autoTuneSampleRate)

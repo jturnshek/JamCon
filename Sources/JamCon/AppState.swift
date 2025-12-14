@@ -193,8 +193,9 @@ final class AppState: ObservableObject {
         didSet {
             guard configurationProfile.kind == .sense else { return }
             let profile = configurationProfile
-            buttonMappingProfile.save(for: profile)
-            settingsStore.update { $0.senseButtonMappings[profile] = buttonMappingProfile }
+            let mapping = buttonMappingProfile
+            settingsStore.update { $0.senseButtonMappings[profile] = mapping }
+            scheduleSenseButtonMappingPersistence(profile: profile, mapping: mapping)
         }
     }
 
@@ -203,8 +204,9 @@ final class AppState: ObservableObject {
         didSet {
             guard configurationProfile.kind == .joyCon else { return }
             let profile = configurationProfile
-            joyConButtonMappingProfile.save(for: profile)
-            settingsStore.update { $0.joyConButtonMappings[profile] = joyConButtonMappingProfile }
+            let mapping = joyConButtonMappingProfile
+            settingsStore.update { $0.joyConButtonMappings[profile] = mapping }
+            scheduleJoyConButtonMappingPersistence(profile: profile, mapping: mapping)
         }
     }
 
@@ -213,30 +215,43 @@ final class AppState: ObservableObject {
         didSet {
             guard configurationProfile.kind == .mouse else { return }
             let profile = configurationProfile
-            g502xButtonMappingProfile.save(for: profile)
-            settingsStore.update { $0.g502xButtonMappings[profile] = g502xButtonMappingProfile }
+            let mapping = g502xButtonMappingProfile
+            settingsStore.update { $0.g502xButtonMappings[profile] = mapping }
+            scheduleG502XButtonMappingPersistence(profile: profile, mapping: mapping)
         }
     }
 
     // Joystick settings
     @Published var joystickScrollEnabled: Bool = true {
         didSet {
-            UserDefaults.standard.set(joystickScrollEnabled, forKey: "joystick.scrollEnabled")
             settingsStore.update { $0.joystickScrollEnabled = joystickScrollEnabled }
+            scheduleJoystickSettingsPersistence(
+                enabled: joystickScrollEnabled,
+                speed: joystickScrollSpeed,
+                acceleration: joystickScrollAcceleration
+            )
         }
     }
 
     @Published var joystickScrollSpeed: Double = 10.0 {
         didSet {
-            UserDefaults.standard.set(joystickScrollSpeed, forKey: "joystick.scrollSpeed")
             settingsStore.update { $0.joystickScrollSpeed = joystickScrollSpeed }
+            scheduleJoystickSettingsPersistence(
+                enabled: joystickScrollEnabled,
+                speed: joystickScrollSpeed,
+                acceleration: joystickScrollAcceleration
+            )
         }
     }
 
     @Published var joystickScrollAcceleration: Double = 3.0 {
         didSet {
-            UserDefaults.standard.set(joystickScrollAcceleration, forKey: "joystick.scrollAcceleration")
             settingsStore.update { $0.joystickScrollAcceleration = joystickScrollAcceleration }
+            scheduleJoystickSettingsPersistence(
+                enabled: joystickScrollEnabled,
+                speed: joystickScrollSpeed,
+                acceleration: joystickScrollAcceleration
+            )
         }
     }
 
@@ -247,6 +262,12 @@ final class AppState: ObservableObject {
     }
 
     @Published var joyConTimerHybridEnabled: Bool = false {
+        didSet {
+            saveGyroSettings()
+        }
+    }
+
+    @Published var joyConUseAveragedGyroSamples: Bool = false {
         didSet {
             saveGyroSettings()
         }
@@ -267,8 +288,9 @@ final class AppState: ObservableObject {
     // Radial menu
     @Published var radialMenuConfiguration: RadialMenuConfiguration = .load() {
         didSet {
-            radialMenuConfiguration.save()
-            settingsStore.update { $0.radialMenuConfiguration = radialMenuConfiguration }
+            let config = radialMenuConfiguration
+            settingsStore.update { $0.radialMenuConfiguration = config }
+            scheduleRadialMenuPersistence(configuration: config)
         }
     }
 
@@ -277,6 +299,18 @@ final class AppState: ObservableObject {
 
     /// Radial menu window controller
     private var radialMenuWindowController: RadialMenuWindowController?
+
+    // MARK: - Debounced Persistence
+
+    private var gyroSettingsSaveTasks: [ControllerKind: Task<Void, Never>] = [:]
+
+    private var joystickSettingsSaveTask: Task<Void, Never>?
+
+    private var radialMenuSaveTask: Task<Void, Never>?
+
+    private var senseButtonMappingSaveTasks: [ControllerProfile: Task<Void, Never>] = [:]
+    private var joyConButtonMappingSaveTasks: [ControllerProfile: Task<Void, Never>] = [:]
+    private var g502xButtonMappingSaveTasks: [ControllerProfile: Task<Void, Never>] = [:]
 
     // MARK: - Debug State (Polled, not pushed)
 
@@ -506,9 +540,8 @@ final class AppState: ObservableObject {
     }
 
     private func saveGyroSettings() {
-        // Save to per-type gyro settings for persistence
         let kind = configurationProfile.kind
-        var state = GyroSettingsState.load(for: kind)
+        var state = settingsStore.snapshot().gyroSettings[kind] ?? GyroSettingsState.load(for: kind)
         state.sensitivity = sensitivity
         state.gyroScale = gyroScale
         state.filterEnabled = filterEnabled
@@ -531,10 +564,71 @@ final class AppState: ObservableObject {
         if kind == .joyCon {
             state.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled
             state.joyConTimerHybridEnabled = joyConTimerHybridEnabled
+            state.joyConUseAveragedGyroSamples = joyConUseAveragedGyroSamples
         }
 
-        state.save(for: kind)
-        settingsStore.update { $0.gyroSettings[kind] = state }
+        let updatedState = state
+        settingsStore.update { $0.gyroSettings[kind] = updatedState }
+        scheduleGyroSettingsPersistence(kind: kind, state: updatedState)
+    }
+
+    private static let persistenceDebounceNanoseconds: UInt64 = 250_000_000
+
+    private func scheduleGyroSettingsPersistence(kind: ControllerKind, state: GyroSettingsState) {
+        gyroSettingsSaveTasks[kind]?.cancel()
+        gyroSettingsSaveTasks[kind] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            state.save(for: kind)
+        }
+    }
+
+    private func scheduleJoystickSettingsPersistence(enabled: Bool, speed: Double, acceleration: Double) {
+        joystickSettingsSaveTask?.cancel()
+        joystickSettingsSaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            let defaults = UserDefaults.standard
+            defaults.set(enabled, forKey: "joystick.scrollEnabled")
+            defaults.set(speed, forKey: "joystick.scrollSpeed")
+            defaults.set(acceleration, forKey: "joystick.scrollAcceleration")
+        }
+    }
+
+    private func scheduleRadialMenuPersistence(configuration: RadialMenuConfiguration) {
+        radialMenuSaveTask?.cancel()
+        radialMenuSaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            configuration.save()
+        }
+    }
+
+    private func scheduleSenseButtonMappingPersistence(profile: ControllerProfile, mapping: SenseButtonMappingProfile) {
+        senseButtonMappingSaveTasks[profile]?.cancel()
+        senseButtonMappingSaveTasks[profile] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            mapping.save(for: profile)
+        }
+    }
+
+    private func scheduleJoyConButtonMappingPersistence(profile: ControllerProfile, mapping: JoyConButtonMappingProfile) {
+        joyConButtonMappingSaveTasks[profile]?.cancel()
+        joyConButtonMappingSaveTasks[profile] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            mapping.save(for: profile)
+        }
+    }
+
+    private func scheduleG502XButtonMappingPersistence(profile: ControllerProfile, mapping: G502XButtonMappingProfile) {
+        g502xButtonMappingSaveTasks[profile]?.cancel()
+        g502xButtonMappingSaveTasks[profile] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
+            guard !Task.isCancelled else { return }
+            mapping.save(for: profile)
+        }
     }
 
     /// Reload all configurable settings for the current configuration target.
@@ -566,6 +660,7 @@ final class AppState: ObservableObject {
         if kind == .joyCon {
             _joyConTimerFallbackEnabled = Published(initialValue: gyroState.joyConTimerFallbackEnabled)
             _joyConTimerHybridEnabled = Published(initialValue: gyroState.joyConTimerHybridEnabled)
+            _joyConUseAveragedGyroSamples = Published(initialValue: gyroState.joyConUseAveragedGyroSamples)
         }
 
         // Update settings store
@@ -942,6 +1037,7 @@ final class AppState: ObservableObject {
         if configurationProfile.kind == .joyCon {
             joyConTimerFallbackEnabled = defaults.joyConTimerFallbackEnabled
             joyConTimerHybridEnabled = defaults.joyConTimerHybridEnabled
+            joyConUseAveragedGyroSamples = defaults.joyConUseAveragedGyroSamples
         }
     }
 
