@@ -4,6 +4,7 @@ import SwiftUI
 
 struct DeviceDebugView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var telemetry: DebugTelemetryState
     let controller: ControllerInfo
 
     private let bytesPerRow = 8
@@ -25,9 +26,15 @@ struct DeviceDebugView: View {
         )
     }
 
+    init(appState: AppState, controller: ControllerInfo) {
+        self.appState = appState
+        self.controller = controller
+        _telemetry = ObservedObject(wrappedValue: appState.debugTelemetry)
+    }
+
     private var totalBytes: Int {
-        if appState.reportLength > 0 {
-            return appState.reportLength
+        if telemetry.reportLength > 0 {
+            return telemetry.reportLength
         }
         switch controller.kind {
         case .mouse:
@@ -39,7 +46,7 @@ struct DeviceDebugView: View {
         }
     }
 
-    private var byte11: UInt8 { appState.safeReportByte(SenseHIDProtocol.Offset.touchStates) }
+    private var byte11: UInt8 { telemetry.safeReportByte(SenseHIDProtocol.Offset.touchStates) }
     private var faceTopTouch: Bool { (byte11 & 0x01) != 0 }
     private var faceBottomTouch: Bool { (byte11 & 0x02) != 0 }
     private var stickTouch: Bool { (byte11 & SenseHIDProtocol.TouchStateMask.joystickTouch) != 0 }
@@ -64,6 +71,7 @@ struct DeviceDebugView: View {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         MouseDebugView(
                             appState: appState,
+                            telemetry: telemetry,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
                             decaySeconds: decaySeconds,
@@ -75,6 +83,7 @@ struct DeviceDebugView: View {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         JoyConDebugView(
                             appState: appState,
+                            telemetry: telemetry,
                             isLeft: controller.isLeft,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
@@ -88,13 +97,13 @@ struct DeviceDebugView: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 16) {
                                 // Section 1: Gyro Pipeline (all 3 stages)
-                                GyroPipelineView(appState: appState)
+                                GyroPipelineView(appState: appState, telemetry: telemetry)
 
                                 Divider()
 
                                 // Section 2: Buttons
                                 DebugButtonsSection(
-                                    appState: appState,
+                                    telemetry: telemetry,
                                     isLeft: controller.isLeft,
                                     faceTopTouch: faceTopTouch,
                                     faceBottomTouch: faceBottomTouch,
@@ -104,13 +113,13 @@ struct DeviceDebugView: View {
                                 Divider()
 
                                 // Section 3: Stick
-                                DebugStickSection(appState: appState, isLeft: controller.isLeft, stickTouch: stickTouch)
+                                DebugStickSection(telemetry: telemetry, isLeft: controller.isLeft, stickTouch: stickTouch)
 
                                 Divider()
 
                                 // Section 4: Raw HID Report
                                 DebugRawReportSection(
-                                    appState: appState,
+                                    telemetry: telemetry,
                                     currentTime: timeline.date,
                                     bytesPerRow: bytesPerRow,
                                     totalBytes: totalBytes,
@@ -120,61 +129,61 @@ struct DeviceDebugView: View {
                                 Divider()
 
                                 // Section 5: Button Lab
-                                ButtonLabView(
-                                    buttonName: "Circle, X, Grip (R1)",
-                                    candidateBytes: [9],
-                                    reportBytes: appState.reportBytes,
-                                    bitLastChanged: appState.bitLastChanged,
-                                    currentTime: timeline.date
-                                )
+	                                ButtonLabView(
+	                                    buttonName: "Circle, X, Grip (R1)",
+	                                    candidateBytes: [9],
+	                                    reportBytes: telemetry.reportBytes,
+	                                    bitLastChanged: telemetry.bitLastChanged,
+	                                    currentTime: timeline.date
+	                                )
 
-                                ButtonLabView(
-                                    buttonName: "Joystick Click, Start, PlayStation",
-                                    candidateBytes: [10],
-                                    reportBytes: appState.reportBytes,
-                                    bitLastChanged: appState.bitLastChanged,
-                                    currentTime: timeline.date
-                                )
+	                                ButtonLabView(
+	                                    buttonName: "Joystick Click, Start, PlayStation",
+	                                    candidateBytes: [10],
+	                                    reportBytes: telemetry.reportBytes,
+	                                    bitLastChanged: telemetry.bitLastChanged,
+	                                    currentTime: timeline.date
+	                                )
 
-                                JoystickLabView(
-                                    xByte: 2,
-                                    yByte: 3,
-                                    useJoyConPacking: false,
-                                    reportBytes: appState.reportBytes
-                                )
+	                                JoystickLabView(
+	                                    xByte: 2,
+	                                    yByte: 3,
+	                                    useJoyConPacking: false,
+	                                    reportBytes: telemetry.reportBytes
+	                                )
 
-                                AnalogLabView(
-                                    title: "Analog Inputs",
-                                    inputs: [
-                                        ("Trigger (R2)", 4),
-                                    ],
-                                    reportBytes: appState.reportBytes
-                                )
+	                                AnalogLabView(
+	                                    title: "Analog Inputs",
+	                                    inputs: [
+	                                        ("Trigger (R2)", 4),
+	                                    ],
+	                                    reportBytes: telemetry.reportBytes
+	                                )
 
-                                AnalogLabView(
-                                    title: "Capacitive / Proximity (Analog)",
-                                    inputs: [
-                                        ("Trigger Proximity", 5),
-                                        ("Grip Touch", 6),
-                                    ],
-                                    reportBytes: appState.reportBytes
-                                )
+	                                AnalogLabView(
+	                                    title: "Capacitive / Proximity (Analog)",
+	                                    inputs: [
+	                                        ("Trigger Proximity", 5),
+	                                        ("Grip Touch", 6),
+	                                    ],
+	                                    reportBytes: telemetry.reportBytes
+	                                )
 
-                                ButtonLabView(
-                                    buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
-                                    candidateBytes: [11],
-                                    reportBytes: appState.reportBytes,
-                                    bitLastChanged: appState.bitLastChanged,
-                                    currentTime: timeline.date
-                                )
+	                                ButtonLabView(
+	                                    buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
+	                                    candidateBytes: [11],
+	                                    reportBytes: telemetry.reportBytes,
+	                                    bitLastChanged: telemetry.bitLastChanged,
+	                                    currentTime: timeline.date
+	                                )
 
-                                LogicalButtonTestView(
-                                    buttonStates: appState.buttonStates,
-                                    isLeftController: controller.isLeft,
-                                    triggerValue: appState.safeReportByte(4),
-                                    joystickX: appState.safeReportByte(2),
-                                    joystickY: appState.safeReportByte(3)
-                                )
+		                                LogicalButtonTestView(
+		                                    buttonStates: telemetry.buttonStates,
+		                                    isLeftController: controller.isLeft,
+		                                    triggerValue: telemetry.safeReportByte(4),
+		                                    joystickX: telemetry.safeReportByte(2),
+		                                    joystickY: telemetry.safeReportByte(3)
+		                                )
 
                                 Divider()
                                     .padding(.vertical, 8)
@@ -184,10 +193,10 @@ struct DeviceDebugView: View {
                                     .fontWeight(.semibold)
                                     .foregroundColor(.green)
 
-                                IMUAxisTesterView(reportBytes: appState.reportBytes)
+	                                IMUAxisTesterView(reportBytes: telemetry.reportBytes)
 
-                                BatteryStatusView(reportBytes: appState.reportBytes)
-                            }
+	                                BatteryStatusView(reportBytes: telemetry.reportBytes)
+	                            }
                             .padding()
                         }
                     }
@@ -212,9 +221,15 @@ struct DeviceDebugView: View {
 
 struct DebugTab: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var telemetry: DebugTelemetryState
 
     private let bytesPerRow = 8
     private let decaySeconds: Double = 5.0
+
+    init(appState: AppState) {
+        self.appState = appState
+        _telemetry = ObservedObject(wrappedValue: appState.debugTelemetry)
+    }
 
     private var liveBinding: Binding<Bool> {
         Binding(
@@ -234,8 +249,8 @@ struct DebugTab: View {
     private var isLeft: Bool { appState.isLeftController }
     private var side: String { isLeft ? "Left" : "Right" }
     private var totalBytes: Int {
-        if appState.reportLength > 0 {
-            return appState.reportLength
+        if telemetry.reportLength > 0 {
+            return telemetry.reportLength
         }
         if isMouse {
             return 16  // Default display for mouse
@@ -243,7 +258,7 @@ struct DebugTab: View {
         return isJoyCon ? JoyConHIDProtocol.reportLength : SenseHIDProtocol.reportLength
     }
 
-    private var byte11: UInt8 { appState.safeReportByte(SenseHIDProtocol.Offset.touchStates) }
+    private var byte11: UInt8 { telemetry.safeReportByte(SenseHIDProtocol.Offset.touchStates) }
     private var faceTopTouch: Bool { (byte11 & 0x01) != 0 }
     private var faceBottomTouch: Bool { (byte11 & 0x02) != 0 }
     private var stickTouch: Bool { (byte11 & SenseHIDProtocol.TouchStateMask.joystickTouch) != 0 }
@@ -260,6 +275,7 @@ struct DebugTab: View {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         MouseDebugView(
                             appState: appState,
+                            telemetry: telemetry,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
                             decaySeconds: decaySeconds,
@@ -270,6 +286,7 @@ struct DebugTab: View {
                     TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
                         JoyConDebugView(
                             appState: appState,
+                            telemetry: telemetry,
                             isLeft: isLeft,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
@@ -282,13 +299,13 @@ struct DebugTab: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 16) {
                                 // Section 1: Gyro Pipeline (all 3 stages)
-                                GyroPipelineView(appState: appState)
+                                GyroPipelineView(appState: appState, telemetry: telemetry)
 
                                 Divider()
 
                                 // Section 2: Buttons
                                 DebugButtonsSection(
-                                    appState: appState,
+                                    telemetry: telemetry,
                                     isLeft: isLeft,
                                     faceTopTouch: faceTopTouch,
                                     faceBottomTouch: faceBottomTouch,
@@ -298,13 +315,13 @@ struct DebugTab: View {
                                 Divider()
 
                                 // Section 3: Stick
-                                DebugStickSection(appState: appState, isLeft: isLeft, stickTouch: stickTouch)
+                                DebugStickSection(telemetry: telemetry, isLeft: isLeft, stickTouch: stickTouch)
 
                                 Divider()
 
                                 // Section 4: Raw HID Report
                                 DebugRawReportSection(
-                                    appState: appState,
+                                    telemetry: telemetry,
                                     currentTime: timeline.date,
                                     bytesPerRow: bytesPerRow,
                                     totalBytes: totalBytes,
@@ -314,61 +331,61 @@ struct DebugTab: View {
                                 Divider()
 
                                 // Section 5: Button Lab
-                                ButtonLabView(
-                                    buttonName: "Circle, X, Grip (R1)",
-                                    candidateBytes: [9],
-                                    reportBytes: appState.reportBytes,
-                                    bitLastChanged: appState.bitLastChanged,
-                                    currentTime: timeline.date
-                                )
+	                                ButtonLabView(
+	                                    buttonName: "Circle, X, Grip (R1)",
+	                                    candidateBytes: [9],
+	                                    reportBytes: telemetry.reportBytes,
+	                                    bitLastChanged: telemetry.bitLastChanged,
+	                                    currentTime: timeline.date
+	                                )
 
-                                ButtonLabView(
-                                    buttonName: "Joystick Click, Start, PlayStation",
-                                    candidateBytes: [10],
-                                    reportBytes: appState.reportBytes,
-                                    bitLastChanged: appState.bitLastChanged,
-                                    currentTime: timeline.date
-                                )
+	                                ButtonLabView(
+	                                    buttonName: "Joystick Click, Start, PlayStation",
+	                                    candidateBytes: [10],
+	                                    reportBytes: telemetry.reportBytes,
+	                                    bitLastChanged: telemetry.bitLastChanged,
+	                                    currentTime: timeline.date
+	                                )
 
-                                JoystickLabView(
-                                    xByte: 2,
-                                    yByte: 3,
-                                    useJoyConPacking: false,
-                                    reportBytes: appState.reportBytes
-                                )
+	                                JoystickLabView(
+	                                    xByte: 2,
+	                                    yByte: 3,
+	                                    useJoyConPacking: false,
+	                                    reportBytes: telemetry.reportBytes
+	                                )
 
-                                AnalogLabView(
-                                    title: "Analog Inputs",
-                                    inputs: [
-                                        ("Trigger (R2)", 4),
-                                    ],
-                                    reportBytes: appState.reportBytes
-                                )
+	                                AnalogLabView(
+	                                    title: "Analog Inputs",
+	                                    inputs: [
+	                                        ("Trigger (R2)", 4),
+	                                    ],
+	                                    reportBytes: telemetry.reportBytes
+	                                )
 
-                                AnalogLabView(
-                                    title: "Capacitive / Proximity (Analog)",
-                                    inputs: [
-                                        ("Trigger Proximity", 5),
-                                        ("Grip Touch", 6),
-                                    ],
-                                    reportBytes: appState.reportBytes
-                                )
+	                                AnalogLabView(
+	                                    title: "Capacitive / Proximity (Analog)",
+	                                    inputs: [
+	                                        ("Trigger Proximity", 5),
+	                                        ("Grip Touch", 6),
+	                                    ],
+	                                    reportBytes: telemetry.reportBytes
+	                                )
 
-                                ButtonLabView(
-                                    buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
-                                    candidateBytes: [11],
-                                    reportBytes: appState.reportBytes,
-                                    bitLastChanged: appState.bitLastChanged,
-                                    currentTime: timeline.date
-                                )
+	                                ButtonLabView(
+	                                    buttonName: "Touch States (Joystick bit 2, Grip bit 3)",
+	                                    candidateBytes: [11],
+	                                    reportBytes: telemetry.reportBytes,
+	                                    bitLastChanged: telemetry.bitLastChanged,
+	                                    currentTime: timeline.date
+	                                )
 
-                                LogicalButtonTestView(
-                                    buttonStates: appState.buttonStates,
-                                    isLeftController: appState.isLeftController,
-                                    triggerValue: appState.safeReportByte(4),
-                                    joystickX: appState.safeReportByte(2),
-                                    joystickY: appState.safeReportByte(3)
-                                )
+		                                LogicalButtonTestView(
+		                                    buttonStates: telemetry.buttonStates,
+		                                    isLeftController: appState.isLeftController,
+		                                    triggerValue: telemetry.safeReportByte(4),
+		                                    joystickX: telemetry.safeReportByte(2),
+		                                    joystickY: telemetry.safeReportByte(3)
+		                                )
 
                                 Divider()
                                     .padding(.vertical, 8)
@@ -378,10 +395,10 @@ struct DebugTab: View {
                                     .fontWeight(.semibold)
                                     .foregroundColor(.green)
 
-                                IMUAxisTesterView(reportBytes: appState.reportBytes)
+	                                IMUAxisTesterView(reportBytes: telemetry.reportBytes)
 
-                                BatteryStatusView(reportBytes: appState.reportBytes)
-                            }
+	                                BatteryStatusView(reportBytes: telemetry.reportBytes)
+	                            }
                             .padding()
                         }
                     }
@@ -418,6 +435,7 @@ struct DebugTab: View {
 
 private struct JoyConDebugView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
     let bytesPerRow: Int
     let totalBytes: Int
@@ -433,12 +451,12 @@ private struct JoyConDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Pipeline visualization (all 3 stages)
-                GyroPipelineView(appState: appState)
+                GyroPipelineView(appState: appState, telemetry: telemetry)
 
-                CalibrationDebugView(appState: appState)
+                CalibrationDebugView(telemetry: telemetry)
 
                 JoyConQuickRows(
-                    appState: appState,
+                    telemetry: telemetry,
                     isLeft: isLeft,
                     currentTime: currentTime
                 )
@@ -447,11 +465,11 @@ private struct JoyConDebugView: View {
                     xByte: joystickStartByte,
                     yByte: joystickStartByte + 1,
                     useJoyConPacking: true,
-                    reportBytes: appState.reportBytes
+                    reportBytes: telemetry.reportBytes
                 )
 
                 DebugRawReportSection(
-                    appState: appState,
+                    telemetry: telemetry,
                     currentTime: currentTime,
                     bytesPerRow: bytesPerRow,
                     totalBytes: totalBytes,
@@ -466,10 +484,10 @@ private struct JoyConDebugView: View {
 // MARK: - Gyro Section
 
 private struct CalibrationDebugView: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
 
     private var gyroDebug: DebugBuffer.GyroDebug? {
-        appState.debugBuffer.latestGyroDebug()
+        telemetry.gyroDebug
     }
 
     var body: some View {
@@ -517,83 +535,10 @@ private struct CalibrationDebugView: View {
     }
 }
 
-private struct DebugGyroSection: View {
-    @ObservedObject var appState: AppState
-    @StateObject private var rangeTracker = GyroRangeTracker()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Motion / Gyro")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("Reset Range") {
-                    rangeTracker.reset()
-                }
-                .font(.caption)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-
-            HStack(spacing: 16) {
-                GyroVectorIndicator(
-                    x: appState.lastGyroX,
-                    y: appState.lastGyroY,
-                    maxValue: rangeTracker.maxAbsValue
-                )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    GyroAxisRow(
-                        name: "Y",
-                        label: "horizontal",
-                        value: appState.lastGyroY,
-                        maxValue: Double(rangeTracker.maxAbsValue)
-                    )
-                    GyroAxisRow(
-                        name: "X",
-                        label: "vertical",
-                        value: appState.lastGyroX,
-                        maxValue: Double(rangeTracker.maxAbsValue)
-                    )
-                    // Show raw values for debugging
-                    Text("Raw: X=\(appState.lastGyroX) Y=\(appState.lastGyroY) Z=\(appState.lastGyroZ)")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            // Min/Max tracking display
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Range (auto-scale: ±\(Int(rangeTracker.maxAbsValue)))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                HStack(spacing: 16) {
-                    Text("X: \(rangeTracker.minX)...\(rangeTracker.maxX)")
-                    Text("Y: \(rangeTracker.minY)...\(rangeTracker.maxY)")
-                    Text("Z: \(rangeTracker.minZ)...\(rangeTracker.maxZ)")
-                }
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(.secondary)
-            }
-        }
-        .padding()
-        .background(Color.secondary.opacity(0.03))
-        .cornerRadius(8)
-        .onChange(of: appState.lastGyroX) { _, _ in
-            rangeTracker.update(x: appState.lastGyroX, y: appState.lastGyroY, z: appState.lastGyroZ)
-        }
-        .onChange(of: appState.lastGyroY) { _, _ in
-            rangeTracker.update(x: appState.lastGyroX, y: appState.lastGyroY, z: appState.lastGyroZ)
-        }
-    }
-}
-
 // MARK: - Buttons Section
 
 private struct DebugButtonsSection: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
     let faceTopTouch: Bool
     let faceBottomTouch: Bool
@@ -613,7 +558,7 @@ private struct DebugButtonsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     TouchIndicator(active: faceTopTouch)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.faceTop] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.faceTop] ?? false)
                 }
 
                 GridRow {
@@ -622,25 +567,25 @@ private struct DebugButtonsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     TouchIndicator(active: faceBottomTouch)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.faceBottom] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.faceBottom] ?? false)
                 }
 
                 GridRow {
                     Text(isLeft ? "L1 Grip" : "R1 Grip")
                         .font(.system(size: 12, weight: .medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    AnalogBar(value: appState.safeReportByte(6), color: .orange)
+                    AnalogBar(value: telemetry.safeReportByte(6), color: .orange)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.bumper] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.bumper] ?? false)
                 }
 
                 GridRow {
                     Text(isLeft ? "L2 Trigger" : "R2 Trigger")
                         .font(.system(size: 12, weight: .medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    AnalogBar(value: appState.safeReportByte(5), color: .orange)
+                    AnalogBar(value: telemetry.safeReportByte(5), color: .orange)
                     Arrow()
-                    AnalogBar(value: appState.safeReportByte(4), color: .blue)
+                    AnalogBar(value: telemetry.safeReportByte(4), color: .blue)
                 }
 
                 GridRow {
@@ -649,7 +594,7 @@ private struct DebugButtonsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     TouchIndicator(active: stickTouch)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.stickClick] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.stickClick] ?? false)
                 }
 
                 GridRow {
@@ -658,7 +603,7 @@ private struct DebugButtonsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Color.clear.gridCellUnsizedAxes(.horizontal)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.menuButton] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.menuButton] ?? false)
                 }
 
                 GridRow {
@@ -667,7 +612,7 @@ private struct DebugButtonsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Color.clear.gridCellUnsizedAxes(.horizontal)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.playStation] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.playStation] ?? false)
                 }
             }
         }
@@ -680,7 +625,7 @@ private struct DebugButtonsSection: View {
 // MARK: - Stick Section
 
 private struct DebugStickSection: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
     let stickTouch: Bool
 
@@ -693,19 +638,19 @@ private struct DebugStickSection: View {
 
             HStack(spacing: 16) {
                 StickPositionIndicator(
-                    x: appState.safeReportByte(SenseHIDProtocol.Offset.joystickX),
-                    y: appState.safeReportByte(SenseHIDProtocol.Offset.joystickY),
-                    isPressed: appState.buttonStates[.stickClick] ?? false
+                    x: telemetry.safeReportByte(SenseHIDProtocol.Offset.joystickX),
+                    y: telemetry.safeReportByte(SenseHIDProtocol.Offset.joystickY),
+                    isPressed: telemetry.buttonStates[.stickClick] ?? false
                 )
 
                 VStack(spacing: 8) {
                     StickAxisRow(
                         name: "X",
-                        value: appState.safeReportByte(SenseHIDProtocol.Offset.joystickX)
+                        value: telemetry.safeReportByte(SenseHIDProtocol.Offset.joystickX)
                     )
                     StickAxisRow(
                         name: "Y",
-                        value: appState.safeReportByte(SenseHIDProtocol.Offset.joystickY)
+                        value: telemetry.safeReportByte(SenseHIDProtocol.Offset.joystickY)
                     )
                 }
             }
@@ -716,7 +661,7 @@ private struct DebugStickSection: View {
                         .font(.system(size: 12, weight: .medium))
                     TouchIndicator(active: stickTouch)
                     Arrow()
-                    PressIndicator(active: appState.buttonStates[.stickClick] ?? false)
+                    PressIndicator(active: telemetry.buttonStates[.stickClick] ?? false)
                 }
             }
         }
@@ -729,7 +674,7 @@ private struct DebugStickSection: View {
 // MARK: - Raw Report Section
 
 private struct DebugRawReportSection: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let currentTime: Date
     let bytesPerRow: Int
     let totalBytes: Int
@@ -743,7 +688,7 @@ private struct DebugRawReportSection: View {
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("Length: \(appState.reportLength) bytes")
+                Text("Length: \(telemetry.reportLength) bytes")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -774,7 +719,7 @@ private struct DebugRawReportSection: View {
                             let i = row * bytesPerRow + col
                             if i < totalBytes {
                                 ByteCell(
-                                    value: appState.safeReportByte(i),
+                                    value: telemetry.safeReportByte(i),
                                     index: i,
                                     color: colorForByte(i, at: currentTime)
                                 )
@@ -799,8 +744,8 @@ private struct DebugRawReportSection: View {
     }
 
     private func colorForByte(_ index: Int, at currentTime: Date) -> Color {
-        guard index < appState.byteLastChanged.count else { return .red }
-        let lastChanged = appState.byteLastChanged[index]
+        guard index < telemetry.byteLastChanged.count else { return .red }
+        let lastChanged = telemetry.byteLastChanged[index]
         let elapsed = currentTime.timeIntervalSince(lastChanged)
         let progress = min(1.0, max(0.0, elapsed / decaySeconds))
         return Color(
@@ -814,7 +759,7 @@ private struct DebugRawReportSection: View {
 // MARK: - Joy-Con Quick Byte Rows
 
 private struct JoyConQuickRows: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
     let currentTime: Date
 
@@ -833,11 +778,11 @@ private struct JoyConQuickRows: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            JoyConRow(title: "Motion (hypothesis: bytes 36-47)", bytes: motionBytes, appState: appState, currentTime: currentTime)
-            JoyConRow(title: "Buttons (\(isLeft ? "Left: bytes 4-5" : "Right: bytes 3-4"))", bytes: buttonBytes, appState: appState, currentTime: currentTime)
-            JoyConRow(title: "Joystick (\(isLeft ? "Left: bytes 6-8" : "Right: bytes 9-11"))", bytes: joystickBytes, appState: appState, currentTime: currentTime)
-            JoyConRow(title: "Battery", bytes: batteryBytes, appState: appState, currentTime: currentTime)
-            JoyConButtonTester(appState: appState, isLeft: isLeft, currentTime: currentTime)
+            JoyConRow(title: "Motion (hypothesis: bytes 36-47)", bytes: motionBytes, telemetry: telemetry, currentTime: currentTime)
+            JoyConRow(title: "Buttons (\(isLeft ? "Left: bytes 4-5" : "Right: bytes 3-4"))", bytes: buttonBytes, telemetry: telemetry, currentTime: currentTime)
+            JoyConRow(title: "Joystick (\(isLeft ? "Left: bytes 6-8" : "Right: bytes 9-11"))", bytes: joystickBytes, telemetry: telemetry, currentTime: currentTime)
+            JoyConRow(title: "Battery", bytes: batteryBytes, telemetry: telemetry, currentTime: currentTime)
+            JoyConButtonTester(telemetry: telemetry, isLeft: isLeft, currentTime: currentTime)
         }
         .padding()
         .background(Color.secondary.opacity(0.03))
@@ -846,7 +791,7 @@ private struct JoyConQuickRows: View {
 }
 
 private struct JoyConButtonTester: View {
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
     let currentTime: Date
 
@@ -895,7 +840,7 @@ private struct JoyConButtonTester: View {
     }
 
     private func isPressed(_ entry: JoyConButtonEntry) -> Bool {
-        let value = appState.safeReportByte(entry.byte)
+        let value = telemetry.safeReportByte(entry.byte)
         return (value & entry.mask) != 0
     }
 
@@ -927,14 +872,14 @@ private struct JoyConButtonTester: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 if isLeft {
-                    Text(String(format: "Byte 4: 0x%02X (%@)", appState.safeReportByte(4), byteToBinary(appState.safeReportByte(4))))
+                    Text(String(format: "Byte 4: 0x%02X (%@)", telemetry.safeReportByte(4), byteToBinary(telemetry.safeReportByte(4))))
                         .font(.system(size: 11, design: .monospaced))
-                    Text(String(format: "Byte 5: 0x%02X (%@)", appState.safeReportByte(5), byteToBinary(appState.safeReportByte(5))))
+                    Text(String(format: "Byte 5: 0x%02X (%@)", telemetry.safeReportByte(5), byteToBinary(telemetry.safeReportByte(5))))
                         .font(.system(size: 11, design: .monospaced))
                 } else {
-                    Text(String(format: "Byte 3: 0x%02X (%@)", appState.safeReportByte(3), byteToBinary(appState.safeReportByte(3))))
+                    Text(String(format: "Byte 3: 0x%02X (%@)", telemetry.safeReportByte(3), byteToBinary(telemetry.safeReportByte(3))))
                         .font(.system(size: 11, design: .monospaced))
-                    Text(String(format: "Byte 4: 0x%02X (%@)", appState.safeReportByte(4), byteToBinary(appState.safeReportByte(4))))
+                    Text(String(format: "Byte 4: 0x%02X (%@)", telemetry.safeReportByte(4), byteToBinary(telemetry.safeReportByte(4))))
                         .font(.system(size: 11, design: .monospaced))
                 }
             }
@@ -958,7 +903,7 @@ private extension String {
 private struct JoyConRow: View {
     let title: String
     let bytes: [Int]
-    @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let currentTime: Date
 
     var body: some View {
@@ -969,7 +914,7 @@ private struct JoyConRow: View {
             HStack(spacing: 4) {
                 ForEach(bytes, id: \.self) { i in
                     ByteCell(
-                        value: appState.safeReportByte(i),
+                        value: telemetry.safeReportByte(i),
                         index: i,
                         color: colorForByte(i)
                     )
@@ -979,8 +924,8 @@ private struct JoyConRow: View {
     }
 
     private func colorForByte(_ index: Int) -> Color {
-        guard index < appState.byteLastChanged.count else { return .red }
-        let lastChanged = appState.byteLastChanged[index]
+        guard index < telemetry.byteLastChanged.count else { return .red }
+        let lastChanged = telemetry.byteLastChanged[index]
         let elapsed = currentTime.timeIntervalSince(lastChanged)
         let progress = min(1.0, max(0.0, elapsed / 5.0))
         return Color(
@@ -1205,6 +1150,7 @@ private extension Comparable {
 /// Multi-stage gyro pipeline visualization showing Raw → Remapped → Normalized
 struct GyroPipelineView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     @StateObject private var rangeTracker = GyroRangeTracker()
 
     var body: some View {
@@ -1226,9 +1172,9 @@ struct GyroPipelineView: View {
                 stageNumber: 1,
                 title: "Raw",
                 subtitle: "Direct from HID",
-                x: appState.rawGyroX,
-                y: appState.rawGyroY,
-                z: appState.rawGyroZ,
+                x: telemetry.rawGyroX,
+                y: telemetry.rawGyroY,
+                z: telemetry.rawGyroZ,
                 xLabel: "X",
                 yLabel: "Y",
                 zLabel: "Z",
@@ -1241,9 +1187,9 @@ struct GyroPipelineView: View {
                 stageNumber: 2,
                 title: "Remapped",
                 subtitle: appState.activeControllerKind == .joyCon ? "Joy-Con: X↔Y swapped" : "Sense: identity",
-                x: appState.remappedPitch,
-                y: appState.remappedYaw,
-                z: appState.remappedRoll,
+                x: telemetry.remappedPitch,
+                y: telemetry.remappedYaw,
+                z: telemetry.remappedRoll,
                 xLabel: "Pitch",
                 yLabel: "Yaw",
                 zLabel: "Roll",
@@ -1256,19 +1202,19 @@ struct GyroPipelineView: View {
                 stageNumber: 3,
                 title: "Normalized",
                 subtitle: "Degrees/second",
-                pitch: appState.normalizedPitch,
-                yaw: appState.normalizedYaw,
-                roll: appState.normalizedRoll
+                pitch: telemetry.normalizedPitch,
+                yaw: telemetry.normalizedYaw,
+                roll: telemetry.normalizedRoll
             )
         }
         .padding()
         .background(Color.secondary.opacity(0.03))
         .cornerRadius(8)
-        .onChange(of: appState.rawGyroX) { _, _ in
-            rangeTracker.update(x: appState.rawGyroX, y: appState.rawGyroY, z: appState.rawGyroZ)
+        .onChange(of: telemetry.rawGyroX) { _, _ in
+            rangeTracker.update(x: telemetry.rawGyroX, y: telemetry.rawGyroY, z: telemetry.rawGyroZ)
         }
-        .onChange(of: appState.rawGyroY) { _, _ in
-            rangeTracker.update(x: appState.rawGyroX, y: appState.rawGyroY, z: appState.rawGyroZ)
+        .onChange(of: telemetry.rawGyroY) { _, _ in
+            rangeTracker.update(x: telemetry.rawGyroX, y: telemetry.rawGyroY, z: telemetry.rawGyroZ)
         }
     }
 }
@@ -1547,6 +1493,7 @@ private struct NormalizedAxisRow: View {
 
 private struct MouseDebugView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let bytesPerRow: Int
     let totalBytes: Int
     let decaySeconds: Double
@@ -1572,6 +1519,7 @@ private struct MouseDebugView: View {
                 // Section 2: Raw HID Report
                 MouseRawReportSection(
                     appState: appState,
+                    telemetry: telemetry,
                     currentTime: currentTime,
                     bytesPerRow: bytesPerRow,
                     totalBytes: totalBytes,
@@ -1583,6 +1531,7 @@ private struct MouseDebugView: View {
                 // Section 3: Bit Inspector for button discovery
                 MouseBitInspectorSection(
                     appState: appState,
+                    telemetry: telemetry,
                     currentTime: currentTime
                 )
             }
@@ -1780,6 +1729,7 @@ private struct InterfaceByteGrid: View {
 
 private struct MouseRawReportSection: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let currentTime: Date
     let bytesPerRow: Int
     let totalBytes: Int
@@ -1793,7 +1743,7 @@ private struct MouseRawReportSection: View {
                     .fontWeight(.medium)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("Length: \(appState.reportLength) bytes")
+                Text("Length: \(telemetry.reportLength) bytes")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -1826,7 +1776,7 @@ private struct MouseRawReportSection: View {
                             let i = row * bytesPerRow + col
                             if i < totalBytes {
                                 ByteCell(
-                                    value: appState.safeReportByte(i),
+                                    value: telemetry.safeReportByte(i),
                                     index: i,
                                     color: colorForByte(i, at: currentTime)
                                 )
@@ -1851,8 +1801,8 @@ private struct MouseRawReportSection: View {
     }
 
     private func colorForByte(_ index: Int, at currentTime: Date) -> Color {
-        guard index < appState.byteLastChanged.count else { return .red }
-        let lastChanged = appState.byteLastChanged[index]
+        guard index < telemetry.byteLastChanged.count else { return .red }
+        let lastChanged = telemetry.byteLastChanged[index]
         let elapsed = currentTime.timeIntervalSince(lastChanged)
         let progress = min(1.0, max(0.0, elapsed / decaySeconds))
         return Color(
@@ -1867,6 +1817,7 @@ private struct MouseRawReportSection: View {
 
 private struct MouseBitInspectorSection: View {
     @ObservedObject var appState: AppState
+    @ObservedObject var telemetry: DebugTelemetryState
     let currentTime: Date
     @State private var selectedByte: Int = 0
 
@@ -1887,7 +1838,7 @@ private struct MouseBitInspectorSection: View {
             }
 
             // Show the selected byte value
-            let byteValue = appState.safeReportByte(selectedByte)
+            let byteValue = telemetry.safeReportByte(selectedByte)
             VStack(alignment: .leading, spacing: 8) {
                 Text(String(format: "Byte %d: 0x%02X (%@)", selectedByte, byteValue, byteToBinary(byteValue)))
                     .font(.system(size: 12, design: .monospaced))
@@ -1936,11 +1887,11 @@ private struct MouseBitInspectorSection: View {
     }
 
     private func bitLastChanged(byte: Int, bit: Int) -> Date {
-        guard byte < appState.bitLastChanged.count,
-              bit < appState.bitLastChanged[byte].count else {
+        guard byte < telemetry.bitLastChanged.count,
+              bit < telemetry.bitLastChanged[byte].count else {
             return .distantPast
         }
-        return appState.bitLastChanged[byte][bit]
+        return telemetry.bitLastChanged[byte][bit]
     }
 
     private func findLastChangedBit() -> (byte: Int, bit: Int, time: Date)? {
@@ -1948,9 +1899,9 @@ private struct MouseBitInspectorSection: View {
         var lastBit = 0
         var lastTime = Date.distantPast
 
-        for byteIdx in 0..<min(16, appState.bitLastChanged.count) {
+        for byteIdx in 0..<min(16, telemetry.bitLastChanged.count) {
             for bitIdx in 0..<8 {
-                let time = appState.bitLastChanged[byteIdx][bitIdx]
+                let time = telemetry.bitLastChanged[byteIdx][bitIdx]
                 if time > lastTime {
                     lastTime = time
                     lastByte = byteIdx

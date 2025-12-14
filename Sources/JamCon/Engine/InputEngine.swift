@@ -37,6 +37,16 @@ final class InputEngine {
         engineQueue.async(execute: work)
     }
 
+    @inline(__always)
+    private func assertOnEngineQueue(file: StaticString = #fileID, line: UInt = #line) {
+        assert(
+            DispatchQueue.getSpecific(key: engineQueueKey) != nil,
+            "InputEngine state must be accessed on engineQueue",
+            file: file,
+            line: line
+        )
+    }
+
     // MARK: - Managed Device State (Internal - not observable)
 
     private struct ManagedDeviceKey: Hashable {
@@ -156,6 +166,13 @@ final class InputEngine {
     private var radialMenuAnchor: CGPoint = .zero
     private var radialMenuAccumulator: CGPoint = .zero
 
+    // MARK: - Radial Menu UI Throttling
+
+    /// Target UI update rate for the radial menu overlay (keeps up with 120Hz displays).
+    private static let radialMenuUIUpdateInterval = DispatchTimeInterval.nanoseconds(8_333_333)  // ~120Hz
+    private var radialMenuPendingDelta: CGPoint = .zero
+    private var radialMenuUIUpdateTimer: DispatchSourceTimer?
+
     // MARK: - Radial Menu UI Callback
 
     /// Called when radial menu should show/hide - UI can observe this
@@ -258,6 +275,18 @@ final class InputEngine {
             guard isRunning else { return false }
             isRunning = false
 
+            if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
+                let owner = radialMenuOwner
+                stopRadialMenuUIUpdateTimer()
+                stopRadialMenuCursorTracking()
+                mouseMode.radialMenuButtonHeld = false
+                if owner?.kind != .mouse {
+                    mouseController.showCursor()
+                }
+                radialMenuOwner = nil
+                onRadialMenuHide?(nil)
+            }
+
             // Cancel all hold timers
             for device in senseDevices.values {
                 device.cancelHoldTimers()
@@ -272,7 +301,6 @@ final class InputEngine {
             senseDevices.removeAll(keepingCapacity: true)
             joyConDevices.removeAll(keepingCapacity: true)
             batteryLevels.removeAll(keepingCapacity: true)
-            radialMenuOwner = nil
 
             return true
         }
@@ -364,13 +392,24 @@ final class InputEngine {
             joyConController.deselectController()
             g502xController.deselectMouse()
 
+            if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
+                let owner = radialMenuOwner
+                stopRadialMenuUIUpdateTimer()
+                stopRadialMenuCursorTracking()
+                mouseMode.radialMenuButtonHeld = false
+                if owner?.kind != .mouse {
+                    mouseController.showCursor()
+                }
+                radialMenuOwner = nil
+                onRadialMenuHide?(nil)
+            }
+
             selectedMouseID = nil
             senseDevices.values.forEach { $0.cancelHoldTimers() }
             joyConDevices.values.forEach { $0.cancelHoldTimers() }
             senseDevices.removeAll(keepingCapacity: true)
             joyConDevices.removeAll(keepingCapacity: true)
             batteryLevels.removeAll(keepingCapacity: true)
-            radialMenuOwner = nil
 
             // Reset battery
             updateBatteryLevel(0)
@@ -557,6 +596,7 @@ final class InputEngine {
     private func cancelRadialMenuIfOwned(by owner: ManagedDeviceKey) {
         guard radialMenuOwner == owner else { return }
 
+        stopRadialMenuUIUpdateTimer(flush: true)
         if owner.kind == .mouse {
             stopRadialMenuCursorTracking()
             mouseMode.radialMenuButtonHeld = false
@@ -571,6 +611,7 @@ final class InputEngine {
     // MARK: - Sense Report Processing
 
     private func processSenseReport(_ report: SenseController.InputReport) {
+        assertOnEngineQueue()
         guard isRunning else { return }
 
         // Read settings ONCE at start of frame
@@ -657,6 +698,7 @@ final class InputEngine {
     // MARK: - Joy-Con Report Processing
 
     private func processJoyConReport(_ report: JoyConHIDController.InputReport) {
+        assertOnEngineQueue()
         guard isRunning else { return }
 
         // Read settings ONCE at start of frame
@@ -809,6 +851,7 @@ final class InputEngine {
 
         modeState.radialMenuButtonHeld = true
         radialMenuLock.withLock { radialMenuAccumulator = .zero }
+        radialMenuPendingDelta = .zero
 
         guard let position = currentCursorPositionQuartz() else { return }
         let config = settings.snapshot().radialMenuConfiguration
@@ -820,6 +863,8 @@ final class InputEngine {
 
         if pointerStyle == .systemCursor {
             startRadialMenuCursorTracking(anchor: position)
+        } else {
+            startRadialMenuUIUpdateTimer()
         }
     }
 
@@ -870,7 +915,8 @@ final class InputEngine {
                 radialMenuAccumulator.x += scaledDx
                 radialMenuAccumulator.y += scaledDy
             }
-            onRadialMenuUpdate?(CGPoint(x: dx, y: dy))
+            radialMenuPendingDelta.x += dx
+            radialMenuPendingDelta.y += dy
         }
     }
 
@@ -1086,6 +1132,7 @@ final class InputEngine {
             modeState.scrollButtonHeld = false
         case .radialMenu:
             guard radialMenuOwner == owner else { return }
+            stopRadialMenuUIUpdateTimer(flush: true)
             if owner.kind == .mouse {
                 stopRadialMenuCursorTracking()
             }
@@ -1237,6 +1284,7 @@ final class InputEngine {
     // MARK: - G502X Report Processing
 
     private func processG502XReport(_ report: G502XHIDController.InputReport) {
+        assertOnEngineQueue()
         guard isRunning else { return }
 
         // Read settings ONCE at start of frame
@@ -1309,7 +1357,7 @@ final class InputEngine {
         radialMenuCursorAnchor = anchor
 
         let timer = DispatchSource.makeTimerSource(queue: engineQueue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(16))  // ~60Hz
+        timer.schedule(deadline: .now(), repeating: Self.radialMenuUIUpdateInterval)  // ~120Hz
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             guard self.radialMenuOwner?.kind == .mouse, self.mouseMode.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
@@ -1332,6 +1380,39 @@ final class InputEngine {
         radialMenuCursorPollTimer?.cancel()
         radialMenuCursorPollTimer = nil
         radialMenuCursorAnchor = nil
+    }
+
+    private func startRadialMenuUIUpdateTimer() {
+        stopRadialMenuUIUpdateTimer()
+
+        let timer = DispatchSource.makeTimerSource(queue: engineQueue)
+        timer.schedule(deadline: .now(), repeating: Self.radialMenuUIUpdateInterval)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard let owner = self.radialMenuOwner, owner.kind != .mouse else { return }
+
+            let delta = self.radialMenuPendingDelta
+            guard delta != .zero else { return }
+            self.radialMenuPendingDelta = .zero
+            self.onRadialMenuUpdate?(delta)
+        }
+        timer.resume()
+        radialMenuUIUpdateTimer = timer
+    }
+
+    private func stopRadialMenuUIUpdateTimer(flush: Bool = false) {
+        if flush {
+            let delta = radialMenuPendingDelta
+            radialMenuPendingDelta = .zero
+            if delta != .zero {
+                onRadialMenuUpdate?(delta)
+            }
+        } else {
+            radialMenuPendingDelta = .zero
+        }
+
+        radialMenuUIUpdateTimer?.cancel()
+        radialMenuUIUpdateTimer = nil
     }
 
     private func currentCursorPositionQuartz() -> CGPoint? {

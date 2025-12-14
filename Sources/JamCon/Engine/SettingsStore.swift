@@ -375,6 +375,7 @@ final class SettingsStore: @unchecked Sendable {
     /// Update settings - called from main thread
     /// The block receives a mutable copy of settings
     func update(_ block: (inout InputSettings) -> Void) {
+        assert(Thread.isMainThread, "SettingsStore.update must be called from the main thread")
         lock.withLock {
             block(&_settings)
         }

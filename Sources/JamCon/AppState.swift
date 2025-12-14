@@ -317,53 +317,8 @@ final class AppState: ObservableObject {
     /// Whether debug polling is active
     @Published var debugPollingEnabled: Bool = false
 
-    /// Latest debug sample (updated by polling timer)
-    @Published var debugSample: DebugBuffer.Sample?
-
-    /// Debug statistics
-    @Published var debugStats: DebugBuffer.Stats = .init()
-
-    /// Byte change tracking for visualization
-    @Published var byteLastChanged: [Date] = []
-    @Published var bitLastChanged: [[Date]] = []
-
-    /// Report bytes for byte inspector
-    @Published var reportBytes: [UInt8] = []
-    @Published var reportLength: Int = 0
-
-    /// Button states for visualization
-    @Published var buttonStates: [LogicalButton: Bool] = [:]
-
-    /// Gyro Pipeline Stage 1: Raw (direct from HID)
-    @Published var rawGyroX: Int16 = 0
-    @Published var rawGyroY: Int16 = 0
-    @Published var rawGyroZ: Int16 = 0
-
-    /// Gyro Pipeline Stage 2: Remapped (semantic axes)
-    @Published var remappedPitch: Int16 = 0
-    @Published var remappedYaw: Int16 = 0
-    @Published var remappedRoll: Int16 = 0
-
-    /// Gyro Pipeline Stage 3: Normalized (degrees per second)
-    @Published var normalizedPitch: Double = 0
-    @Published var normalizedYaw: Double = 0
-    @Published var normalizedRoll: Double = 0
-
-    /// Accel values (raw)
-    @Published var lastAccelX: Int16 = 0
-    @Published var lastAccelY: Int16 = 0
-    @Published var lastAccelZ: Int16 = 0
-
-    // Legacy aliases for backwards compatibility
-    var lastGyroX: Int16 { rawGyroX }
-    var lastGyroY: Int16 { rawGyroY }
-    var lastGyroZ: Int16 { rawGyroZ }
-
-    /// Report count for stats
-    @Published var reportCount: Int = 0
-
-    /// Debug refresh trigger (for TimelineView)
-    @Published var debugRefreshTrigger: Int = 0
+    /// High-frequency debug telemetry (kept off AppState to avoid invalidating other UI).
+    let debugTelemetry = DebugTelemetryState()
 
     // MARK: - Log State
 
@@ -859,6 +814,7 @@ final class AppState: ObservableObject {
     func startDebugPolling(targetKind: ControllerKind?) {
         guard !debugPollingEnabled else { return }
         debugPollingEnabled = true
+        debugTelemetry.reset()
         debugBuffer.startRecording()
         settingsStore.update {
             $0.debugRecordingEnabled = true
@@ -878,6 +834,7 @@ final class AppState: ObservableObject {
 
     func stopDebugPolling() {
         debugPollingEnabled = false
+        debugTelemetry.reset()
         debugBuffer.stopRecording()
         settingsStore.update {
             $0.debugRecordingEnabled = false
@@ -890,55 +847,11 @@ final class AppState: ObservableObject {
 
     private func pollDebugData() {
         guard debugPollingEnabled else { return }
-
-        // Get latest sample
-        if let sample = debugBuffer.latest() {
-            debugSample = sample
-
-            // Update visualization properties
-            reportBytes = sample.reportBytes
-            reportLength = sample.reportLength
-
-            // Pipeline Stage 1: Raw
-            rawGyroX = sample.rawGyro.x
-            rawGyroY = sample.rawGyro.y
-            rawGyroZ = sample.rawGyro.z
-
-            // Pipeline Stage 2: Remapped
-            remappedPitch = sample.remappedGyro.pitch
-            remappedYaw = sample.remappedGyro.yaw
-            remappedRoll = sample.remappedGyro.roll
-
-            // Pipeline Stage 3: Normalized
-            normalizedPitch = sample.normalizedGyro.pitch
-            normalizedYaw = sample.normalizedGyro.yaw
-            normalizedRoll = sample.normalizedGyro.roll
-
-            // Accel (still raw)
-            lastAccelX = sample.accel.x
-            lastAccelY = sample.accel.y
-            lastAccelZ = sample.accel.z
-
-            // Update button states
-            var states: [LogicalButton: Bool] = [:]
-            for (index, button) in LogicalButton.allCases.enumerated() {
-                if index < sample.buttonStates.count {
-                    states[button] = sample.buttonStates[index]
-                }
-            }
-            buttonStates = states
-        }
-
-        // Get stats
-        debugStats = debugBuffer.stats()
-        reportCount = debugStats.reportCount
-
-        // Get byte/bit change tracking
-        byteLastChanged = debugBuffer.getByteLastChanged()
-        bitLastChanged = debugBuffer.getBitLastChanged()
-
-        // Trigger refresh
-        debugRefreshTrigger += 1
+        let sample = debugBuffer.latest()
+        let stats = debugBuffer.stats()
+        let byteLastChanged = debugBuffer.getByteLastChanged()
+        let bitLastChanged = debugBuffer.getBitLastChanged()
+        debugTelemetry.update(sample: sample, stats: stats, byteLastChanged: byteLastChanged, bitLastChanged: bitLastChanged)
     }
 
     private func updateG502XInterfaceDebugMode() {
@@ -1045,8 +958,9 @@ final class AppState: ObservableObject {
 
     /// Safe accessor for report bytes
     func safeReportByte(_ index: Int) -> UInt8 {
-        guard index >= 0 && index < reportBytes.count else { return 0 }
-        return reportBytes[index]
+        let bytes = debugTelemetry.reportBytes
+        guard index >= 0 && index < bytes.count else { return 0 }
+        return bytes[index]
     }
 
     /// Get G502X HID interface info for debug display

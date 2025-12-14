@@ -34,6 +34,7 @@
 		873DA01BD3693033C66A5F6D /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B36A459FBA46E6F2F8703 /* CrashReporter.swift */; };
 		884F425447A8F986FAD7724F /* RadialMenuTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE750046AA88415C1C5FBE /* RadialMenuTab.swift */; };
 		8A2833A40972CF2AC7D65E46 /* NoControllerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73BAA9918F9630E693743617 /* NoControllerView.swift */; };
+		8ACAEF38B79C6B0F3D003BEA /* DebugTelemetryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */; };
 		92894A806AEBA94A71016895 /* ActionExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF67332E3B8816F16D267A67 /* ActionExecutor.swift */; };
 		962DB302E1E26BD509CFF607 /* ByteInspectorViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E2C66CE3F326B6D45B21CF1 /* ByteInspectorViews.swift */; };
 		9C47593802C08DE3D79C395E /* SenseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C819904F3BF1FFCC0228A41 /* SenseController.swift */; };
@@ -103,6 +104,7 @@
 		CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		D04EB933AD21491B69DCFE64 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D920CEDAF995B8D68634D45C /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
+		DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTelemetryState.swift; sourceTree = "<group>"; };
 		EF67332E3B8816F16D267A67 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
 		FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -112,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */,
+				DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */,
 				0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */,
 				CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */,
 			);
@@ -314,6 +317,7 @@
 				873DA01BD3693033C66A5F6D /* CrashReporter.swift in Sources */,
 				BCA4AAFFC1F9FB3FE1367633 /* DebugBuffer.swift in Sources */,
 				7A5A8E822D6BE73E42ED1DA3 /* DebugTab.swift in Sources */,
+				8ACAEF38B79C6B0F3D003BEA /* DebugTelemetryState.swift in Sources */,
 				E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */,
 				3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */,
 				3AB975A63B80209AB6D81E21 /* G502XHIDProtocol.swift in Sources */,

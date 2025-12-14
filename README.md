@@ -184,6 +184,20 @@ JamCon/
 └── relaunch.sh                      # Quick relaunch script
 ```
 
+### Threading Model
+
+JamCon intentionally splits runtime work into two “worlds”:
+
+- **World 1 (Engine)**: `InputEngine` owns all real-time state and runs on a dedicated serial queue (`engineQueue`). Controller HID callbacks forward work onto this queue. The engine emits system input via CoreGraphics (`CGEvent`) and avoids AppKit on the hot path.
+- **World 2 (UI)**: `AppState` and SwiftUI views are `@MainActor`. UI code never receives HID callbacks directly.
+
+Bridges between worlds:
+
+- `SettingsStore`: lock-protected. UI writes via `update()` (main thread), engine reads via `snapshot()`.
+- `DebugBuffer`: lock-protected. Engine records optional telemetry; UI polls and publishes it separately (`DebugTelemetryState`) so high-frequency debug updates don’t invalidate non-debug UI.
+
+Rule of thumb: if you add new shared mutable state, keep it confined to `engineQueue` / `@MainActor`, or protect it with a lock and document the invariant.
+
 ### Building Manually
 
 ```bash
