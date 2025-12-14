@@ -29,6 +29,7 @@ struct DiscoveredController: Identifiable, Equatable {
 /// Minimal controller for PlayStation Sense Controller
 /// Reads raw HID reports and extracts gyro data
 class SenseController {
+    private static let deactivationRetentionSeconds: TimeInterval = 30.0
 
     // MARK: - Constants (use SenseHIDProtocol for shared constants)
 
@@ -39,20 +40,54 @@ class SenseController {
     // MARK: - Properties
 
     private var hidManager: IOHIDManager?
-    private var activeDevice: IOHIDDevice?
-    private var reportBuffer = [UInt8](repeating: 0, count: 256)
     private var hidRunLoop: CFRunLoop?
     private var hidThread: Thread?
     private let hidRunLoopReady = DispatchSemaphore(value: 0)
 
     // MARK: - Thread-safe state (read from UI / other threads)
 
+    private final class CallbackContext {
+        weak var owner: SenseController?
+        let controllerID: String
+
+        init(owner: SenseController, controllerID: String) {
+            self.owner = owner
+            self.controllerID = controllerID
+        }
+    }
+
+    private struct RetiredController {
+        let controller: ActiveController
+        let retiredAt: TimeInterval
+    }
+
+    private final class ActiveController {
+        let controller: DiscoveredController
+        let callbackContext: CallbackContext
+        let reportBuffer: UnsafeMutablePointer<UInt8>
+        let reportBufferLength: Int
+        var lastDeviceTimestamp: TimeInterval?
+        var lastDeviceTicks: UInt64?
+
+        init(controller: DiscoveredController, owner: SenseController) {
+            self.controller = controller
+            self.callbackContext = CallbackContext(owner: owner, controllerID: controller.id)
+            self.reportBufferLength = 256
+            self.reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportBufferLength)
+            self.reportBuffer.initialize(repeating: 0, count: reportBufferLength)
+        }
+
+        deinit {
+            reportBuffer.deinitialize(count: reportBufferLength)
+            reportBuffer.deallocate()
+        }
+    }
+
     private struct ControllerState {
         var discoveredControllers: [DiscoveredController] = []
-        var selectedControllerID: String?
-        var preferredControllerID: String?
-        var isConnected: Bool = false
-        var controllerName: String?
+        var managedControllerIDs: Set<String> = []
+        var activeControllers: [String: ActiveController] = [:]
+        var retiredControllers: [RetiredController] = []
     }
 
     private let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
@@ -62,16 +97,17 @@ class SenseController {
         stateLock.withLock { $0.discoveredControllers.map(\.info) }
     }
 
-    /// Currently selected controller ID (thread-safe).
-    var selectedControllerID: String? {
-        stateLock.withLock { $0.selectedControllerID }
+    /// Whether any managed controller is currently connected and active (thread-safe).
+    var isConnected: Bool {
+        stateLock.withLock { !$0.activeControllers.isEmpty }
     }
 
-    /// Preferred controller ID (persisted from last user selection).
-    /// Used to auto-select only previously selected controllers. (thread-safe)
-    var preferredControllerID: String? {
-        get { stateLock.withLock { $0.preferredControllerID } }
-        set { stateLock.withLock { $0.preferredControllerID = newValue } }
+    /// Name of the connected controller if exactly one is active; otherwise nil. (thread-safe)
+    var controllerName: String? {
+        stateLock.withLock { state in
+            guard state.activeControllers.count == 1, let active = state.activeControllers.values.first else { return nil }
+            return active.controller.name
+        }
     }
 
     /// Callback for gyro data (x, y, z in raw units, timestamp)
@@ -83,6 +119,7 @@ class SenseController {
                      _ timestamp: TimeInterval) -> Void)?
 
     struct InputReport {
+        let controllerID: String
         let bytes: [UInt8]
         let length: Int
         let gyroX: Int16
@@ -106,24 +143,10 @@ class SenseController {
     /// Callback for debug/status messages
     var onDebugMessage: ((_ message: String) -> Void)?
 
-    /// Whether a controller is currently connected and active (thread-safe).
-    var isConnected: Bool {
-        stateLock.withLock { $0.isConnected }
-    }
-
-    /// Name of the connected controller (thread-safe).
-    var controllerName: String? {
-        stateLock.withLock { $0.controllerName }
-    }
-
     // MARK: - Timestamped Value Handling
 
     /// Report ID for IMU input reports (vendor-defined usage)
     private static let imuReportID: UInt32 = SenseHIDProtocol.inputReportID
-    /// Cached last timestamp from device (seconds, monotonic)
-    private var lastDeviceTimestamp: TimeInterval?
-    /// Last raw device ticks to detect duplicates
-    private var lastDeviceTicks: UInt64?
     /// Timebase for converting mach absolute ticks to seconds (device timestamps)
     private let timebase: mach_timebase_info_data_t = {
         var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
@@ -135,11 +158,6 @@ class SenseController {
     private func ticksToSeconds(_ ticks: UInt64) -> TimeInterval {
         let nanos = (Double(ticks) * Double(timebase.numer)) / Double(timebase.denom)
         return nanos / 1_000_000_000.0
-    }
-
-    /// Last known gyro timestamp in seconds (device if available, else host time)
-    var lastGyroTimestamp: TimeInterval {
-        lastDeviceTimestamp ?? CACurrentMediaTime()
     }
 
     // MARK: - IMU Decoding
@@ -260,9 +278,13 @@ class SenseController {
 
         guard let runLoop = hidRunLoop else {
             // Fallback cleanup if the HID thread was never started
-            if let device = activeDevice {
-                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-                activeDevice = nil
+            let activeControllersSnapshot: [ActiveController] = stateLock.withLock { state in
+                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
+            }
+            for active in activeControllersSnapshot {
+                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
+                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
             if let manager = hidManager {
                 IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -270,9 +292,9 @@ class SenseController {
             }
             stateLock.withLock { state in
                 state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.selectedControllerID = nil
-                state.isConnected = false
-                state.controllerName = nil
+                state.managedControllerIDs.removeAll(keepingCapacity: true)
+                state.activeControllers.removeAll(keepingCapacity: true)
+                state.retiredControllers.removeAll(keepingCapacity: true)
             }
             return
         }
@@ -280,10 +302,13 @@ class SenseController {
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self else { return }
 
-            if let device = self.activeDevice {
-                IOHIDDeviceRegisterInputReportCallback(device, &self.reportBuffer, self.reportBuffer.count, nil, nil)
-                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-                self.activeDevice = nil
+            let activeControllersSnapshot: [ActiveController] = self.stateLock.withLock { state in
+                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
+            }
+            for active in activeControllersSnapshot {
+                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
+                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
 
             if let manager = self.hidManager {
@@ -294,9 +319,9 @@ class SenseController {
 
             self.stateLock.withLock { state in
                 state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.selectedControllerID = nil
-                state.isConnected = false
-                state.controllerName = nil
+                state.managedControllerIDs.removeAll(keepingCapacity: true)
+                state.activeControllers.removeAll(keepingCapacity: true)
+                state.retiredControllers.removeAll(keepingCapacity: true)
             }
 
             CFRunLoopStop(runLoop)
@@ -310,32 +335,47 @@ class SenseController {
 
     /// Select a controller by ID
     func selectController(id: String) {
-        guard let controller = stateLock.withLock({ state in
-            state.discoveredControllers.first(where: { $0.id == id })
-        }) else {
-            log("Controller \(id) not found")
-            return
-        }
-
-        // Deactivate current controller if different
-        if let currentID = selectedControllerID, currentID != id {
-            deactivateCurrentController()
-        }
-
-        // Activate the new controller
-        activateController(controller)
+        setControllerManaged(id: id, managed: true)
     }
 
-    /// Deselect the current controller (stop receiving input)
+    /// Deselect all controllers (stop receiving input).
     func deselectController() {
-        stateLock.withLock { state in
-            state.selectedControllerID = nil
-            state.preferredControllerID = nil
+        let activeIDs = stateLock.withLock { state in
+            state.managedControllerIDs.removeAll(keepingCapacity: true)
+            return Array(state.activeControllers.keys)
         }
-        deactivateCurrentController()
+        for id in activeIDs {
+            deactivateController(id: id)
+        }
+    }
+
+    /// Enable/disable processing for a specific physical controller ID.
+    func setControllerManaged(id: String, managed: Bool) {
+        if managed {
+            let controller: DiscoveredController? = stateLock.withLock { state in
+                state.managedControllerIDs.insert(id)
+                return state.discoveredControllers.first(where: { $0.id == id })
+            }
+            guard let controller else {
+                // Not discovered yet; it'll auto-activate when it appears.
+                return
+            }
+            activateController(controller)
+        } else {
+            stateLock.withLock { state in
+                _ = state.managedControllerIDs.remove(id)
+            }
+            deactivateController(id: id)
+        }
     }
 
     private func activateController(_ controller: DiscoveredController) {
+        let controllerID = controller.id
+        let needsActivation: Bool = stateLock.withLock { state in
+            state.activeControllers[controllerID] == nil
+        }
+        guard needsActivation else { return }
+
         let device = controller.device
 
         // Open the device with exclusive access (prevents macOS Game Controller from seeing inputs)
@@ -345,23 +385,26 @@ class SenseController {
             return
         }
 
-        self.activeDevice = device
+        let active = ActiveController(controller: controller, owner: self)
         stateLock.withLock { state in
-            state.selectedControllerID = controller.id
-            state.controllerName = "\(controller.name) (\(controller.side))"
-            state.isConnected = true
+            state.activeControllers[controllerID] = active
         }
 
         // Register input report callback
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        let context = Unmanaged.passUnretained(active.callbackContext).toOpaque()
         IOHIDDeviceRegisterInputReportCallback(
             device,
-            &reportBuffer,
-            reportBuffer.count,
-            { context, result, sender, type, reportID, report, length in
-                guard let ctx = context else { return }
-                let sense = Unmanaged<SenseController>.fromOpaque(ctx).takeUnretainedValue()
-                sense.handleInputReport(report: report, length: length, reportID: reportID)
+            active.reportBuffer,
+            active.reportBufferLength,
+            { context, _, _, _, reportID, report, length in
+                guard let context else { return }
+                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+                callbackContext.owner?.handleInputReport(
+                    controllerID: callbackContext.controllerID,
+                    report: report,
+                    length: length,
+                    reportID: reportID
+                )
             },
             context
         )
@@ -369,40 +412,37 @@ class SenseController {
         // Register value callback to get device timestamps for IMU reports
         IOHIDDeviceRegisterInputValueCallback(
             device,
-            { context, result, sender, value in
-                guard let ctx = context else { return }
-                let sense = Unmanaged<SenseController>.fromOpaque(ctx).takeUnretainedValue()
-                sense.handleInputValue(value)
+            { context, _, _, value in
+                guard let context else { return }
+                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+                callbackContext.owner?.handleInputValue(controllerID: callbackContext.controllerID, value)
             },
             context
         )
 
-        log("Activated: \(controllerName ?? "Unknown")")
+        let displayName = "\(controller.name) (\(controller.side))"
+        log("Activated: \(displayName)")
 
-        // Capture values before dispatching to avoid data races
-        let (name, controllerID) = stateLock.withLock { state in
-            (state.controllerName, state.selectedControllerID)
-        }
         DispatchQueue.main.async {
-            self.onConnectionChange?(true, name, controllerID)
+            self.onConnectionChange?(true, displayName, controller.id)
         }
     }
 
-    private func deactivateCurrentController() {
-        if let device = activeDevice {
-            IOHIDDeviceRegisterInputReportCallback(device, &reportBuffer, reportBuffer.count, nil, nil)
+    private func deactivateController(id: String) {
+        let now = CACurrentMediaTime()
+        let active: ActiveController? = stateLock.withLock { state in
+            guard let active = state.activeControllers.removeValue(forKey: id) else { return nil }
+            state.retiredControllers.append(RetiredController(controller: active, retiredAt: now))
+            state.retiredControllers.removeAll(where: { now - $0.retiredAt > Self.deactivationRetentionSeconds })
+            return active
         }
-        activeDevice = nil
-        let (name, controllerID) = stateLock.withLock { state in
-            state.isConnected = false
-            let name = state.controllerName
-            let controllerID = state.selectedControllerID
-            state.controllerName = nil
-            return (name, controllerID)
-        }
+        guard let active else { return }
 
+        IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+        IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
+        let displayName = "\(active.controller.name) (\(active.controller.side))"
         DispatchQueue.main.async {
-            self.onConnectionChange?(false, name, controllerID)
+            self.onConnectionChange?(false, displayName, active.controller.id)
         }
     }
 
@@ -462,12 +502,11 @@ class SenseController {
             self.onControllersChanged?()
         }
 
-        // Only auto-select if this controller was previously selected by user
-        // (matches saved preference) or is reconnecting current session's selection
-        let shouldAutoSelect = stateLock.withLock { state in
-            state.selectedControllerID == uniqueID || (state.selectedControllerID == nil && state.preferredControllerID == uniqueID)
+        // Auto-activate if this controller is currently managed.
+        let shouldAutoActivate = stateLock.withLock { state in
+            state.managedControllerIDs.contains(uniqueID)
         }
-        if shouldAutoSelect {
+        if shouldAutoActivate {
             activateController(controller)
         }
     }
@@ -483,24 +522,21 @@ class SenseController {
         if let controller = disconnected {
             log("Sense \(controller.side) Controller disconnected")
 
+            // If this was active, deactivate first to ensure callbacks are unregistered.
+            deactivateController(id: controller.id)
+
             // Close the seized device to release exclusive access
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
 
             DispatchQueue.main.async {
                 self.onControllersChanged?()
             }
-
-            // If this was the active controller, deactivate
-            if controller.id == selectedControllerID {
-                deactivateCurrentController()
-                // Don't auto-select another - user must manually select
-            }
         }
     }
 
     // MARK: - Input Report Processing
 
-    private func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
+    private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         // Only process main input reports
         guard reportID == SenseHIDProtocol.inputReportID,
               length >= SenseHIDProtocol.minimumReportLength else { return }
@@ -533,7 +569,9 @@ class SenseController {
         }
 
         // Call the gyro callback (on the HID thread for low latency) using device timestamp if available
-        let effectiveTimestamp = lastDeviceTimestamp ?? timestamp
+        let effectiveTimestamp = stateLock.withLock { state in
+            state.activeControllers[controllerID]?.lastDeviceTimestamp ?? timestamp
+        }
         if let onGyroData {
             onGyroData(gyroX, gyroY, gyroZ, effectiveTimestamp)
         }
@@ -544,13 +582,14 @@ class SenseController {
         }
 
         // Snapshot report bytes so consumers never observe a live IOHID callback buffer.
-        let maxLength = min(SenseHIDProtocol.reportLength, min(length, reportBuffer.count))
+        let maxLength = min(SenseHIDProtocol.reportLength, length)
         var bytes = [UInt8](repeating: 0, count: maxLength)
         for i in 0..<maxLength { bytes[i] = report[i] }
 
         if let onReportData {
             onReportData(
                 InputReport(
+                    controllerID: controllerID,
                     bytes: bytes,
                     length: maxLength,
                     gyroX: gyroX,
@@ -566,7 +605,7 @@ class SenseController {
     }
 
     /// Handle input values to capture device timestamps for IMU reports
-    private func handleInputValue(_ value: IOHIDValue) {
+    private func handleInputValue(controllerID: String, _ value: IOHIDValue) {
         let element = IOHIDValueGetElement(value)
         let reportID = IOHIDElementGetReportID(element)
 
@@ -575,15 +614,16 @@ class SenseController {
 
         // Convert kernel tick to seconds
         let ts = IOHIDValueGetTimeStamp(value)
-        // Avoid duplicate timestamps; fall back to host if they repeat
-        if let lastTicks = lastDeviceTicks, lastTicks == ts {
-            lastDeviceTimestamp = nil
-            return
+        stateLock.withLock { state in
+            guard let active = state.activeControllers[controllerID] else { return }
+            // Avoid duplicate timestamps; fall back to host if they repeat
+            if let lastTicks = active.lastDeviceTicks, lastTicks == ts {
+                active.lastDeviceTimestamp = nil
+                return
+            }
+            active.lastDeviceTicks = ts
+            active.lastDeviceTimestamp = ticksToSeconds(ts)
         }
-        lastDeviceTicks = ts
-        if (lastDeviceTicks ?? 0) == ts { lastDeviceTimestamp = nil; return }
-        lastDeviceTicks = ts
-        lastDeviceTimestamp = ticksToSeconds(ts)
     }
 
     // MARK: - Output Reports (EXPERIMENTAL - based on DualSense/Sense protocol)
@@ -595,25 +635,31 @@ class SenseController {
     /// Returns true if the report was sent successfully
     @discardableResult
     func sendOutputReport(_ data: [UInt8], reportID: UInt8 = SenseHIDProtocol.OutputReport.reportID) -> Bool {
-        guard let device = activeDevice else {
-            log("Cannot send output: no active device")
+        let devices: [IOHIDDevice] = stateLock.withLock { state in
+            state.activeControllers.values.map { $0.controller.device }
+        }
+        guard !devices.isEmpty else {
+            log("Cannot send output: no active devices")
             return false
         }
 
-        var reportData = data
-        let result = IOHIDDeviceSetReport(
-            device,
-            kIOHIDReportTypeOutput,
-            CFIndex(reportID),
-            &reportData,
-            reportData.count
-        )
+        var didSucceed = true
+        for device in devices {
+            var reportData = data
+            let result = IOHIDDeviceSetReport(
+                device,
+                kIOHIDReportTypeOutput,
+                CFIndex(reportID),
+                &reportData,
+                reportData.count
+            )
 
-        if result != kIOReturnSuccess {
-            log("Output report failed: \(result)")
-            return false
+            if result != kIOReturnSuccess {
+                didSucceed = false
+                log("Output report failed: \(result)")
+            }
         }
-        return true
+        return didSucceed
     }
 
     /// Build a DualSense-style Bluetooth output report

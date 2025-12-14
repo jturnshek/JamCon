@@ -693,10 +693,11 @@ final class AppState: ObservableObject {
     func setDeviceManaged(_ controller: ControllerInfo, managed: Bool) {
         var updated = managedDeviceKeys
         if managed {
-            // Current engine/HID drivers select one device per kind.
-            // Enforce that in the UI so the "managed" state matches reality.
-            let prefix = "\(controller.kind.rawValue):"
-            updated = Set(updated.filter { !$0.hasPrefix(prefix) })
+            // The G502X path currently supports one managed mouse at a time.
+            if controller.kind == .mouse {
+                let prefix = "\(controller.kind.rawValue):"
+                updated = Set(updated.filter { !$0.hasPrefix(prefix) })
+            }
             updated.insert(controller.managementKey)
         } else {
             updated.remove(controller.managementKey)

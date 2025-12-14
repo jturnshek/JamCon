@@ -18,8 +18,6 @@ final class InputEngine {
     let joyConController: JoyConHIDController
     let g502xController: G502XHIDController
     private let mouseController: MouseController
-    private let senseGyroProcessor: GyroProcessor
-    private let joyConGyroProcessor: GyroProcessor
     private let actionExecutor: ActionExecutor
 
     // MARK: - Threading
@@ -39,30 +37,19 @@ final class InputEngine {
         engineQueue.async(execute: work)
     }
 
-    // MARK: - Button State (Internal - not observable)
+    // MARK: - Managed Device State (Internal - not observable)
 
-    private var buttonStates: [Bool]
-    private var previousButtonStates: [Bool]
-    private var previousTriggerPressed: Bool = false
+    private struct ManagedDeviceKey: Hashable {
+        let kind: ControllerKind
+        let id: String
+    }
 
-    // Hold detection
+    // Hold detection (per button, per device)
     private struct ButtonPressState {
         let pressTime: Date
         let actions: ButtonActions
         var holdFired: Bool = false
     }
-    private var buttonPressStates: [ButtonPressState?]
-    private var holdTimers: [DispatchWorkItem?]
-
-    // MARK: - Device Selection (managed)
-
-    private var selectedSenseID: String?
-    private var selectedSenseProfile: ControllerProfile?
-    private var selectedJoyConID: String?
-    private var selectedJoyConProfile: ControllerProfile?
-    private var selectedMouseID: String?
-
-    // MARK: - Gyro Mode Tracking (per kind)
 
     private struct GyroModeState {
         var dragButtonHeld: Bool = false
@@ -70,23 +57,85 @@ final class InputEngine {
         var radialMenuButtonHeld: Bool = false
     }
 
-    private var senseMode = GyroModeState()
-    private var joyConMode = GyroModeState()
     private var mouseMode = GyroModeState()
 
-    private var radialMenuOwnerKind: ControllerKind?
+    private final class SenseDeviceState {
+        let id: String
+        let profile: ControllerProfile
+        var mode = GyroModeState()
+        let gyroProcessor = GyroProcessor()
+
+        var buttonStates: [Bool]
+        var previousButtonStates: [Bool]
+        var previousTriggerPressed: Bool = false
+        var buttonPressStates: [ButtonPressState?]
+        var holdTimers: [DispatchWorkItem?]
+
+        init(id: String, profile: ControllerProfile) {
+            self.id = id
+            self.profile = profile
+
+            let count = LogicalButton.allCases.count
+            self.buttonStates = Array(repeating: false, count: count)
+            self.previousButtonStates = Array(repeating: false, count: count)
+            self.buttonPressStates = Array(repeating: nil, count: count)
+            self.holdTimers = Array(repeating: nil, count: count)
+        }
+
+        func cancelHoldTimers() {
+            for timer in holdTimers {
+                timer?.cancel()
+            }
+            for i in holdTimers.indices {
+                holdTimers[i] = nil
+            }
+        }
+    }
+
+    private final class JoyConDeviceState {
+        let id: String
+        let profile: ControllerProfile
+        var mode = GyroModeState()
+        let gyroProcessor = GyroProcessor()
+
+        var mapping: JoyConButtonMapping
+        var buttonStates: [Bool]
+        var previousButtonStates: [Bool]
+        var buttonPressStates: [ButtonPressState?]
+        var holdTimers: [DispatchWorkItem?]
+
+        init(id: String, profile: ControllerProfile) {
+            self.id = id
+            self.profile = profile
+            self.mapping = JoyConButtonMapping(isLeft: profile.isLeft)
+
+            let count = JoyConLogicalButton.count
+            self.buttonStates = Array(repeating: false, count: count)
+            self.previousButtonStates = Array(repeating: false, count: count)
+            self.buttonPressStates = Array(repeating: nil, count: count)
+            self.holdTimers = Array(repeating: nil, count: count)
+        }
+
+        func cancelHoldTimers() {
+            for timer in holdTimers {
+                timer?.cancel()
+            }
+            for i in holdTimers.indices {
+                holdTimers[i] = nil
+            }
+        }
+    }
+
+    private var senseDevices: [String: SenseDeviceState] = [:]      // controllerID -> state
+    private var joyConDevices: [String: JoyConDeviceState] = [:]    // controllerID -> state
+    private var selectedMouseID: String?
+
+    private var batteryLevels: [ManagedDeviceKey: Int] = [:]
+    private var radialMenuOwner: ManagedDeviceKey?
 
     // Cached button mappings (avoid allocation on hot path)
     private let leftMapping = SenseButtonMapping(isLeft: true)
     private let rightMapping = SenseButtonMapping(isLeft: false)
-
-    // Joy-Con button state
-    private var joyConButtonStates: [Bool]
-    private var joyConPreviousButtonStates: [Bool]
-    private var joyConButtonPressStates: [ButtonPressState?]
-    private var joyConHoldTimers: [DispatchWorkItem?]
-    private var joyConLeftMapping = JoyConButtonMapping(isLeft: true)
-    private var joyConRightMapping = JoyConButtonMapping(isLeft: false)
 
     // G502X button state
     private var g502xButtonStates: [Bool]
@@ -145,6 +194,22 @@ final class InputEngine {
         }
     }
 
+    private func setBatteryLevel(_ level: Int, for device: ManagedDeviceKey) {
+        batteryLevels[device] = level
+        updateBatteryFromLevels()
+    }
+
+    private func clearBatteryLevel(for device: ManagedDeviceKey) {
+        if batteryLevels.removeValue(forKey: device) != nil {
+            updateBatteryFromLevels()
+        }
+    }
+
+    private func updateBatteryFromLevels() {
+        let aggregate = batteryLevels.values.min() ?? 0
+        updateBatteryLevel(aggregate)
+    }
+
     // MARK: - Running State
 
     private var isRunning: Bool = false
@@ -161,23 +226,7 @@ final class InputEngine {
         self.joyConController = JoyConHIDController()
         self.g502xController = G502XHIDController()
         self.mouseController = MouseController()
-        self.senseGyroProcessor = GyroProcessor()
-        self.joyConGyroProcessor = GyroProcessor()
         self.actionExecutor = ActionExecutor(mouseController: mouseController)
-
-        // Initialize Sense button state arrays
-        let buttonCount = LogicalButton.allCases.count
-        self.buttonStates = Array(repeating: false, count: buttonCount)
-        self.previousButtonStates = Array(repeating: false, count: buttonCount)
-        self.buttonPressStates = Array(repeating: nil, count: buttonCount)
-        self.holdTimers = Array(repeating: nil, count: buttonCount)
-
-        // Initialize Joy-Con button state arrays
-        let joyConButtonCount = JoyConLogicalButton.count
-        self.joyConButtonStates = Array(repeating: false, count: joyConButtonCount)
-        self.joyConPreviousButtonStates = Array(repeating: false, count: joyConButtonCount)
-        self.joyConButtonPressStates = Array(repeating: nil, count: joyConButtonCount)
-        self.joyConHoldTimers = Array(repeating: nil, count: joyConButtonCount)
 
         // Initialize G502X button state arrays
         let g502xButtonCount = G502XLogicalButton.count
@@ -210,15 +259,21 @@ final class InputEngine {
             isRunning = false
 
             // Cancel all hold timers
-            for timer in holdTimers {
-                timer?.cancel()
+            for device in senseDevices.values {
+                device.cancelHoldTimers()
             }
-            for timer in joyConHoldTimers {
-                timer?.cancel()
+            for device in joyConDevices.values {
+                device.cancelHoldTimers()
             }
             for timer in g502xHoldTimers {
                 timer?.cancel()
             }
+
+            senseDevices.removeAll(keepingCapacity: true)
+            joyConDevices.removeAll(keepingCapacity: true)
+            batteryLevels.removeAll(keepingCapacity: true)
+            radialMenuOwner = nil
+
             return true
         }
         guard shouldStop else { return }
@@ -231,44 +286,33 @@ final class InputEngine {
     // MARK: - Controller Selection
 
     /// Enable/disable processing for a specific physical device.
-    /// Selection is per-kind (Sense, Joy-Con, G502X).
     func setDeviceManaged(id: String, kind: ControllerKind, isLeft: Bool, managed: Bool) {
         engineQueueSync {
             switch kind {
             case .sense:
+                let profile = ControllerProfile(kind: .sense, isLeft: isLeft)
                 if managed {
-                    let profile = ControllerProfile(kind: .sense, isLeft: isLeft)
-                    if selectedSenseID == id,
-                       selectedSenseProfile == profile,
-                       senseController.selectedControllerID == id,
-                       senseController.isConnected {
-                        return
+                    if senseDevices[id]?.profile != profile {
+                        senseDevices[id]?.cancelHoldTimers()
+                        senseDevices[id] = SenseDeviceState(id: id, profile: profile)
                     }
-                    selectedSenseID = id
-                    selectedSenseProfile = profile
-                    senseController.selectController(id: id)
-                } else if senseController.selectedControllerID == id {
-                    selectedSenseID = nil
-                    selectedSenseProfile = nil
-                    senseController.deselectController()
+                    senseController.setControllerManaged(id: id, managed: true)
+                } else {
+                    senseController.setControllerManaged(id: id, managed: false)
+                    removeSenseDevice(id: id)
                 }
 
             case .joyCon:
+                let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
                 if managed {
-                    let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
-                    if selectedJoyConID == id,
-                       selectedJoyConProfile == profile,
-                       joyConController.selectedControllerID == id,
-                       joyConController.isConnected {
-                        return
+                    if joyConDevices[id]?.profile != profile {
+                        joyConDevices[id]?.cancelHoldTimers()
+                        joyConDevices[id] = JoyConDeviceState(id: id, profile: profile)
                     }
-                    selectedJoyConID = id
-                    selectedJoyConProfile = profile
-                    joyConController.selectController(id: id)
-                } else if joyConController.selectedControllerID == id {
-                    selectedJoyConID = nil
-                    selectedJoyConProfile = nil
-                    joyConController.deselectController()
+                    joyConController.setControllerManaged(id: id, managed: true)
+                } else {
+                    joyConController.setControllerManaged(id: id, managed: false)
+                    removeJoyConDevice(id: id)
                 }
 
             case .mouse:
@@ -290,6 +334,24 @@ final class InputEngine {
         }
     }
 
+    private func removeSenseDevice(id: String) {
+        let key = ManagedDeviceKey(kind: .sense, id: id)
+        if let device = senseDevices.removeValue(forKey: id) {
+            device.cancelHoldTimers()
+        }
+        clearBatteryLevel(for: key)
+        cancelRadialMenuIfOwned(by: key)
+    }
+
+    private func removeJoyConDevice(id: String) {
+        let key = ManagedDeviceKey(kind: .joyCon, id: id)
+        if let device = joyConDevices.removeValue(forKey: id) {
+            device.cancelHoldTimers()
+        }
+        clearBatteryLevel(for: key)
+        cancelRadialMenuIfOwned(by: key)
+    }
+
     func selectController(id: String, kind: ControllerKind, isLeft: Bool) {
         settings.update { $0.activeProfile = ControllerProfile(kind: kind, isLeft: isLeft) }
         setDeviceManaged(id: id, kind: kind, isLeft: isLeft, managed: true)
@@ -302,11 +364,13 @@ final class InputEngine {
             joyConController.deselectController()
             g502xController.deselectMouse()
 
-            selectedSenseID = nil
-            selectedSenseProfile = nil
-            selectedJoyConID = nil
-            selectedJoyConProfile = nil
             selectedMouseID = nil
+            senseDevices.values.forEach { $0.cancelHoldTimers() }
+            joyConDevices.values.forEach { $0.cancelHoldTimers() }
+            senseDevices.removeAll(keepingCapacity: true)
+            joyConDevices.removeAll(keepingCapacity: true)
+            batteryLevels.removeAll(keepingCapacity: true)
+            radialMenuOwner = nil
 
             // Reset battery
             updateBatteryLevel(0)
@@ -325,35 +389,15 @@ final class InputEngine {
         senseController.isConnected || joyConController.isConnected || g502xController.isConnected
     }
 
-    /// Current controller name
-    var connectedControllerName: String? {
-        if senseController.isConnected {
-            return senseController.controllerName
-        } else if joyConController.isConnected {
-            return joyConController.controllerName
-        } else if g502xController.isConnected {
-            return g502xController.mouseName
-        }
-        return nil
-    }
-
-    /// Current selected controller ID
-    var selectedControllerID: String? {
-        if senseController.isConnected {
-            return senseController.selectedControllerID
-        } else if joyConController.isConnected {
-            return joyConController.selectedControllerID
-        } else if g502xController.isConnected {
-            return g502xController.selectedMouseID
-        }
-        return nil
-    }
-
     /// Recalibrate the gyro
     func recalibrate() {
         engineQueueSync {
-            senseGyroProcessor.reset()
-            joyConGyroProcessor.reset()
+            for device in senseDevices.values {
+                device.gyroProcessor.reset()
+            }
+            for device in joyConDevices.values {
+                device.gyroProcessor.reset()
+            }
         }
     }
 
@@ -367,9 +411,20 @@ final class InputEngine {
             }
         }
 
-        senseController.onConnectionChange = { [weak self] connected, name, _ in
+        senseController.onConnectionChange = { [weak self] connected, name, controllerID in
             self?.engineQueueAsync { [weak self] in
-                self?.onConnectionChanged?(connected, name, .sense)
+                guard let self else { return }
+                if let id = controllerID {
+                    let key = ManagedDeviceKey(kind: .sense, id: id)
+                    if let device = self.senseDevices[id] {
+                        self.resetSenseTransientState(device)
+                    }
+                    if !connected {
+                        self.clearBatteryLevel(for: key)
+                        self.cancelRadialMenuIfOwned(by: key)
+                    }
+                }
+                self.onConnectionChanged?(connected, name, .sense)
             }
         }
 
@@ -394,16 +449,17 @@ final class InputEngine {
             self?.engineQueueAsync { [weak self] in
                 guard let self else { return }
 
-                // Reset stick calibration on reconnect so we capture the new rest position
-                if connected {
-                    // Determine which side based on the controller that just connected
-                    if let productID = self.joyConController.productID(forControllerID: controllerID) {
-                        let isLeft = productID == JoyConHIDProtocol.leftProductID
-                        if isLeft {
-                            self.joyConLeftMapping.calibration.reset()
-                        } else {
-                            self.joyConRightMapping.calibration.reset()
+                if let id = controllerID {
+                    let key = ManagedDeviceKey(kind: .joyCon, id: id)
+                    if let device = self.joyConDevices[id] {
+                        self.resetJoyConTransientState(device)
+                        if connected {
+                            device.mapping.calibration.reset()
                         }
+                    }
+                    if !connected {
+                        self.clearBatteryLevel(for: key)
+                        self.cancelRadialMenuIfOwned(by: key)
                     }
                 }
 
@@ -447,6 +503,71 @@ final class InputEngine {
         }
     }
 
+    private func resetSenseTransientState(_ device: SenseDeviceState) {
+        for idx in device.holdTimers.indices {
+            device.holdTimers[idx]?.cancel()
+            device.holdTimers[idx] = nil
+
+            guard let pressState = device.buttonPressStates[idx] else { continue }
+
+            if case .mouseClick = pressState.actions.press {
+                actionExecutor.execute(pressState.actions.press, isPressed: false)
+            }
+            if pressState.holdFired {
+                actionExecutor.execute(pressState.actions.hold, isPressed: false)
+            }
+
+            device.buttonPressStates[idx] = nil
+        }
+
+        device.previousTriggerPressed = false
+        for idx in device.buttonStates.indices {
+            device.buttonStates[idx] = false
+            device.previousButtonStates[idx] = false
+        }
+        device.mode = GyroModeState()
+        device.gyroProcessor.reset()
+    }
+
+    private func resetJoyConTransientState(_ device: JoyConDeviceState) {
+        for idx in device.holdTimers.indices {
+            device.holdTimers[idx]?.cancel()
+            device.holdTimers[idx] = nil
+
+            guard let pressState = device.buttonPressStates[idx] else { continue }
+
+            if case .mouseClick = pressState.actions.press {
+                actionExecutor.execute(pressState.actions.press, isPressed: false)
+            }
+            if pressState.holdFired {
+                actionExecutor.execute(pressState.actions.hold, isPressed: false)
+            }
+
+            device.buttonPressStates[idx] = nil
+        }
+
+        for idx in device.buttonStates.indices {
+            device.buttonStates[idx] = false
+            device.previousButtonStates[idx] = false
+        }
+        device.mode = GyroModeState()
+        device.gyroProcessor.reset()
+    }
+
+    private func cancelRadialMenuIfOwned(by owner: ManagedDeviceKey) {
+        guard radialMenuOwner == owner else { return }
+
+        if owner.kind == .mouse {
+            stopRadialMenuCursorTracking()
+            mouseMode.radialMenuButtonHeld = false
+        } else {
+            mouseController.showCursor()
+        }
+
+        radialMenuOwner = nil
+        onRadialMenuHide?(nil)
+    }
+
     // MARK: - Sense Report Processing
 
     private func processSenseReport(_ report: SenseController.InputReport) {
@@ -457,14 +578,18 @@ final class InputEngine {
 
         guard s.isEnabled else { return }
 
-        guard let profile = selectedSenseProfile else { return }
+        guard let device = senseDevices[report.controllerID] else { return }
+        let profile = device.profile
+        let owner = ManagedDeviceKey(kind: .sense, id: device.id)
 
         let mapping = profile.isLeft ? leftMapping : rightMapping
         let buttonProfile = s.senseButtonMappings[profile] ?? .load(for: profile)
         let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
         // 1. Process buttons (updates internal state, fires actions)
-        processButtonActions(
+        processSenseButtonActions(
+            owner: owner,
+            device: device,
             bytes: report.bytes,
             mapping: mapping,
             profile: buttonProfile,
@@ -489,7 +614,7 @@ final class InputEngine {
         gyroSettings.gyroScale = effectiveGyroScale(for: .sense, userScale: userScale)
         gyroSettings.expectedSampleRate = 60.0
         gyroSettings.biasMotionThreshold = 50.0
-        if let (dx, dy) = senseGyroProcessor.process(
+        if let (dx, dy) = device.gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
             rawZ: pipeline.remapped.roll,
@@ -497,20 +622,20 @@ final class InputEngine {
             settings: gyroSettings
         ) {
             routeGyroMovement(
-                kind: .sense,
+                owner: owner,
                 dx: dx,
                 dy: dy,
                 cursorEnabled: cursorEnabled,
                 hasDragMapping: buttonProfile.hasDragMapping,
                 configuration: s.radialMenuConfiguration,
-                modeState: senseMode
+                modeState: device.mode
             )
         }
 
         // 4. Update battery level (from byte 43)
         if report.bytes.count > SenseHIDProtocol.Offset.battery {
             let batteryByte = report.bytes[SenseHIDProtocol.Offset.battery]
-            updateBatteryLevel(BatteryHelper.level(from: batteryByte))
+            setBatteryLevel(BatteryHelper.level(from: batteryByte), for: owner)
         }
 
         // 5. Record to debug buffer with all pipeline stages
@@ -522,9 +647,9 @@ final class InputEngine {
                 remappedGyro: pipeline.remapped,
                 normalizedGyro: pipeline.normalized,
                 accel: (report.accelX, report.accelY, report.accelZ),
-                buttonStates: buttonStates,
+                buttonStates: device.buttonStates,
                 controllerKind: .sense,
-                gyroDebug: mapGyroDebug(from: senseGyroProcessor.lastDebugState)
+                gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState)
             )
         }
     }
@@ -539,32 +664,28 @@ final class InputEngine {
 
         guard s.isEnabled else { return }
 
-        guard let profile = selectedJoyConProfile else { return }
+        guard let device = joyConDevices[report.controllerID] else { return }
+        let profile = device.profile
+        let owner = ManagedDeviceKey(kind: .joyCon, id: device.id)
 
         // Keep Joy-Con timing mode in sync with settings
         joyConController.useTimerFallback = s.joyConTimerFallbackEnabled
         joyConController.useTimerHybrid = s.joyConTimerHybridEnabled
 
-        // Get the appropriate mapping (mutable reference for calibration)
         let isLeft = profile.isLeft
         let buttonProfile: JoyConButtonMappingProfile = s.joyConButtonMappings[profile] ?? .defaultProfile(for: profile)
         let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
         // Continuous auto-calibration: updates center when stick is stationary
-        if isLeft {
-            let raw = joyConLeftMapping.joystickPositionRaw(in: report.bytes)
-            joyConLeftMapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
-        } else {
-            let raw = joyConRightMapping.joystickPositionRaw(in: report.bytes)
-            joyConRightMapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
-        }
-
-        let joyConMapping = isLeft ? joyConLeftMapping : joyConRightMapping
+        let raw = device.mapping.joystickPositionRaw(in: report.bytes)
+        device.mapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
 
         // 1. Process Joy-Con buttons
         processJoyConButtonActions(
+            owner: owner,
+            device: device,
             bytes: report.bytes,
-            mapping: joyConMapping,
+            mapping: device.mapping,
             profile: buttonProfile,
             holdThreshold: buttonProfile.holdThreshold
         )
@@ -585,7 +706,7 @@ final class InputEngine {
         gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
         gyroSettings.expectedSampleRate = 66.0  // ~66 Hz since we use only the newest sample per packet
         gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
-        if let (dx, dy) = joyConGyroProcessor.process(
+        if let (dx, dy) = device.gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
             rawZ: pipeline.remapped.roll,
@@ -593,24 +714,24 @@ final class InputEngine {
             settings: gyroSettings
         ) {
             routeGyroMovement(
-                kind: .joyCon,
+                owner: owner,
                 dx: dx,
                 dy: dy,
                 cursorEnabled: cursorEnabled,
                 hasDragMapping: buttonProfile.hasDragMapping,
                 configuration: s.radialMenuConfiguration,
-                modeState: joyConMode
+                modeState: device.mode
             )
         }
 
         // 3. Process joystick scroll (if enabled)
         if s.joystickScrollEnabled, cursorEnabled {
-            processJoyConJoystickScroll(bytes: report.bytes, mapping: joyConMapping, settings: s)
+            processJoyConJoystickScroll(bytes: report.bytes, mapping: device.mapping, settings: s)
         }
 
         // 4. Update battery level (Joy-Con battery is in byte 2, upper nibble)
         if report.bytes.count > 2 {
-            updateBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]))
+            setBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]), for: owner)
         }
 
         // 4. Record to debug buffer with all pipeline stages
@@ -622,9 +743,9 @@ final class InputEngine {
                 remappedGyro: pipeline.remapped,
                 normalizedGyro: pipeline.normalized,
                 accel: (report.accelX, report.accelY, report.accelZ),
-                buttonStates: joyConButtonStates,
+                buttonStates: device.buttonStates,
                 controllerKind: .joyCon,
-                gyroDebug: mapGyroDebug(from: joyConGyroProcessor.lastDebugState)
+                gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState)
             )
         }
     }
@@ -654,24 +775,13 @@ final class InputEngine {
 
     // MARK: - Gyro Mode Routing
 
-    private func updateModeState(for kind: ControllerKind, _ update: (inout GyroModeState) -> Void) {
-        switch kind {
-        case .sense:
-            update(&senseMode)
-        case .joyCon:
-            update(&joyConMode)
-        case .mouse:
-            update(&mouseMode)
+    private func beginRadialMenu(owner: ManagedDeviceKey, pointerStyle: RadialMenuPointerStyle, modeState: inout GyroModeState) {
+        if radialMenuOwner == nil {
+            radialMenuOwner = owner
         }
-    }
+        guard radialMenuOwner == owner else { return }
 
-    private func beginRadialMenu(kind: ControllerKind, pointerStyle: RadialMenuPointerStyle) {
-        if radialMenuOwnerKind == nil {
-            radialMenuOwnerKind = kind
-        }
-        guard radialMenuOwnerKind == kind else { return }
-
-        updateModeState(for: kind) { $0.radialMenuButtonHeld = true }
+        modeState.radialMenuButtonHeld = true
         radialMenuLock.withLock { radialMenuAccumulator = .zero }
 
         guard let position = currentCursorPositionQuartz() else { return }
@@ -695,8 +805,8 @@ final class InputEngine {
         case radialMenu // Radial menu active
     }
 
-    private func currentGyroMode(kind: ControllerKind, hasDragMapping: Bool, modeState: GyroModeState) -> GyroMode {
-        if modeState.radialMenuButtonHeld, radialMenuOwnerKind == kind { return .radialMenu }
+    private func currentGyroMode(owner: ManagedDeviceKey, hasDragMapping: Bool, modeState: GyroModeState) -> GyroMode {
+        if modeState.radialMenuButtonHeld, radialMenuOwner == owner { return .radialMenu }
         if modeState.scrollButtonHeld { return .scroll }
         if modeState.dragButtonHeld { return .drag }
         if hasDragMapping { return .none }
@@ -704,7 +814,7 @@ final class InputEngine {
     }
 
     private func routeGyroMovement(
-        kind: ControllerKind,
+        owner: ManagedDeviceKey,
         dx: CGFloat,
         dy: CGFloat,
         cursorEnabled: Bool,
@@ -712,7 +822,7 @@ final class InputEngine {
         configuration: RadialMenuConfiguration,
         modeState: GyroModeState
     ) {
-        let mode = currentGyroMode(kind: kind, hasDragMapping: hasDragMapping, modeState: modeState)
+        let mode = currentGyroMode(owner: owner, hasDragMapping: hasDragMapping, modeState: modeState)
 
         switch mode {
         case .none:
@@ -726,7 +836,7 @@ final class InputEngine {
                 mouseController.scroll(dx: dx, dy: dy)
             }
         case .radialMenu:
-            guard radialMenuOwnerKind == kind else { return }
+            guard radialMenuOwner == owner else { return }
             let scale = max(0.1, configuration.radialMovementScale)
             let scaledDx = dx * scale
             let scaledDy = dy * scale
@@ -801,9 +911,11 @@ final class InputEngine {
         }
     }
 
-    // MARK: - Button Processing
+    // MARK: - Sense Button Processing
 
-    private func processButtonActions(
+    private func processSenseButtonActions(
+        owner: ManagedDeviceKey,
+        device: SenseDeviceState,
         bytes: [UInt8],
         mapping: SenseButtonMapping,
         profile: SenseButtonMappingProfile,
@@ -814,50 +926,56 @@ final class InputEngine {
         for button in LogicalButton.allCases where button != .trigger {
             let idx = button.index
             let isPressed = mapping.isPressed(button, in: bytes)
-            let wasPressed = previousButtonStates[idx]
+            let wasPressed = device.previousButtonStates[idx]
 
             if isPressed != wasPressed {
                 let actions = profile.actions(for: button)
                 if isPressed {
-                    handleButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
+                    handleSenseButtonDown(owner: owner, device: device, button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleButtonUp(button: button, mappingProfile: profile)
+                    handleSenseButtonUp(owner: owner, device: device, button: button, mappingProfile: profile)
                 }
             }
 
-            previousButtonStates[idx] = isPressed
-            buttonStates[idx] = isPressed
+            device.previousButtonStates[idx] = isPressed
+            device.buttonStates[idx] = isPressed
         }
 
         // Handle trigger with threshold
         let triggerValue = mapping.triggerValue(in: bytes)
         let triggerPressed = triggerValue >= triggerThreshold
 
-        if triggerPressed != previousTriggerPressed {
+        if triggerPressed != device.previousTriggerPressed {
             let actions = profile.actions(for: .trigger)
             if triggerPressed {
-                handleButtonDown(button: .trigger, actions: actions, holdThreshold: holdThreshold)
+                handleSenseButtonDown(owner: owner, device: device, button: .trigger, actions: actions, holdThreshold: holdThreshold)
             } else {
-                handleButtonUp(button: .trigger, mappingProfile: profile)
+                handleSenseButtonUp(owner: owner, device: device, button: .trigger, mappingProfile: profile)
             }
         }
 
-        previousTriggerPressed = triggerPressed
-        buttonStates[LogicalButton.trigger.index] = triggerPressed
+        device.previousTriggerPressed = triggerPressed
+        device.buttonStates[LogicalButton.trigger.index] = triggerPressed
     }
 
-    private func handleButtonDown(button: LogicalButton, actions: ButtonActions, holdThreshold: Double) {
+    private func handleSenseButtonDown(
+        owner: ManagedDeviceKey,
+        device: SenseDeviceState,
+        button: LogicalButton,
+        actions: ButtonActions,
+        holdThreshold: Double
+    ) {
         let idx = button.index
 
         // Handle gyro mode actions immediately
         if actions.pressIsGyroMode {
             switch actions.press {
             case .drag:
-                senseMode.dragButtonHeld = true
+                device.mode.dragButtonHeld = true
             case .scroll:
-                senseMode.scrollButtonHeld = true
+                device.mode.scrollButtonHeld = true
             case .radialMenu:
-                beginRadialMenu(kind: .sense, pointerStyle: .ghostCursor)
+                beginRadialMenu(owner: owner, pointerStyle: .ghostCursor, modeState: &device.mode)
             default:
                 break
             }
@@ -867,57 +985,56 @@ final class InputEngine {
         // Handle mouse clicks immediately
         if case .mouseClick = actions.press {
             actionExecutor.execute(actions.press, isPressed: true)
-            buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+            device.buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
             return
         }
 
         // Record press state
-        buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+        device.buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
 
         // Schedule hold timer if there's a hold action
         if actions.hold != .none {
             let timer = DispatchWorkItem { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 guard self.isRunning else { return }
-                guard var state = self.buttonPressStates[idx], !state.holdFired else { return }
+                guard let device = self.senseDevices[owner.id] else { return }
+                guard var state = device.buttonPressStates[idx], !state.holdFired else { return }
 
                 state.holdFired = true
-                self.buttonPressStates[idx] = state
+                device.buttonPressStates[idx] = state
                 self.actionExecutor.execute(actions.hold, isPressed: true)
             }
-            holdTimers[idx]?.cancel()
-            holdTimers[idx] = timer
+            device.holdTimers[idx]?.cancel()
+            device.holdTimers[idx] = timer
             engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
         }
     }
 
-    private func handleButtonUp(button: LogicalButton, mappingProfile: SenseButtonMappingProfile) {
+    private func handleSenseButtonUp(
+        owner: ManagedDeviceKey,
+        device: SenseDeviceState,
+        button: LogicalButton,
+        mappingProfile: SenseButtonMappingProfile
+    ) {
         let idx = button.index
 
         // Cancel hold timer
-        holdTimers[idx]?.cancel()
-        holdTimers[idx] = nil
+        device.holdTimers[idx]?.cancel()
+        device.holdTimers[idx] = nil
 
-        // Check for gyro mode button release
-        if let state = buttonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(kind: .sense, action: state.actions.press)
-            buttonPressStates[idx] = nil
-            return
-        }
-
-        // Also check current mapping for gyro modes
+        // Also check current mapping for gyro modes (gyro mode presses are not tracked).
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(kind: .sense, action: actions.press)
+            handleGyroModeRelease(owner: owner, action: actions.press, modeState: &device.mode)
             return
         }
 
-        guard let state = buttonPressStates[idx] else { return }
+        guard let state = device.buttonPressStates[idx] else { return }
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {
             actionExecutor.execute(state.actions.press, isPressed: false)
-            buttonPressStates[idx] = nil
+            device.buttonPressStates[idx] = nil
             return
         }
 
@@ -932,22 +1049,22 @@ final class InputEngine {
             }
         }
 
-        buttonPressStates[idx] = nil
+        device.buttonPressStates[idx] = nil
     }
 
-    private func handleGyroModeRelease(kind: ControllerKind, action: ButtonAction) {
+    private func handleGyroModeRelease(owner: ManagedDeviceKey, action: ButtonAction, modeState: inout GyroModeState) {
         switch action {
         case .drag:
-            updateModeState(for: kind) { $0.dragButtonHeld = false }
+            modeState.dragButtonHeld = false
         case .scroll:
-            updateModeState(for: kind) { $0.scrollButtonHeld = false }
+            modeState.scrollButtonHeld = false
         case .radialMenu:
-            guard radialMenuOwnerKind == kind else { return }
-            if kind == .mouse {
+            guard radialMenuOwner == owner else { return }
+            if owner.kind == .mouse {
                 stopRadialMenuCursorTracking()
             }
-            radialMenuOwnerKind = nil
-            updateModeState(for: kind) { $0.radialMenuButtonHeld = false }
+            radialMenuOwner = nil
+            modeState.radialMenuButtonHeld = false
 
             // Determine selected item based on accumulated movement
             let selectedItem = calculateRadialMenuSelection()
@@ -957,7 +1074,7 @@ final class InputEngine {
             if let item = selectedItem {
                 executeRadialMenuAction(item.action)
             }
-            if kind != .mouse {
+            if owner.kind != .mouse {
                 mouseController.showCursor()
             }
         default:
@@ -968,6 +1085,8 @@ final class InputEngine {
     // MARK: - Joy-Con Button Processing
 
     private func processJoyConButtonActions(
+        owner: ManagedDeviceKey,
+        device: JoyConDeviceState,
         bytes: [UInt8],
         mapping: JoyConButtonMapping,
         profile: JoyConButtonMappingProfile,
@@ -979,34 +1098,40 @@ final class InputEngine {
         for button in availableButtons {
             let idx = button.index
             let isPressed = mapping.isPressed(button, in: bytes)
-            let wasPressed = joyConPreviousButtonStates[idx]
+            let wasPressed = device.previousButtonStates[idx]
 
             if isPressed != wasPressed {
                 let actions = profile.actions(for: button)
                 if isPressed {
-                    handleJoyConButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
+                    handleJoyConButtonDown(owner: owner, device: device, button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleJoyConButtonUp(button: button, mappingProfile: profile)
+                    handleJoyConButtonUp(owner: owner, device: device, button: button, mappingProfile: profile)
                 }
             }
 
-            joyConPreviousButtonStates[idx] = isPressed
-            joyConButtonStates[idx] = isPressed
+            device.previousButtonStates[idx] = isPressed
+            device.buttonStates[idx] = isPressed
         }
     }
 
-    private func handleJoyConButtonDown(button: JoyConLogicalButton, actions: ButtonActions, holdThreshold: Double) {
+    private func handleJoyConButtonDown(
+        owner: ManagedDeviceKey,
+        device: JoyConDeviceState,
+        button: JoyConLogicalButton,
+        actions: ButtonActions,
+        holdThreshold: Double
+    ) {
         let idx = button.index
 
         // Handle gyro mode actions immediately
         if actions.pressIsGyroMode {
             switch actions.press {
             case .drag:
-                joyConMode.dragButtonHeld = true
+                device.mode.dragButtonHeld = true
             case .scroll:
-                joyConMode.scrollButtonHeld = true
+                device.mode.scrollButtonHeld = true
             case .radialMenu:
-                beginRadialMenu(kind: .joyCon, pointerStyle: .ghostCursor)
+                beginRadialMenu(owner: owner, pointerStyle: .ghostCursor, modeState: &device.mode)
             default:
                 break
             }
@@ -1016,57 +1141,56 @@ final class InputEngine {
         // Handle mouse clicks immediately
         if case .mouseClick = actions.press {
             actionExecutor.execute(actions.press, isPressed: true)
-            joyConButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+            device.buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
             return
         }
 
         // Record press state
-        joyConButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+        device.buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
 
         // Schedule hold timer if there's a hold action
         if actions.hold != .none {
             let timer = DispatchWorkItem { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 guard self.isRunning else { return }
-                guard var state = self.joyConButtonPressStates[idx], !state.holdFired else { return }
+                guard let device = self.joyConDevices[owner.id] else { return }
+                guard var state = device.buttonPressStates[idx], !state.holdFired else { return }
 
                 state.holdFired = true
-                self.joyConButtonPressStates[idx] = state
+                device.buttonPressStates[idx] = state
                 self.actionExecutor.execute(actions.hold, isPressed: true)
             }
-            joyConHoldTimers[idx]?.cancel()
-            joyConHoldTimers[idx] = timer
+            device.holdTimers[idx]?.cancel()
+            device.holdTimers[idx] = timer
             engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
         }
     }
 
-    private func handleJoyConButtonUp(button: JoyConLogicalButton, mappingProfile: JoyConButtonMappingProfile) {
+    private func handleJoyConButtonUp(
+        owner: ManagedDeviceKey,
+        device: JoyConDeviceState,
+        button: JoyConLogicalButton,
+        mappingProfile: JoyConButtonMappingProfile
+    ) {
         let idx = button.index
 
         // Cancel hold timer
-        joyConHoldTimers[idx]?.cancel()
-        joyConHoldTimers[idx] = nil
-
-        // Check for gyro mode button release
-        if let state = joyConButtonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(kind: .joyCon, action: state.actions.press)
-            joyConButtonPressStates[idx] = nil
-            return
-        }
+        device.holdTimers[idx]?.cancel()
+        device.holdTimers[idx] = nil
 
         // Also check current mapping for gyro modes
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(kind: .joyCon, action: actions.press)
+            handleGyroModeRelease(owner: owner, action: actions.press, modeState: &device.mode)
             return
         }
 
-        guard let state = joyConButtonPressStates[idx] else { return }
+        guard let state = device.buttonPressStates[idx] else { return }
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {
             actionExecutor.execute(state.actions.press, isPressed: false)
-            joyConButtonPressStates[idx] = nil
+            device.buttonPressStates[idx] = nil
             return
         }
 
@@ -1081,7 +1205,7 @@ final class InputEngine {
             }
         }
 
-        joyConButtonPressStates[idx] = nil
+        device.buttonPressStates[idx] = nil
     }
 
     // MARK: - G502X Report Processing
@@ -1162,7 +1286,7 @@ final class InputEngine {
         timer.schedule(deadline: .now(), repeating: .milliseconds(16))  // ~60Hz
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            guard self.radialMenuOwnerKind == .mouse, self.mouseMode.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
+            guard self.radialMenuOwner?.kind == .mouse, self.mouseMode.radialMenuButtonHeld, let anchor = self.radialMenuCursorAnchor else { return }
             guard let current = self.currentCursorPositionQuartz() else { return }
 
             let dx = current.x - anchor.x
@@ -1236,7 +1360,8 @@ final class InputEngine {
             switch actions.press {
             case .radialMenu:
                 debugBuffer.log("[G502X] Opening radial menu (button=\(button))")
-                beginRadialMenu(kind: .mouse, pointerStyle: .systemCursor)
+                let owner = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
+                beginRadialMenu(owner: owner, pointerStyle: .systemCursor, modeState: &mouseMode)
             case .drag, .scroll:
                 // These don't make sense for mouse (it already has native cursor/scroll)
                 // but we handle them for consistency
@@ -1285,9 +1410,11 @@ final class InputEngine {
         g502xHoldTimers[idx]?.cancel()
         g502xHoldTimers[idx] = nil
 
+        let owner = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
+
         // Check for gyro mode button release
         if let state = g502xButtonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(kind: .mouse, action: state.actions.press)
+            handleGyroModeRelease(owner: owner, action: state.actions.press, modeState: &mouseMode)
             g502xButtonPressStates[idx] = nil
             return
         }
@@ -1295,7 +1422,7 @@ final class InputEngine {
         // Also check current mapping for gyro modes
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(kind: .mouse, action: actions.press)
+            handleGyroModeRelease(owner: owner, action: actions.press, modeState: &mouseMode)
             return
         }
 

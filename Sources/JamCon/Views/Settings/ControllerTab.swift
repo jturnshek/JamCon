@@ -8,7 +8,7 @@ struct ControllerTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Toggle Managed to let JamCon listen to that physical device. Settings are configured under Profiles. (Currently: one managed device per type.)")
+                Text("Toggle Managed to let JamCon listen to that physical device. Settings are configured under Profiles.")
                     .font(.callout)
                     .foregroundColor(.secondary)
 

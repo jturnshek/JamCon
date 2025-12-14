@@ -50,7 +50,10 @@ struct DiscoveredJoyCon: Identifiable, Equatable {
 final class JoyConHIDController {
     // MARK: - Types
 
+    private static let deactivationRetentionSeconds: TimeInterval = 30.0
+
     struct InputReport {
+        let controllerID: String
         let bytes: [UInt8]
         let length: Int
         let gyroX: Int16
@@ -77,20 +80,60 @@ final class JoyConHIDController {
     // MARK: - State
 
     private var hidManager: IOHIDManager?
-    private var activeDevice: IOHIDDevice?
     private var hidRunLoop: CFRunLoop?
     private var hidThread: Thread?
     private let hidRunLoopReady = DispatchSemaphore(value: 0)
-    private var reportBuffer = [UInt8](repeating: 0, count: 64)
 
     // MARK: - Thread-safe state (read from UI / other threads)
 
+    private final class CallbackContext {
+        weak var owner: JoyConHIDController?
+        let controllerID: String
+
+        init(owner: JoyConHIDController, controllerID: String) {
+            self.owner = owner
+            self.controllerID = controllerID
+        }
+    }
+
+    private struct RetiredController {
+        let controller: ActiveController
+        let retiredAt: TimeInterval
+    }
+
+    private final class ActiveController {
+        let controller: DiscoveredJoyCon
+        let callbackContext: CallbackContext
+        let reportBuffer: UnsafeMutablePointer<UInt8>
+        let reportBufferLength: Int
+
+        var outputPacketCounter: UInt8 = 0
+
+        // Device timestamp support (used if available from IOHIDValue)
+        var lastDeviceTimestamp: TimeInterval?
+        var lastDeviceTicks: UInt64?
+        var lastTimerByte: UInt8?
+        var lastTimerTimestamp: TimeInterval?
+
+        init(controller: DiscoveredJoyCon, owner: JoyConHIDController) {
+            self.controller = controller
+            self.callbackContext = CallbackContext(owner: owner, controllerID: controller.id)
+            self.reportBufferLength = 64
+            self.reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportBufferLength)
+            self.reportBuffer.initialize(repeating: 0, count: reportBufferLength)
+        }
+
+        deinit {
+            reportBuffer.deinitialize(count: reportBufferLength)
+            reportBuffer.deallocate()
+        }
+    }
+
     private struct ControllerState {
         var discoveredControllers: [DiscoveredJoyCon] = []
-        var selectedControllerID: String?
-        var preferredControllerID: String?
-        var isConnected: Bool = false
-        var controllerName: String?
+        var managedControllerIDs: Set<String> = []
+        var activeControllers: [String: ActiveController] = [:]
+        var retiredControllers: [RetiredController] = []
     }
 
     private let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
@@ -108,34 +151,18 @@ final class JoyConHIDController {
         }
     }
 
-    /// Currently selected controller ID (thread-safe).
-    var selectedControllerID: String? {
-        stateLock.withLock { $0.selectedControllerID }
-    }
-
-    /// Preferred controller ID (persisted from last user selection). (thread-safe)
-    var preferredControllerID: String? {
-        get { stateLock.withLock { $0.preferredControllerID } }
-        set { stateLock.withLock { $0.preferredControllerID = newValue } }
-    }
-
-    /// Whether a controller is currently connected and active (thread-safe).
+    /// Whether any managed Joy-Con is currently connected and active (thread-safe).
     var isConnected: Bool {
-        stateLock.withLock { $0.isConnected }
+        stateLock.withLock { !$0.activeControllers.isEmpty }
     }
 
-    /// Name of the connected controller (thread-safe).
+    /// Name of the connected Joy-Con if exactly one is active; otherwise nil. (thread-safe)
     var controllerName: String? {
-        stateLock.withLock { $0.controllerName }
+        stateLock.withLock { state in
+            guard state.activeControllers.count == 1, let active = state.activeControllers.values.first else { return nil }
+            return active.controller.name
+        }
     }
-
-    private var outputPacketCounter: UInt8 = 0
-
-    /// Device timestamp support (used if available from IOHIDValue)
-    private var lastDeviceTimestamp: TimeInterval?
-    private var lastDeviceTicks: UInt64?
-    private var lastTimerByte: UInt8?
-    private var lastTimerTimestamp: TimeInterval?
     private let timebase: mach_timebase_info_data_t = {
         var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
         mach_timebase_info(&tb)
@@ -156,15 +183,41 @@ final class JoyConHIDController {
         // Signal the HID thread to exit its run loop
         hidThread?.cancel()
 
-        guard let runLoop = hidRunLoop else { return }
+        guard let runLoop = hidRunLoop else {
+            // Fallback cleanup if the HID thread was never started
+            let activeControllersSnapshot: [ActiveController] = stateLock.withLock { state in
+                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
+            }
+            for active in activeControllersSnapshot {
+                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
+                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
+            }
+
+            if let manager = hidManager {
+                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+                hidManager = nil
+            }
+
+            stateLock.withLock { state in
+                state.discoveredControllers.removeAll(keepingCapacity: true)
+                state.managedControllerIDs.removeAll(keepingCapacity: true)
+                state.activeControllers.removeAll(keepingCapacity: true)
+                state.retiredControllers.removeAll(keepingCapacity: true)
+            }
+            return
+        }
 
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self else { return }
 
-            if let device = self.activeDevice {
-                IOHIDDeviceRegisterInputReportCallback(device, &self.reportBuffer, self.reportBuffer.count, nil, nil)
-                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-                self.activeDevice = nil
+            let activeControllersSnapshot: [ActiveController] = self.stateLock.withLock { state in
+                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
+            }
+            for active in activeControllersSnapshot {
+                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
+                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
 
             if let manager = self.hidManager {
@@ -175,9 +228,9 @@ final class JoyConHIDController {
 
             self.stateLock.withLock { state in
                 state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.selectedControllerID = nil
-                state.isConnected = false
-                state.controllerName = nil
+                state.managedControllerIDs.removeAll(keepingCapacity: true)
+                state.activeControllers.removeAll(keepingCapacity: true)
+                state.retiredControllers.removeAll(keepingCapacity: true)
             }
 
             CFRunLoopStop(runLoop)
@@ -311,10 +364,10 @@ final class JoyConHIDController {
         onControllersChanged?()
         log("Joy-Con discovered: \(name) (PID: 0x\(String(format: "%04X", productID)))")
 
-        let shouldAutoSelect = stateLock.withLock { state in
-            state.selectedControllerID == uniqueID || (state.selectedControllerID == nil && state.preferredControllerID == uniqueID)
+        let shouldAutoActivate = stateLock.withLock { state in
+            state.managedControllerIDs.contains(uniqueID)
         }
-        if shouldAutoSelect {
+        if shouldAutoActivate {
             activateController(controller)
         }
     }
@@ -328,38 +381,53 @@ final class JoyConHIDController {
         }
         if let controller = disconnected {
             log("Joy-Con disconnected: \(controller.name)")
-            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+            deactivateController(id: controller.id)
             onControllersChanged?()
-
-            if controller.id == selectedControllerID {
-                deactivateCurrentController()
-            }
         }
     }
 
     func selectController(id: String) {
-        guard let controller = stateLock.withLock({ state in
-            state.discoveredControllers.first(where: { $0.id == id })
-        }) else {
-            log("Joy-Con \(id) not found")
-            return
-        }
-        if selectedControllerID != id {
-            deactivateCurrentController()
-        }
-        activateController(controller)
+        setControllerManaged(id: id, managed: true)
     }
 
-    /// Deselect the current controller (stop receiving input)
+    /// Deselect all controllers (stop receiving input).
     func deselectController() {
-        stateLock.withLock { state in
-            state.selectedControllerID = nil
-            state.preferredControllerID = nil
+        let activeIDs = stateLock.withLock { state in
+            state.managedControllerIDs.removeAll(keepingCapacity: true)
+            return Array(state.activeControllers.keys)
         }
-        deactivateCurrentController()
+        for id in activeIDs {
+            deactivateController(id: id)
+        }
+    }
+
+    /// Enable/disable processing for a specific Joy-Con controller ID.
+    func setControllerManaged(id: String, managed: Bool) {
+        if managed {
+            let controller: DiscoveredJoyCon? = stateLock.withLock { state in
+                state.managedControllerIDs.insert(id)
+                return state.discoveredControllers.first(where: { $0.id == id })
+            }
+            guard let controller else {
+                // Not discovered yet; it'll auto-activate when it appears.
+                return
+            }
+            activateController(controller)
+        } else {
+            stateLock.withLock { state in
+                _ = state.managedControllerIDs.remove(id)
+            }
+            deactivateController(id: id)
+        }
     }
 
     private func activateController(_ controller: DiscoveredJoyCon) {
+        let controllerID = controller.id
+        let needsActivation: Bool = stateLock.withLock { state in
+            state.activeControllers[controllerID] == nil
+        }
+        guard needsActivation else { return }
+
         let device = controller.device
         let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         if result != kIOReturnSuccess && result != -536870201 { // already open OK
@@ -367,23 +435,26 @@ final class JoyConHIDController {
             return
         }
 
-        activeDevice = device
+        let active = ActiveController(controller: controller, owner: self)
         stateLock.withLock { state in
-            state.selectedControllerID = controller.id
-            state.controllerName = controller.name
-            state.isConnected = true
+            state.activeControllers[controllerID] = active
         }
 
         // Register input report callback
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        let context = Unmanaged.passUnretained(active.callbackContext).toOpaque()
         IOHIDDeviceRegisterInputReportCallback(
             device,
-            &reportBuffer,
-            reportBuffer.count,
+            active.reportBuffer,
+            active.reportBufferLength,
             { context, _, _, _, reportID, report, length in
                 guard let context else { return }
-                let joyCon = Unmanaged<JoyConHIDController>.fromOpaque(context).takeUnretainedValue()
-                joyCon.handleInputReport(report: report, length: length, reportID: reportID)
+                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+                callbackContext.owner?.handleInputReport(
+                    controllerID: callbackContext.controllerID,
+                    report: report,
+                    length: length,
+                    reportID: reportID
+                )
             },
             context
         )
@@ -393,49 +464,50 @@ final class JoyConHIDController {
             device,
             { context, _, _, value in
                 guard let context else { return }
-                let joyCon = Unmanaged<JoyConHIDController>.fromOpaque(context).takeUnretainedValue()
-                joyCon.handleInputValue(value)
+                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+                callbackContext.owner?.handleInputValue(controllerID: callbackContext.controllerID, value)
             },
             context
         )
 
         // Enable IMU + set input mode
-        sendSubcommand(.enableIMU, data: [0x01])
-        sendSubcommand(.setInputMode, data: [UInt8(JoyCon.InputMode.standardFull.rawValue)])
-        sendSubcommand(.enableVibration, data: [0x01]) // keep LEDs happy
-        sendSubcommand(.setPlayerLights, data: [0x01])
+        sendSubcommand(.enableIMU, data: [0x01], to: active)
+        sendSubcommand(.setInputMode, data: [UInt8(JoyCon.InputMode.standardFull.rawValue)], to: active)
+        sendSubcommand(.enableVibration, data: [0x01], to: active) // keep LEDs happy
+        sendSubcommand(.setPlayerLights, data: [0x01], to: active)
 
-        let (name, controllerID) = stateLock.withLock { state in
-            (state.controllerName, state.selectedControllerID)
-        }
-        onConnectionChange?(true, name, controllerID)
-        log("Joy-Con activated: \(name ?? controller.side)")
+        let displayName = "\(controller.name) (\(controller.side))"
+        onConnectionChange?(true, displayName, controller.id)
+        log("Joy-Con activated: \(displayName)")
     }
 
-    private func deactivateCurrentController() {
-        if let device = activeDevice {
-            IOHIDDeviceRegisterInputReportCallback(device, &reportBuffer, reportBuffer.count, nil, nil)
+    private func deactivateController(id: String) {
+        let now = CACurrentMediaTime()
+        let active: ActiveController? = stateLock.withLock { state in
+            guard let active = state.activeControllers.removeValue(forKey: id) else { return nil }
+            state.retiredControllers.append(RetiredController(controller: active, retiredAt: now))
+            state.retiredControllers.removeAll(where: { now - $0.retiredAt > Self.deactivationRetentionSeconds })
+            return active
         }
-        activeDevice = nil
-        let (name, controllerID) = stateLock.withLock { state in
-            state.isConnected = false
-            let name = state.controllerName
-            let controllerID = state.selectedControllerID
-            state.controllerName = nil
-            return (name, controllerID)
-        }
-        onConnectionChange?(false, name, controllerID)
+        guard let active else { return }
+
+        IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+        IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
+        IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        let displayName = "\(active.controller.name) (\(active.controller.side))"
+        onConnectionChange?(false, displayName, active.controller.id)
     }
 
     // MARK: - Input reports
 
     private static var debugLogCounter = 0
 
-    private func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
+    private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
-        let timestamp = computeTimestamp(report: report, length: length)
+        let timestamp = computeTimestamp(controllerID: controllerID, report: report, length: length)
 
-        let maxLength = min(length, reportBuffer.count)
+        let maxLength = min(length, JoyConHIDProtocol.reportLength)
         var bytes = [UInt8](repeating: 0, count: maxLength)
         for i in 0..<maxLength { bytes[i] = report[i] }
 
@@ -459,6 +531,7 @@ final class JoyConHIDController {
         let accelZ = readInt16LE(JoyConHIDProtocol.Offset.accelZLow)
 
         onReportData?(InputReport(
+            controllerID: controllerID,
             bytes: bytes,
             length: maxLength,
             gyroX: gyroX,
@@ -472,7 +545,7 @@ final class JoyConHIDController {
     }
 
     /// Compute a stable timestamp using device time if available; otherwise fall back to packet timer (byte 1) before host time.
-    private func computeTimestamp(report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
+    private func computeTimestamp(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
         let hostNow = CACurrentMediaTime()
 
         // Timer byte (packet counter)
@@ -481,72 +554,79 @@ final class JoyConHIDController {
         let timerByte = timerAvailable ? UInt8(report[timerByteIndex]) : nil
         let tickSeconds: TimeInterval = 0.001
 
-        if useTimerHybrid, let timer = timerByte {
-            // Hybrid: prefer controller timer; device timestamp seeds anchor if present
-            let anchor = lastTimerTimestamp ?? lastDeviceTimestamp ?? hostNow
-            if let lastByte = lastTimerByte {
+        return stateLock.withLock { state in
+            guard let active = state.activeControllers[controllerID] else { return hostNow }
+
+            if useTimerHybrid, let timer = timerByte {
+                // Hybrid: prefer controller timer; device timestamp seeds anchor if present
+                let anchor = active.lastTimerTimestamp ?? active.lastDeviceTimestamp ?? hostNow
+                if let lastByte = active.lastTimerByte {
+                    let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
+                    if deltaTicks > 0 && deltaTicks < 200 {
+                        let ts = anchor + TimeInterval(deltaTicks) * tickSeconds
+                        active.lastTimerByte = timer
+                        active.lastTimerTimestamp = ts
+                        return ts
+                    }
+                }
+                // Seed timer timeline
+                active.lastTimerByte = timer
+                active.lastTimerTimestamp = anchor
+                return anchor
+            }
+
+            if let deviceTs = active.lastDeviceTimestamp {
+                // Reset timer fallback state when device timestamps are active
+                active.lastTimerByte = nil
+                active.lastTimerTimestamp = nil
+                return deviceTs
+            }
+
+            guard useTimerFallback, let timer = timerByte else {
+                active.lastTimerByte = nil
+                active.lastTimerTimestamp = nil
+                return hostNow
+            }
+
+            // Fallback: only use timer when device timestamp is absent
+            if let lastByte = active.lastTimerByte, let lastTs = active.lastTimerTimestamp {
                 let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
                 if deltaTicks > 0 && deltaTicks < 200 {
-                    let ts = anchor + TimeInterval(deltaTicks) * tickSeconds
-                    lastTimerByte = timer
-                    lastTimerTimestamp = ts
+                    let ts = lastTs + TimeInterval(deltaTicks) * tickSeconds
+                    active.lastTimerByte = timer
+                    active.lastTimerTimestamp = ts
                     return ts
                 }
             }
-            // Seed timer timeline
-            lastTimerByte = timer
-            lastTimerTimestamp = anchor
-            return anchor
-        }
 
-        if let deviceTs = lastDeviceTimestamp {
-            // Reset timer fallback state when device timestamps are active
-            lastTimerByte = nil
-            lastTimerTimestamp = nil
-            return deviceTs
-        }
-
-        guard useTimerFallback, let timer = timerByte else {
-            lastTimerByte = nil
-            lastTimerTimestamp = nil
+            active.lastTimerByte = timer
+            active.lastTimerTimestamp = hostNow
             return hostNow
         }
-
-        // Fallback: only use timer when device timestamp is absent
-        if let lastByte = lastTimerByte, let lastTs = lastTimerTimestamp {
-            let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
-            if deltaTicks > 0 && deltaTicks < 200 {
-                let ts = lastTs + TimeInterval(deltaTicks) * tickSeconds
-                lastTimerByte = timer
-                lastTimerTimestamp = ts
-                return ts
-            }
-        }
-
-        lastTimerByte = timer
-        lastTimerTimestamp = hostNow
-        return hostNow
     }
 
     /// Capture device-provided timestamps (if available) to improve dt stability.
-    private func handleInputValue(_ value: IOHIDValue) {
+    private func handleInputValue(controllerID: String, _ value: IOHIDValue) {
         let element = IOHIDValueGetElement(value)
         let reportID = IOHIDElementGetReportID(element)
 
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
 
         let ts = IOHIDValueGetTimeStamp(value)
-        // Avoid duplicate timestamps; fall back to host time if they repeat
-        if let lastTicks = lastDeviceTicks, lastTicks == ts {
-            lastDeviceTimestamp = nil
-            return
-        }
+        stateLock.withLock { state in
+            guard let active = state.activeControllers[controllerID] else { return }
+            // Avoid duplicate timestamps; fall back to host time if they repeat
+            if let lastTicks = active.lastDeviceTicks, lastTicks == ts {
+                active.lastDeviceTimestamp = nil
+                return
+            }
 
-        lastDeviceTicks = ts
-        lastDeviceTimestamp = ticksToSeconds(ts)
-        // Reset timer fallback state when real device timestamps arrive
-        lastTimerByte = nil
-        lastTimerTimestamp = nil
+            active.lastDeviceTicks = ts
+            active.lastDeviceTimestamp = ticksToSeconds(ts)
+            // Reset timer fallback state when real device timestamps arrive
+            active.lastTimerByte = nil
+            active.lastTimerTimestamp = nil
+        }
     }
 
     /// Convert mach ticks to seconds using cached timebase.
@@ -557,13 +637,13 @@ final class JoyConHIDController {
 
     // MARK: - Subcommands
 
-    private func sendSubcommand(_ command: Subcommand.CommandType, data: [UInt8]) {
-        guard let device = activeDevice else { return }
+    private func sendSubcommand(_ command: Subcommand.CommandType, data: [UInt8], to active: ActiveController) {
+        let device = active.controller.device
 
         var report = [UInt8](repeating: 0, count: 10 + data.count + 1)
         report[0] = JoyCon.OutputType.subcommand.rawValue
-        report[1] = outputPacketCounter
-        outputPacketCounter = (outputPacketCounter &+ 1) & 0x0F
+        report[1] = active.outputPacketCounter
+        active.outputPacketCounter = (active.outputPacketCounter &+ 1) & 0x0F
 
         // Default rumble data (silent)
         let rumble: [UInt8] = [0x00, 0x01, 0x00, 0x40, 0x00, 0x01, 0x00, 0x40]
