@@ -108,23 +108,6 @@ struct SenseButtonMapping {
     let triggerProximityByte = 5
     let gripTouchByte = 6
 
-    // Capacitive touch states (byte 11)
-    // These may differ by controller - needs verification
-    var primaryTouch: ButtonLocation {
-        isLeftController
-            ? ButtonLocation(byte: 11, bit: 0)  // Triangle touch
-            : ButtonLocation(byte: 11, bit: 2)  // Circle touch (needs verify)
-    }
-
-    var secondaryTouch: ButtonLocation {
-        isLeftController
-            ? ButtonLocation(byte: 11, bit: 1)  // Square touch
-            : ButtonLocation(byte: 11, bit: 1)  // X touch (needs verify)
-    }
-
-    let joystickTouch = ButtonLocation(byte: 11, bit: 2)  // Needs verify on left
-    let gripTouch = ButtonLocation(byte: 11, bit: 3)      // Needs verify on left
-
     /// Initialize with controller product ID
     init(productID: Int) {
         self.isLeftController = (productID == 0x0E45)
