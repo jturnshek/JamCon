@@ -82,14 +82,29 @@ final class AppState: ObservableObject {
 
     // MARK: - Settings (UI bindings that write to SettingsStore)
 
+    /// True while programmatically loading persisted settings into published properties.
+    /// Prevents `didSet` side effects (writes/persistence) during reload.
+    private var isApplyingLoadedSettings: Bool = false
+
+    private func withApplyingLoadedSettings<T>(_ body: () -> T) -> T {
+        let wasApplyingLoadedSettings = isApplyingLoadedSettings
+        isApplyingLoadedSettings = true
+        defer { isApplyingLoadedSettings = wasApplyingLoadedSettings }
+        return body()
+    }
+
     @Published var isEnabled: Bool = true {
-        didSet { settingsStore.update { $0.isEnabled = isEnabled } }
+        didSet {
+            guard !isApplyingLoadedSettings else { return }
+            settingsStore.update { $0.isEnabled = isEnabled }
+        }
     }
 
     /// Whether the current configuration profile is allowed to emit cursor/scroll output.
     /// (USB mice are never affected.)
     @Published var cursorControlEnabled: Bool = true {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             let profile = configurationProfile
             guard profile.kind != .mouse else { return }
             saveCursorControlEnabled(for: profile, enabled: cursorControlEnabled)
@@ -191,6 +206,7 @@ final class AppState: ObservableObject {
     // Button mapping (per-profile)
     @Published var buttonMappingProfile: SenseButtonMappingProfile = .load() {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             guard configurationProfile.kind == .sense else { return }
             let profile = configurationProfile
             let mapping = buttonMappingProfile
@@ -202,6 +218,7 @@ final class AppState: ObservableObject {
     // Joy-Con button mapping (per-profile)
     @Published var joyConButtonMappingProfile: JoyConButtonMappingProfile = .load() {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             guard configurationProfile.kind == .joyCon else { return }
             let profile = configurationProfile
             let mapping = joyConButtonMappingProfile
@@ -213,6 +230,7 @@ final class AppState: ObservableObject {
     // G502X button mapping (per-profile)
     @Published var g502xButtonMappingProfile: G502XButtonMappingProfile = .load() {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             guard configurationProfile.kind == .mouse else { return }
             let profile = configurationProfile
             let mapping = g502xButtonMappingProfile
@@ -224,6 +242,7 @@ final class AppState: ObservableObject {
     // Joystick settings
     @Published var joystickScrollEnabled: Bool = true {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             settingsStore.update { $0.joystickScrollEnabled = joystickScrollEnabled }
             scheduleJoystickSettingsPersistence(
                 enabled: joystickScrollEnabled,
@@ -235,6 +254,7 @@ final class AppState: ObservableObject {
 
     @Published var joystickScrollSpeed: Double = 10.0 {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             settingsStore.update { $0.joystickScrollSpeed = joystickScrollSpeed }
             scheduleJoystickSettingsPersistence(
                 enabled: joystickScrollEnabled,
@@ -246,6 +266,7 @@ final class AppState: ObservableObject {
 
     @Published var joystickScrollAcceleration: Double = 3.0 {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             settingsStore.update { $0.joystickScrollAcceleration = joystickScrollAcceleration }
             scheduleJoystickSettingsPersistence(
                 enabled: joystickScrollEnabled,
@@ -288,6 +309,7 @@ final class AppState: ObservableObject {
     // Radial menu
     @Published var radialMenuConfiguration: RadialMenuConfiguration = .load() {
         didSet {
+            guard !isApplyingLoadedSettings else { return }
             let config = radialMenuConfiguration
             settingsStore.update { $0.radialMenuConfiguration = config }
             scheduleRadialMenuPersistence(configuration: config)
@@ -495,6 +517,7 @@ final class AppState: ObservableObject {
     }
 
     private func saveGyroSettings() {
+        guard !isApplyingLoadedSettings else { return }
         let kind = configurationProfile.kind
         var state = settingsStore.snapshot().gyroSettings[kind] ?? GyroSettingsState.load(for: kind)
         state.sensitivity = sensitivity
@@ -592,85 +615,82 @@ final class AppState: ObservableObject {
         let profile = configurationProfile
         let gyroState = GyroSettingsState.load(for: kind)
 
-        // Update published properties without triggering saves
-        _sensitivity = Published(initialValue: gyroState.sensitivity)
-        _gyroScale = Published(initialValue: gyroState.gyroScale)
-        _filterEnabled = Published(initialValue: gyroState.filterEnabled)
-        _minCutoff = Published(initialValue: gyroState.minCutoff)
-        _beta = Published(initialValue: gyroState.beta)
-        _adaptiveSmoothingMode = Published(initialValue: gyroState.adaptiveSmoothingMode)
-        _accelerationMode = Published(initialValue: gyroState.accelerationMode)
-        _simpleAcceleration = Published(initialValue: gyroState.simpleAcceleration)
-        _accelerationCurve = Published(initialValue: gyroState.accelerationCurve)
-        _accelerationStrength = Published(initialValue: gyroState.accelerationStrength)
-        _sensitivityCap = Published(initialValue: gyroState.sensitivityCap)
-        _curveExponent = Published(initialValue: gyroState.curveExponent)
-        _rampSpeed = Published(initialValue: gyroState.rampSpeed)
-        _softCutoffThreshold = Published(initialValue: gyroState.softCutoffThreshold)
-        _recoveryThreshold = Published(initialValue: gyroState.recoveryThreshold)
-        _autoTuneSampleRate = Published(initialValue: gyroState.autoTuneSampleRate)
-        _autoNeutralEnabled = Published(initialValue: gyroState.autoNeutralEnabled)
-
-        // Joy-Con specific
-        if kind == .joyCon {
-            _joyConTimerFallbackEnabled = Published(initialValue: gyroState.joyConTimerFallbackEnabled)
-            _joyConTimerHybridEnabled = Published(initialValue: gyroState.joyConTimerHybridEnabled)
-            _joyConUseAveragedGyroSamples = Published(initialValue: gyroState.joyConUseAveragedGyroSamples)
-        }
-
         // Update settings store
         settingsStore.update { s in
             s.gyroSettings[kind] = gyroState
         }
 
-        // Cursor control enablement (per profile; default true).
-        if profile.kind != .mouse {
-            let enabled = settingsStore.snapshot().cursorControlEnabledByProfile[profile] ?? true
-            _cursorControlEnabled = Published(initialValue: enabled)
-            settingsStore.update { $0.cursorControlEnabledByProfile[profile] = enabled }
-        } else {
-            _cursorControlEnabled = Published(initialValue: true)
+        withApplyingLoadedSettings {
+            sensitivity = gyroState.sensitivity
+            gyroScale = gyroState.gyroScale
+            filterEnabled = gyroState.filterEnabled
+            minCutoff = gyroState.minCutoff
+            beta = gyroState.beta
+            adaptiveSmoothingMode = gyroState.adaptiveSmoothingMode
+            accelerationMode = gyroState.accelerationMode
+            simpleAcceleration = gyroState.simpleAcceleration
+            accelerationCurve = gyroState.accelerationCurve
+            accelerationStrength = gyroState.accelerationStrength
+            sensitivityCap = gyroState.sensitivityCap
+            curveExponent = gyroState.curveExponent
+            rampSpeed = gyroState.rampSpeed
+            softCutoffThreshold = gyroState.softCutoffThreshold
+            recoveryThreshold = gyroState.recoveryThreshold
+            autoTuneSampleRate = gyroState.autoTuneSampleRate
+            autoNeutralEnabled = gyroState.autoNeutralEnabled
+
+            // Joy-Con specific
+            if kind == .joyCon {
+                joyConTimerFallbackEnabled = gyroState.joyConTimerFallbackEnabled
+                joyConTimerHybridEnabled = gyroState.joyConTimerHybridEnabled
+                joyConUseAveragedGyroSamples = gyroState.joyConUseAveragedGyroSamples
+            }
+
+            // Cursor control enablement (per profile; default true).
+            if profile.kind != .mouse {
+                let enabled = settingsStore.snapshot().cursorControlEnabledByProfile[profile] ?? true
+                cursorControlEnabled = enabled
+                settingsStore.update { $0.cursorControlEnabledByProfile[profile] = enabled }
+            } else {
+                cursorControlEnabled = true
+            }
+
+            // Also reload button mappings
+            reloadButtonMappingForConfigurationProfile()
         }
-
-        // Also reload button mappings
-        reloadButtonMappingForConfigurationProfile()
-
-        // Notify UI of refresh
-        objectWillChange.send()
     }
 
     /// Reload per-profile button mappings for the current configuration target.
     private func reloadButtonMappingForConfigurationProfile() {
         let profile = configurationProfile
-        switch profile.kind {
-        case .sense:
-            let mapping = SenseButtonMappingProfile.load(for: profile)
-            _buttonMappingProfile = Published(initialValue: mapping)
-            settingsStore.update { $0.senseButtonMappings[profile] = mapping }
+        withApplyingLoadedSettings {
+            switch profile.kind {
+            case .sense:
+                let mapping = SenseButtonMappingProfile.load(for: profile)
+                buttonMappingProfile = mapping
+                settingsStore.update { $0.senseButtonMappings[profile] = mapping }
 
-        case .joyCon:
-            let mapping: JoyConButtonMappingProfile
-            if JoyConButtonMappingProfile.hasPerProfileSettings(for: profile) {
-                mapping = .load(for: profile)
-            } else {
-                mapping = .defaultProfile(for: profile)
-            }
-            _joyConButtonMappingProfile = Published(initialValue: mapping)
-            settingsStore.update { $0.joyConButtonMappings[profile] = mapping }
+            case .joyCon:
+                let mapping: JoyConButtonMappingProfile
+                if JoyConButtonMappingProfile.hasPerProfileSettings(for: profile) {
+                    mapping = .load(for: profile)
+                } else {
+                    mapping = .defaultProfile(for: profile)
+                }
+                joyConButtonMappingProfile = mapping
+                settingsStore.update { $0.joyConButtonMappings[profile] = mapping }
 
-        case .mouse:
-            let mapping: G502XButtonMappingProfile
-            if G502XButtonMappingProfile.hasPerProfileSettings(for: profile) {
-                mapping = .load(for: profile)
-            } else {
-                mapping = .default
+            case .mouse:
+                let mapping: G502XButtonMappingProfile
+                if G502XButtonMappingProfile.hasPerProfileSettings(for: profile) {
+                    mapping = .load(for: profile)
+                } else {
+                    mapping = .default
+                }
+                g502xButtonMappingProfile = mapping
+                settingsStore.update { $0.g502xButtonMappings[profile] = mapping }
             }
-            _g502xButtonMappingProfile = Published(initialValue: mapping)
-            settingsStore.update { $0.g502xButtonMappings[profile] = mapping }
         }
-
-        // Notify UI of refresh
-        objectWillChange.send()
     }
 
     // MARK: - Engine Callbacks
