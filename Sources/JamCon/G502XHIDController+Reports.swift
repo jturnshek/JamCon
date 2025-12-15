@@ -29,10 +29,12 @@ extension G502XHIDController {
 
         // Log first 5 reports from each interface for debugging
         buffer.reportCount += 1
+        #if DEBUG
         if buffer.reportCount <= 5 {
             let bytesHex = (0..<min(8, copyLength)).map { String(format: "%02X", buffer.bytes[$0]) }.joined(separator: " ")
-            log("Report #\(buffer.reportCount) id=0x\(String(format: "%02X", reportID)) from UsagePage=0x\(String(format: "%04X", buffer.usagePage)) Usage=0x\(String(format: "%04X", buffer.usage)): [\(bytesHex)...]")
+            JamLog.debug(.g502x, "Report #\(buffer.reportCount) id=0x\(String(format: "%02X", reportID)) from UsagePage=0x\(String(format: "%04X", buffer.usagePage)) Usage=0x\(String(format: "%04X", buffer.usage)): [\(bytesHex)...]")
         }
+        #endif
 
         // Update cached interface info for debug UI (thread-safe), throttled to reduce overhead.
         if debugInterfaceEnabled, timestamp - lastInterfaceInfoUpdate > (1.0 / 10.0) {
@@ -207,4 +209,3 @@ extension G502XHIDController {
         }
     }
 }
-

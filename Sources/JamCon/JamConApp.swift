@@ -9,7 +9,7 @@ struct JamConApp: App {
     init() {
         // Check for previous crash and log it
         if let previousCrash = CrashReporter.checkForPreviousCrash() {
-            print("Previous crash detected:\n\(previousCrash)")
+            JamLog.error(.app, "Previous crash detected:\n\(previousCrash)")
         }
 
         // Install crash reporter to log crashes to ~/Library/Logs/JamCon/crash.log

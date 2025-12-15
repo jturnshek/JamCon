@@ -215,10 +215,7 @@ class SenseController {
     }
 
     private func log(_ message: String) {
-        print("[Sense] \(message)")
-        dispatchToHIDThread { [weak self] in
-            self?.onDebugMessage?(message)
-        }
+        JamLog.info(.sense, message)
     }
 
     deinit {
@@ -678,7 +675,7 @@ class SenseController {
             state.activeControllers.values.map { $0.controller.device }
         }
         guard !devices.isEmpty else {
-            log("Cannot send output: no active devices")
+            JamLog.infoThrottled(.sense, key: "output.noDevices", interval: 2.0, "Cannot send output: no active devices")
             return false
         }
 
@@ -695,7 +692,7 @@ class SenseController {
 
             if result != kIOReturnSuccess {
                 didSucceed = false
-                log("Output report failed: \(result)")
+                JamLog.errorThrottled(.sense, key: "output.failed.\(reportID)", interval: 2.0, "Output report failed: \(result)")
             }
         }
         return didSucceed

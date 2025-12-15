@@ -82,7 +82,7 @@ class KeyCaptureManager: ObservableObject {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("[KeyCaptureManager] Failed to create event tap - check Accessibility permissions")
+            JamLog.error(.ui, "Failed to create event tap - check Accessibility permissions")
             return
         }
 

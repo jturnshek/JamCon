@@ -547,7 +547,9 @@ final class JoyConHIDController {
 
     // MARK: - Input reports
 
+    #if DEBUG
     private static var debugLogCounter = 0
+    #endif
 
     private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
@@ -557,12 +559,14 @@ final class JoyConHIDController {
         var bytes = [UInt8](repeating: 0, count: maxLength)
         for i in 0..<maxLength { bytes[i] = report[i] }
 
+        #if DEBUG
         // Debug: log first few reports to see structure
         Self.debugLogCounter += 1
         if Self.debugLogCounter <= 5 {
             let hexBytes = bytes.prefix(50).map { String(format: "%02X", $0) }.joined(separator: " ")
-            log("Report[\(Self.debugLogCounter)] len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)")
+            JamLog.debug(.joyCon, "Report[\(Self.debugLogCounter)] len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)")
         }
+        #endif
 
         func readInt16LE(_ offset: Int) -> Int16 {
             guard offset + 1 < maxLength else { return 0 }
@@ -702,16 +706,13 @@ final class JoyConHIDController {
 
         let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(JoyCon.OutputType.subcommand.rawValue), &report, report.count)
         if result != kIOReturnSuccess {
-            log("Joy-Con subcommand \(command) failed: \(result)")
+            JamLog.errorThrottled(.joyCon, key: "subcommand.\(command.rawValue)", interval: 2.0, "Joy-Con subcommand \(command) failed: \(result)")
         }
     }
 
     // MARK: - Logging
 
     private func log(_ message: String) {
-        print("[JoyCon] \(message)")
-        dispatchToHIDThread { [weak self] in
-            self?.onDebugMessage?(message)
-        }
+        JamLog.info(.joyCon, message)
     }
 }

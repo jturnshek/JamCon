@@ -473,10 +473,6 @@ final class InputEngine {
             }
         }
 
-        senseController.onDebugMessage = { [weak self] message in
-            self?.debugBuffer.log("[Sense] \(message)")
-        }
-
         // Joy-Con Controller
         joyConController.onReportData = { [weak self] report in
             self?.engineQueueAsync { [weak self] in
@@ -512,10 +508,6 @@ final class InputEngine {
             }
         }
 
-        joyConController.onDebugMessage = { [weak self] message in
-            self?.debugBuffer.log("[JoyCon] \(message)")
-        }
-
         // G502X Mouse Controller
         g502xController.onReportData = { [weak self] report in
             self?.engineQueueAsync { [weak self] in
@@ -537,9 +529,6 @@ final class InputEngine {
             }
         }
 
-        g502xController.onDebugMessage = { [weak self] message in
-            self?.debugBuffer.log("[G502X] \(message)")
-        }
     }
 
     private func resetSenseTransientState(_ device: SenseDeviceState) {

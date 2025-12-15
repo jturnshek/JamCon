@@ -28,6 +28,7 @@
 		4DCADBA39379F43AC90DD100 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04EB933AD21491B69DCFE64 /* SettingsView.swift */; };
 		4F2655D098E358C285CC7296 /* ControllerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */; };
 		5BEE11DEBE41F602F4768C95 /* G502XHIDController+DeviceCallbacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94985C91216EFCBE1D4275E8 /* G502XHIDController+DeviceCallbacks.swift */; };
+		5F05CEF24E20B0107C0C0DBC /* JamLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BC1822796226D93320015C /* JamLog.swift */; };
 		6867FE65E3DD0B0801E08E46 /* InputEngine+JoystickScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7386793FB111B905D1626404 /* InputEngine+JoystickScroll.swift */; };
 		700A56D3651426914F3642A2 /* MouseDebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7242DF63166C644BA82EB5DB /* MouseDebugViews.swift */; };
 		76A5FC9931444E2485230F84 /* JoyConHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E18E845D60DF3C99DD71E81 /* JoyConHIDProtocol.swift */; };
@@ -119,6 +120,7 @@
 		98A336E41CF4A257C4886654 /* ButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMapping.swift; sourceTree = "<group>"; };
 		99599D54372F55E7E8B62ADF /* ButtonMappingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonMappingViews.swift; sourceTree = "<group>"; };
 		996B36A459FBA46E6F2F8703 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
+		99BC1822796226D93320015C /* JamLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamLog.swift; sourceTree = "<group>"; };
 		9A40500343CC8A0DB54D74AF /* SliderWithLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderWithLabel.swift; sourceTree = "<group>"; };
 		A1B051780DE7C520E9A2B9F9 /* AppState+Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Diagnostics.swift"; sourceTree = "<group>"; };
 		AA50FA041B846C309F580C8F /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 			isa = PBXGroup;
 			children = (
 				D920CEDAF995B8D68634D45C /* BatteryHelper.swift */,
+				99BC1822796226D93320015C /* JamLog.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -392,6 +395,7 @@
 				834742EC92FC61665874289B /* InputEngine.swift in Sources */,
 				165A8C9EC315A2BA3880F725 /* InputIndicators.swift in Sources */,
 				BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */,
+				5F05CEF24E20B0107C0C0DBC /* JamLog.swift in Sources */,
 				CC8218D06A6C54FC1E6D2F29 /* JoyConButtonMapping.swift in Sources */,
 				E7436A6CDCF84C0AD2888755 /* JoyConDebugViews.swift in Sources */,
 				3330AD6551ED17D23AA41508 /* JoyConHIDController.swift in Sources */,

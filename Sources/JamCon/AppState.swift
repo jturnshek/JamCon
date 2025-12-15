@@ -391,6 +391,7 @@ final class AppState: ObservableObject {
         // Create the core components
         self.settingsStore = SettingsStore()
         self.debugBuffer = DebugBuffer()
+        JamLog.setMirror(debugBuffer)
         self.engine = InputEngine(settings: settingsStore, debugBuffer: debugBuffer)
 
         _managedDeviceKeys = Published(initialValue: Self.loadManagedDeviceKeys())

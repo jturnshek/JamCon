@@ -83,7 +83,7 @@ extension InputEngine {
         let g9Pressed = bytes.count > 1 ? (bytes[1] & 0x01) != 0 : false
         let g9WasPrevious = g502xPreviousButtonStates[G502XLogicalButton.g9.index]
         if g9Pressed != g9WasPrevious {
-            debugBuffer.log("[G502X] HID: G9 state change - byte1=0x\(String(format: "%02X", bytes.count > 1 ? bytes[1] : 0)) pressed=\(g9Pressed) was=\(g9WasPrevious)")
+            JamLog.debug(.g502x, "HID: G9 state change - byte1=0x\(String(format: "%02X", bytes.count > 1 ? bytes[1] : 0)) pressed=\(g9Pressed) was=\(g9WasPrevious)")
         }
 
         // Process all G502X buttons
@@ -113,7 +113,7 @@ extension InputEngine {
         if actions.pressIsGyroMode {
             switch actions.press {
             case .radialMenu:
-                debugBuffer.log("[G502X] Opening radial menu (button=\(button))")
+                JamLog.debug(.g502x, "Opening radial menu (button=\(button))")
                 let owner = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
                 beginRadialMenu(owner: owner, pointerStyle: .systemCursor, modeState: &mouseMode)
             case .drag, .scroll:
@@ -206,4 +206,3 @@ extension InputEngine {
     // NOTE: We intentionally do not "passthrough" mouse buttons by re-posting CGEvents.
     // The G502X is opened non-exclusively, so the system already receives native mouse events.
 }
-

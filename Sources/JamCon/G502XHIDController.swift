@@ -366,10 +366,7 @@ class G502XHIDController {
     }
 
     func log(_ message: String) {
-        print("[G502X] \(message)")
-        dispatchToHIDThread { [weak self] in
-            self?.onDebugMessage?(message)
-        }
+        JamLog.info(.g502x, message)
     }
 
     deinit {
