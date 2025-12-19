@@ -18,6 +18,8 @@ TAP_REPO="${TAP_REPO:-}"
 PUBLISH="${RELEASE_PUBLISH:-0}"
 PUSH_TAP="${RELEASE_PUSH_TAP:-0}"
 SKIP_NOTARY="${RELEASE_SKIP_NOTARY:-0}"
+AUTO_TAG="${RELEASE_TAG:-}"
+AUTO_PUSH_TAG="${RELEASE_PUSH_TAG:-}"
 
 usage() {
   cat <<'EOF'
@@ -45,6 +47,8 @@ Environment:
   RELEASE_PUBLISH   Set to 1 to publish GitHub Releases without --publish
   RELEASE_PUSH_TAP  Set to 1 to push tap updates without --push-tap
   RELEASE_SKIP_NOTARY Set to 1 to skip notarization without --skip-notary
+  RELEASE_TAG       Set to 1 to auto-create a git tag when publishing
+  RELEASE_PUSH_TAG  Set to 1 to push the git tag to origin
 EOF
 }
 
@@ -96,6 +100,13 @@ require_cmd xcrun
 require_cmd ditto
 require_cmd shasum
 
+ensure_clean_git() {
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Working tree has uncommitted changes. Commit or stash before releasing."
+    exit 1
+  fi
+}
+
 PROJECT_VERSION=$(awk -F'"' '/MARKETING_VERSION:/{print $2; exit}' project.yml)
 if [ -z "$PROJECT_VERSION" ]; then
   echo "Unable to read MARKETING_VERSION from project.yml"
@@ -108,6 +119,13 @@ if [ -n "$VERSION" ] && [ "$VERSION" != "$PROJECT_VERSION" ]; then
   exit 1
 fi
 VERSION="$PROJECT_VERSION"
+
+if [ "$PUBLISH" -eq 1 ]; then
+  AUTO_TAG="${AUTO_TAG:-1}"
+  AUTO_PUSH_TAG="${AUTO_PUSH_TAG:-1}"
+fi
+AUTO_TAG="${AUTO_TAG:-0}"
+AUTO_PUSH_TAG="${AUTO_PUSH_TAG:-0}"
 
 if [ -z "${SIGNING_IDENTITY:-}" ]; then
   SIGNING_IDENTITY=$(
@@ -241,6 +259,28 @@ if [ "$PUSH_TAP" -eq 1 ]; then
   git -C "$TAP_REPO" add "$CASK_PATH"
   git -C "$TAP_REPO" commit -m "jamcon ${VERSION}"
   git -C "$TAP_REPO" push
+fi
+
+if [ "$AUTO_TAG" -eq 1 ]; then
+  require_cmd git
+  TAG_NAME="v${VERSION}"
+  if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
+    echo "Tag $TAG_NAME already exists locally."
+  else
+    if git ls-remote --tags origin "refs/tags/$TAG_NAME" | grep -q "$TAG_NAME"; then
+      echo "Tag $TAG_NAME already exists on origin."
+    else
+      ensure_clean_git
+      git tag -a "$TAG_NAME" -m "${APP_NAME} ${VERSION}"
+      echo "Created tag $TAG_NAME."
+    fi
+  fi
+
+  if [ "$AUTO_PUSH_TAG" -eq 1 ]; then
+    if git rev-parse -q --verify "refs/tags/$TAG_NAME" >/dev/null 2>&1; then
+      git push origin "$TAG_NAME"
+    fi
+  fi
 fi
 
 if [ "$PUBLISH" -eq 1 ]; then

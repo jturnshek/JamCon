@@ -26,6 +26,7 @@ Then edit it to set:
 - `TAP_REPO` (path to your local tap clone)
 - `RELEASE_PUBLISH` (set to `1` for auto-publish)
 - `RELEASE_PUSH_TAP` (set to `1` to auto-push the tap)
+- `RELEASE_TAG` / `RELEASE_PUSH_TAG` (set to `1` to auto-tag releases)
 
 ## One-time setup (notarization)
 
