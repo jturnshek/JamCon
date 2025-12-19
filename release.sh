@@ -14,20 +14,24 @@ BUILD_DIR="build"
 DIST_DIR="dist"
 
 VERSION=""
+BUMPED=0
 TAP_REPO="${TAP_REPO:-}"
 PUBLISH="${RELEASE_PUBLISH:-0}"
 PUSH_TAP="${RELEASE_PUSH_TAP:-0}"
 SKIP_NOTARY="${RELEASE_SKIP_NOTARY:-0}"
 AUTO_TAG="${RELEASE_TAG:-}"
 AUTO_PUSH_TAG="${RELEASE_PUSH_TAG:-}"
+AUTO_BUMP="${RELEASE_BUMP:-}"
+AUTO_PUSH_BRANCH="${RELEASE_PUSH_BRANCH:-}"
 TIMESTAMP_URL="${CODESIGN_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
 
 usage() {
   cat <<'EOF'
-Usage: ./release.sh [--version X.Y.Z] [--tap PATH] [--publish] [--push-tap] [--skip-notary]
+Usage: ./release.sh [--version X.Y.Z] [--bump patch|minor|major] [--tap PATH] [--publish] [--push-tap] [--skip-notary]
 
 Options:
   --version X.Y.Z   Verify version matches MARKETING_VERSION in project.yml
+  --bump kind       Auto-bump MARKETING_VERSION (patch|minor|major)
   --tap PATH        Update the Homebrew cask at PATH (repo or Casks/jamcon.rb)
   --publish         Create a GitHub release and upload DMG/ZIP (requires gh)
   --push-tap        Commit + push the tap repo after updating the cask (use repo path)
@@ -50,6 +54,8 @@ Environment:
   RELEASE_SKIP_NOTARY Set to 1 to skip notarization without --skip-notary
   RELEASE_TAG       Set to 1 to auto-create a git tag when publishing
   RELEASE_PUSH_TAG  Set to 1 to push the git tag to origin
+  RELEASE_BUMP      Set to patch|minor|major to auto-bump MARKETING_VERSION
+  RELEASE_PUSH_BRANCH Set to 1 to push the current branch after bumping
   CODESIGN_TIMESTAMP_URL  Override the timestamp server (default: http://timestamp.apple.com/ts01)
 EOF
 }
@@ -75,6 +81,10 @@ while [ $# -gt 0 ]; do
     --skip-notary)
       SKIP_NOTARY=1
       shift
+      ;;
+    --bump)
+      AUTO_BUMP="${2:-}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -125,8 +135,18 @@ ensure_clean_git() {
 }
 
 PROJECT_VERSION=$(awk -F'"' '/MARKETING_VERSION:/{print $2; exit}' project.yml)
+PROJECT_BUILD=$(awk -F'"' '/CURRENT_PROJECT_VERSION:/{print $2; exit}' project.yml)
 if [ -z "$PROJECT_VERSION" ]; then
   echo "Unable to read MARKETING_VERSION from project.yml"
+  exit 1
+fi
+if [ -z "$PROJECT_BUILD" ]; then
+  echo "Unable to read CURRENT_PROJECT_VERSION from project.yml"
+  exit 1
+fi
+
+if [ -n "$AUTO_BUMP" ] && [ -n "$VERSION" ]; then
+  echo "Cannot use --version with --bump. Remove --version to auto-bump."
   exit 1
 fi
 
@@ -140,9 +160,69 @@ VERSION="$PROJECT_VERSION"
 if [ "$PUBLISH" -eq 1 ]; then
   AUTO_TAG="${AUTO_TAG:-1}"
   AUTO_PUSH_TAG="${AUTO_PUSH_TAG:-1}"
+  AUTO_PUSH_BRANCH="${AUTO_PUSH_BRANCH:-1}"
 fi
 AUTO_TAG="${AUTO_TAG:-0}"
 AUTO_PUSH_TAG="${AUTO_PUSH_TAG:-0}"
+AUTO_PUSH_BRANCH="${AUTO_PUSH_BRANCH:-0}"
+
+if [ -n "$AUTO_BUMP" ]; then
+  case "$AUTO_BUMP" in
+    patch|minor|major) ;;
+    *)
+      echo "Invalid --bump value: $AUTO_BUMP (use patch|minor|major)"
+      exit 1
+      ;;
+  esac
+
+  ensure_clean_git
+  require_cmd git
+  require_cmd xcodegen
+
+  if [[ ! "$PROJECT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    echo "MARKETING_VERSION must be semver (X.Y.Z). Found: $PROJECT_VERSION"
+    exit 1
+  fi
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  patch="${BASH_REMATCH[3]}"
+
+  case "$AUTO_BUMP" in
+    patch)
+      patch=$((patch + 1))
+      ;;
+    minor)
+      minor=$((minor + 1))
+      patch=0
+      ;;
+    major)
+      major=$((major + 1))
+      minor=0
+      patch=0
+      ;;
+  esac
+
+  new_version="${major}.${minor}.${patch}"
+  if ! [[ "$PROJECT_BUILD" =~ ^[0-9]+$ ]]; then
+    echo "CURRENT_PROJECT_VERSION must be numeric. Found: $PROJECT_BUILD"
+    exit 1
+  fi
+  new_build=$((PROJECT_BUILD + 1))
+
+  /usr/bin/perl -0pi -e "s/MARKETING_VERSION: \"[^\"]+\"/MARKETING_VERSION: \"${new_version}\"/; s/CURRENT_PROJECT_VERSION: \"[^\"]+\"/CURRENT_PROJECT_VERSION: \"${new_build}\"/" project.yml
+  xcodegen generate
+
+  git add project.yml JamCon.xcodeproj/project.pbxproj
+  if [ -f ".beads/.local_version" ]; then
+    git add .beads/.local_version
+  fi
+  git commit -m "Bump version to ${new_version}"
+
+  PROJECT_VERSION="$new_version"
+  PROJECT_BUILD="$new_build"
+  VERSION="$new_version"
+  BUMPED=1
+fi
 
 if [ -z "${SIGNING_IDENTITY:-}" ]; then
   SIGNING_IDENTITY=$(
@@ -278,6 +358,11 @@ if [ "$PUSH_TAP" -eq 1 ]; then
   git -C "$TAP_REPO" add "$CASK_PATH"
   git -C "$TAP_REPO" commit -m "jamcon ${VERSION}"
   git -C "$TAP_REPO" push
+fi
+
+if [ "$AUTO_PUSH_BRANCH" -eq 1 ] && [ "$BUMPED" -eq 1 ]; then
+  require_cmd git
+  git push origin HEAD
 fi
 
 if [ "$AUTO_TAG" -eq 1 ]; then

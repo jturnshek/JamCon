@@ -28,6 +28,8 @@ Then edit it to set:
 - `RELEASE_PUSH_TAP` (set to `1` to auto-push the tap)
 - `RELEASE_TAG` / `RELEASE_PUSH_TAG` (set to `1` to auto-tag releases)
 - `CODESIGN_TIMESTAMP_URL` (override timestamp server if HTTPS is blocked)
+- `RELEASE_BUMP` (set to `patch`, `minor`, or `major` for auto version bump)
+- `RELEASE_PUSH_BRANCH` (set to `1` to push the branch after bumping)
 
 ## One-time setup (notarization)
 
@@ -61,6 +63,7 @@ export NOTARY_PROFILE="jamcon-notary"
    ```
 
 The script will:
+- Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (when `RELEASE_BUMP` is set)
 - Build and sign the app (arm64)
 - Notarize and staple
 - Create `dist/JamCon-<version>.dmg` and `.zip`
