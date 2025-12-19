@@ -96,6 +96,21 @@ require_cmd() {
   fi
 }
 
+staple_with_retry() {
+  local target="$1"
+  local attempts=5
+  local delay=5
+  local i
+  for i in $(seq 1 "$attempts"); do
+    if xcrun stapler staple "$target"; then
+      return 0
+    fi
+    echo "Staple failed for $target (attempt $i/$attempts). Retrying in ${delay}s..."
+    sleep "$delay"
+  done
+  return 1
+}
+
 require_cmd xcodebuild
 require_cmd codesign
 require_cmd xcrun
@@ -190,7 +205,7 @@ if [ "$SKIP_NOTARY" -eq 0 ]; then
   NOTARY_ZIP="$DIST_DIR/${APP_NAME}-notary.zip"
   ditto -c -k --keepParent "$APP_PATH" "$NOTARY_ZIP"
   xcrun notarytool submit "$NOTARY_ZIP" "${NOTARY_ARGS[@]}" --wait
-  xcrun stapler staple "$APP_PATH"
+  staple_with_retry "$APP_PATH"
 fi
 
 DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.dmg"
@@ -219,7 +234,9 @@ echo "Signing DMG..."
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp="$TIMESTAMP_URL" "$DMG_PATH"
 
 if [ "$SKIP_NOTARY" -eq 0 ]; then
-  xcrun stapler staple "$DMG_PATH"
+  echo "Submitting DMG for notarization..."
+  xcrun notarytool submit "$DMG_PATH" "${NOTARY_ARGS[@]}" --wait
+  staple_with_retry "$DMG_PATH"
 fi
 
 echo "Creating ZIP archive..."
