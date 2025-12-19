@@ -24,6 +24,7 @@ cask "jamcon" do
   end
 
   depends_on macos: ">= :sonoma"
+  depends_on arch: :arm64
 
   app "JamCon.app"
 

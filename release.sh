@@ -1,0 +1,256 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+APP_NAME="JamCon"
+BUILD_DIR="build"
+DIST_DIR="dist"
+
+VERSION=""
+TAP_REPO=""
+PUBLISH=0
+PUSH_TAP=0
+SKIP_NOTARY=0
+
+usage() {
+  cat <<'EOF'
+Usage: ./release.sh [--version X.Y.Z] [--tap PATH] [--publish] [--push-tap] [--skip-notary]
+
+Options:
+  --version X.Y.Z   Verify version matches MARKETING_VERSION in project.yml
+  --tap PATH        Update the Homebrew cask at PATH (repo or Casks/jamcon.rb)
+  --publish         Create a GitHub release and upload DMG/ZIP (requires gh)
+  --push-tap        Commit + push the tap repo after updating the cask (use repo path)
+  --skip-notary     Skip notarization (for local testing only)
+
+Environment:
+  SIGNING_IDENTITY  Developer ID Application identity (default: "Developer ID Application")
+  HOMEBREW_TAP      Tap name used in release notes (default: "jturnshek/tap")
+
+  NOTARY_PROFILE    Keychain profile name (created via notarytool store-credentials)
+  or:
+  NOTARY_KEY_ID, NOTARY_ISSUER_ID, NOTARY_KEY_PATH
+  or:
+  NOTARY_APPLE_ID, NOTARY_PASSWORD, NOTARY_TEAM_ID
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version)
+      VERSION="${2:-}"
+      shift 2
+      ;;
+    --tap)
+      TAP_REPO="${2:-}"
+      shift 2
+      ;;
+    --publish)
+      PUBLISH=1
+      shift
+      ;;
+    --push-tap)
+      PUSH_TAP=1
+      shift
+      ;;
+    --skip-notary)
+      SKIP_NOTARY=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1"
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+require_cmd() {
+  local name="$1"
+  if ! command -v "$name" >/dev/null 2>&1; then
+    echo "Missing required tool: $name"
+    exit 1
+  fi
+}
+
+require_cmd xcodebuild
+require_cmd codesign
+require_cmd xcrun
+require_cmd ditto
+require_cmd shasum
+
+PROJECT_VERSION=$(awk -F'"' '/MARKETING_VERSION:/{print $2; exit}' project.yml)
+if [ -z "$PROJECT_VERSION" ]; then
+  echo "Unable to read MARKETING_VERSION from project.yml"
+  exit 1
+fi
+
+if [ -n "$VERSION" ] && [ "$VERSION" != "$PROJECT_VERSION" ]; then
+  echo "Version mismatch: project.yml has $PROJECT_VERSION, but --version is $VERSION"
+  echo "Update MARKETING_VERSION in project.yml before releasing."
+  exit 1
+fi
+VERSION="$PROJECT_VERSION"
+
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
+HOMEBREW_TAP="${HOMEBREW_TAP:-jturnshek/tap}"
+
+NOTARY_ARGS=()
+if [ "$SKIP_NOTARY" -eq 0 ]; then
+  if [ -n "${NOTARY_PROFILE:-}" ]; then
+    NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+  elif [ -n "${NOTARY_KEY_ID:-}" ] && [ -n "${NOTARY_ISSUER_ID:-}" ] && [ -n "${NOTARY_KEY_PATH:-}" ]; then
+    NOTARY_ARGS=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+  elif [ -n "${NOTARY_APPLE_ID:-}" ] && [ -n "${NOTARY_PASSWORD:-}" ] && [ -n "${NOTARY_TEAM_ID:-}" ]; then
+    NOTARY_ARGS=(--apple-id "$NOTARY_APPLE_ID" --password "$NOTARY_PASSWORD" --team-id "$NOTARY_TEAM_ID")
+  else
+    echo "Missing notarization credentials."
+    echo "Set NOTARY_PROFILE, or NOTARY_KEY_ID/NOTARY_ISSUER_ID/NOTARY_KEY_PATH, or NOTARY_APPLE_ID/NOTARY_PASSWORD/NOTARY_TEAM_ID."
+    exit 1
+  fi
+fi
+
+if [ ! -f "JamCon.xcodeproj/project.pbxproj" ]; then
+  require_cmd xcodegen
+  echo "Generating Xcode project..."
+  xcodegen generate
+fi
+
+echo "Cleaning build artifacts..."
+rm -rf "$BUILD_DIR" "$DIST_DIR"
+mkdir -p "$DIST_DIR"
+
+echo "Building $APP_NAME $VERSION (arm64)..."
+xcodebuild -scheme JamCon -configuration Release \
+  -derivedDataPath "$BUILD_DIR" \
+  ARCHS=arm64
+
+APP_PATH="$BUILD_DIR/Build/Products/Release/${APP_NAME}.app"
+if [ ! -d "$APP_PATH" ]; then
+  echo "Build artifact missing at $APP_PATH"
+  exit 1
+fi
+
+echo "Signing app with Developer ID..."
+codesign --force --deep --sign "$SIGNING_IDENTITY" \
+  --entitlements Resources/JamCon.entitlements \
+  --options runtime \
+  --timestamp \
+  "$APP_PATH"
+codesign --verify --deep --strict "$APP_PATH"
+
+if [ "$SKIP_NOTARY" -eq 0 ]; then
+  echo "Submitting for notarization..."
+  NOTARY_ZIP="$DIST_DIR/${APP_NAME}-notary.zip"
+  ditto -c -k --keepParent "$APP_PATH" "$NOTARY_ZIP"
+  xcrun notarytool submit "$NOTARY_ZIP" "${NOTARY_ARGS[@]}" --wait
+  xcrun stapler staple "$APP_PATH"
+fi
+
+DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.dmg"
+ZIP_PATH="$DIST_DIR/${APP_NAME}-${VERSION}.zip"
+
+echo "Creating DMG..."
+if command -v create-dmg >/dev/null 2>&1; then
+  create-dmg \
+    --volname "$APP_NAME" \
+    --volicon "Resources/AppIcon.icns" \
+    --window-pos 200 120 \
+    --window-size 540 380 \
+    --icon-size 128 \
+    --icon "$APP_NAME.app" 130 200 \
+    --hide-extension "$APP_NAME.app" \
+    --app-drop-link 410 200 \
+    "$DMG_PATH" \
+    "$APP_PATH" || true
+fi
+
+if [ ! -s "$DMG_PATH" ]; then
+  hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+fi
+
+echo "Signing DMG..."
+codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+
+if [ "$SKIP_NOTARY" -eq 0 ]; then
+  xcrun stapler staple "$DMG_PATH"
+fi
+
+echo "Creating ZIP archive..."
+ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+
+DMG_SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+ZIP_SHA=$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')
+
+update_cask() {
+  local cask_path="$1"
+  if [ ! -f "$cask_path" ]; then
+    echo "Cask not found at $cask_path"
+    exit 1
+  fi
+  /usr/bin/perl -0pi -e "s/version \"[^\"]+\"/version \"${VERSION}\"/; s/sha256 \"[^\"]+\"/sha256 \"${DMG_SHA}\"/" "$cask_path"
+}
+
+CASK_PATH=""
+if [ -n "$TAP_REPO" ]; then
+  if [ -d "$TAP_REPO/Casks" ]; then
+    CASK_PATH="$TAP_REPO/Casks/jamcon.rb"
+  else
+    CASK_PATH="$TAP_REPO"
+  fi
+else
+  CASK_PATH="homebrew/jamcon.rb"
+fi
+update_cask "$CASK_PATH"
+
+if [ "$PUSH_TAP" -eq 1 ]; then
+  if [ -z "$TAP_REPO" ]; then
+    echo "--push-tap requires --tap PATH"
+    exit 1
+  fi
+  if [ ! -d "$TAP_REPO/.git" ]; then
+    echo "--push-tap requires --tap to be a git repo path"
+    exit 1
+  fi
+  git -C "$TAP_REPO" add "$CASK_PATH"
+  git -C "$TAP_REPO" commit -m "jamcon ${VERSION}"
+  git -C "$TAP_REPO" push
+fi
+
+if [ "$PUBLISH" -eq 1 ]; then
+  require_cmd gh
+  RELEASE_NOTES="$DIST_DIR/release-notes.txt"
+  cat > "$RELEASE_NOTES" <<EOF
+## ${APP_NAME} ${VERSION}
+
+### Installation
+1. Download \`${APP_NAME}-${VERSION}.dmg\`
+2. Drag ${APP_NAME}.app to /Applications
+3. Launch ${APP_NAME} and grant Accessibility permissions
+
+### Homebrew
+\`\`\`bash
+brew tap ${HOMEBREW_TAP}
+brew install --cask jamcon
+\`\`\`
+
+### SHA256
+DMG: ${DMG_SHA}
+ZIP: ${ZIP_SHA}
+EOF
+
+  gh release create "v${VERSION}" "$DMG_PATH" "$ZIP_PATH" \
+    --title "${APP_NAME} ${VERSION}" \
+    --notes-file "$RELEASE_NOTES"
+fi
+
+echo "Release artifacts ready:"
+echo "  DMG: $DMG_PATH"
+echo "  ZIP: $ZIP_PATH"
+echo "  SHA256 (DMG): $DMG_SHA"
+echo "  SHA256 (ZIP): $ZIP_SHA"

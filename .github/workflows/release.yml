@@ -1,12 +1,17 @@
 name: Build and Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
+    if: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 != '' && secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.NOTARIZATION_PASSWORD != '' }}
     runs-on: macos-14  # Apple Silicon runner
 
     steps:
@@ -49,6 +54,7 @@ jobs:
         run: |
           xcodebuild -scheme JamCon -configuration Release \
             -derivedDataPath build \
+            ARCHS=arm64 \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
             CODE_SIGN_IDENTITY="Developer ID Application"
@@ -127,6 +133,8 @@ jobs:
             1. Download `JamCon-${{ steps.sha.outputs.version }}.dmg`
             2. Open the DMG and drag JamCon to Applications
             3. Launch JamCon and grant Accessibility permission when prompted
+
+            **Apple Silicon (arm64) only**
 
             ### Homebrew
             ```bash

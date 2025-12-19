@@ -18,8 +18,22 @@ A macOS menu bar app that turns Nintendo Switch Joy-Con and PlayStation Sense co
 ## Requirements
 
 - macOS 14.0 (Sonoma) or later
+- Apple Silicon (arm64) Mac
 - Nintendo Switch Joy-Con controller(s) or PlayStation Sense controller(s)
 - Bluetooth
+
+## Install
+
+### Homebrew (recommended)
+
+```bash
+brew tap jturnshek/tap
+brew install --cask jamcon
+```
+
+### Direct download
+
+Download the latest `JamCon-<version>.dmg` from the GitHub Releases page and drag the app to `/Applications`.
 
 ## Quick Start
 
