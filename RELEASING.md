@@ -27,6 +27,7 @@ Then edit it to set:
 - `RELEASE_PUBLISH` (set to `1` for auto-publish)
 - `RELEASE_PUSH_TAP` (set to `1` to auto-push the tap)
 - `RELEASE_TAG` / `RELEASE_PUSH_TAG` (set to `1` to auto-tag releases)
+- `CODESIGN_TIMESTAMP_URL` (override timestamp server if HTTPS is blocked)
 
 ## One-time setup (notarization)
 

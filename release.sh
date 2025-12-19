@@ -20,6 +20,7 @@ PUSH_TAP="${RELEASE_PUSH_TAP:-0}"
 SKIP_NOTARY="${RELEASE_SKIP_NOTARY:-0}"
 AUTO_TAG="${RELEASE_TAG:-}"
 AUTO_PUSH_TAG="${RELEASE_PUSH_TAG:-}"
+TIMESTAMP_URL="${CODESIGN_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
 
 usage() {
   cat <<'EOF'
@@ -49,6 +50,7 @@ Environment:
   RELEASE_SKIP_NOTARY Set to 1 to skip notarization without --skip-notary
   RELEASE_TAG       Set to 1 to auto-create a git tag when publishing
   RELEASE_PUSH_TAG  Set to 1 to push the git tag to origin
+  CODESIGN_TIMESTAMP_URL  Override the timestamp server (default: http://timestamp.apple.com/ts01)
 EOF
 }
 
@@ -179,7 +181,7 @@ echo "Signing app with Developer ID..."
 codesign --force --deep --sign "$SIGNING_IDENTITY" \
   --entitlements Resources/JamCon.entitlements \
   --options runtime \
-  --timestamp \
+  --timestamp="$TIMESTAMP_URL" \
   "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH"
 
@@ -214,7 +216,7 @@ if [ ! -s "$DMG_PATH" ]; then
 fi
 
 echo "Signing DMG..."
-codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+codesign --force --sign "$SIGNING_IDENTITY" --timestamp="$TIMESTAMP_URL" "$DMG_PATH"
 
 if [ "$SKIP_NOTARY" -eq 0 ]; then
   xcrun stapler staple "$DMG_PATH"
