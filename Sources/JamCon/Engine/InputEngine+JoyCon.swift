@@ -32,14 +32,23 @@ extension InputEngine {
         device.mapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
 
         // 1. Process Joy-Con buttons
-        processJoyConButtonActions(
-            owner: owner,
-            device: device,
-            bytes: report.bytes,
-            mapping: device.mapping,
-            profile: buttonProfile,
-            holdThreshold: buttonProfile.holdThreshold
-	        )
+        if device.hasPrimedButtonState {
+            processJoyConButtonActions(
+                owner: owner,
+                device: device,
+                bytes: report.bytes,
+                mapping: device.mapping,
+                profile: buttonProfile,
+                holdThreshold: buttonProfile.holdThreshold
+            )
+        } else {
+            primeJoyConButtonStates(
+                device: device,
+                bytes: report.bytes,
+                mapping: device.mapping
+            )
+            device.hasPrimedButtonState = true
+        }
 
 	        // 2. Process gyro through unified pipeline
 	        // GyroRemapper handles the axis swapping for Joy-Con (different for left vs right)
@@ -159,6 +168,23 @@ extension InputEngine {
         }
     }
 
+    private func primeJoyConButtonStates(
+        device: JoyConDeviceState,
+        bytes: [UInt8],
+        mapping: JoyConButtonMapping
+    ) {
+        let availableButtons = mapping.isLeftController ? JoyConLogicalButton.leftButtons : JoyConLogicalButton.rightButtons
+        for button in availableButtons {
+            let idx = button.index
+            let isPressed = mapping.isPressed(button, in: bytes)
+            device.previousButtonStates[idx] = isPressed
+            device.buttonStates[idx] = isPressed
+            device.buttonPressStates[idx] = nil
+            device.holdTimers[idx]?.cancel()
+            device.holdTimers[idx] = nil
+        }
+    }
+
     private func handleJoyConButtonDown(
         owner: ManagedDeviceKey,
         device: JoyConDeviceState,
@@ -253,4 +279,3 @@ extension InputEngine {
         device.buttonPressStates[idx] = nil
     }
 }
-

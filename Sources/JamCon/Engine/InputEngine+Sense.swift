@@ -24,15 +24,25 @@ extension InputEngine {
         let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
         // 1. Process buttons (updates internal state, fires actions)
-        processSenseButtonActions(
-            owner: owner,
-            device: device,
-            bytes: report.bytes,
-            mapping: mapping,
-            profile: buttonProfile,
-            triggerThreshold: buttonProfile.triggerThreshold,
-            holdThreshold: buttonProfile.holdThreshold
-        )
+        if device.hasPrimedButtonState {
+            processSenseButtonActions(
+                owner: owner,
+                device: device,
+                bytes: report.bytes,
+                mapping: mapping,
+                profile: buttonProfile,
+                triggerThreshold: buttonProfile.triggerThreshold,
+                holdThreshold: buttonProfile.holdThreshold
+            )
+        } else {
+            primeSenseButtonStates(
+                device: device,
+                bytes: report.bytes,
+                mapping: mapping,
+                triggerThreshold: buttonProfile.triggerThreshold
+            )
+            device.hasPrimedButtonState = true
+        }
 
         // 2. Process joystick scroll if enabled
         if s.joystickScrollEnabled, cursorEnabled {
@@ -138,6 +148,28 @@ extension InputEngine {
         device.buttonStates[LogicalButton.trigger.index] = triggerPressed
     }
 
+    private func primeSenseButtonStates(
+        device: SenseDeviceState,
+        bytes: [UInt8],
+        mapping: SenseButtonMapping,
+        triggerThreshold: UInt8
+    ) {
+        for button in LogicalButton.allCases where button != .trigger {
+            let idx = button.index
+            let isPressed = mapping.isPressed(button, in: bytes)
+            device.previousButtonStates[idx] = isPressed
+            device.buttonStates[idx] = isPressed
+            device.buttonPressStates[idx] = nil
+            device.holdTimers[idx]?.cancel()
+            device.holdTimers[idx] = nil
+        }
+
+        let triggerValue = mapping.triggerValue(in: bytes)
+        let triggerPressed = triggerValue >= triggerThreshold
+        device.previousTriggerPressed = triggerPressed
+        device.buttonStates[LogicalButton.trigger.index] = triggerPressed
+    }
+
     private func handleSenseButtonDown(
         owner: ManagedDeviceKey,
         device: SenseDeviceState,
@@ -232,4 +264,3 @@ extension InputEngine {
         device.buttonPressStates[idx] = nil
     }
 }
-

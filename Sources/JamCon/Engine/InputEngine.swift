@@ -74,6 +74,7 @@ final class InputEngine {
         let profile: ControllerProfile
         var mode = GyroModeState()
         let gyroProcessor = GyroProcessor()
+        var hasPrimedButtonState: Bool = false
 
         var buttonStates: [Bool]
         var previousButtonStates: [Bool]
@@ -107,6 +108,7 @@ final class InputEngine {
         let profile: ControllerProfile
         var mode = GyroModeState()
         let gyroProcessor = GyroProcessor()
+        var hasPrimedButtonState: Bool = false
 
         var mapping: JoyConButtonMapping
         var buttonStates: [Bool]
@@ -553,6 +555,7 @@ final class InputEngine {
             device.buttonStates[idx] = false
             device.previousButtonStates[idx] = false
         }
+        device.hasPrimedButtonState = false
         device.mode = GyroModeState()
         device.gyroProcessor.reset()
     }
@@ -578,6 +581,7 @@ final class InputEngine {
             device.buttonStates[idx] = false
             device.previousButtonStates[idx] = false
         }
+        device.hasPrimedButtonState = false
         device.mode = GyroModeState()
         device.gyroProcessor.reset()
     }
