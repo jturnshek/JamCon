@@ -24,3 +24,6 @@ Package.resolved
 
 # Local release credentials
 release.env
+
+# Release artifacts
+dist/
