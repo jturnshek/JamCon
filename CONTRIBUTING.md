@@ -7,6 +7,15 @@ Thanks for considering a contribution to JamCon.
 - Check open issues and discussions to avoid duplicate work.
 - For major changes, open an issue first to discuss scope and design.
 
+## Code of conduct
+
+This project follows the Code of Conduct in CODE_OF_CONDUCT.md. By
+participating, you agree to uphold it.
+
+## Security issues
+
+Please report security vulnerabilities privately as described in SECURITY.md.
+
 ## Development setup
 
 See docs/DEVELOPMENT.md for prerequisites and workflow.

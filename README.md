@@ -57,6 +57,8 @@ See docs/DEVELOPMENT.md for full setup details.
 - Architecture: docs/ARCHITECTURE.md
 - Troubleshooting: docs/TROUBLESHOOTING.md
 - Releasing: RELEASING.md
+- Security: SECURITY.md
+- Code of conduct: CODE_OF_CONDUCT.md
 - HID protocol notes: docs/JoyCon-HID-Protocol.md, docs/Sense-HID-Protocol.md
 
 ## Disclaimer
