@@ -11,6 +11,22 @@ JamCon is distributed via GitHub Releases + a Homebrew Cask. Builds are **Apple 
 - Notarization credentials (recommended: notarytool keychain profile)
 - Optional: GitHub CLI (`brew install gh`) if you want to publish releases from the script
 
+## Local release config (recommended)
+
+Create a local `release.env` (ignored by git) from the example:
+
+```bash
+cp release.env.example release.env
+```
+
+Then edit it to set:
+- `SIGNING_IDENTITY`
+- `NOTARY_PROFILE`
+- `HOMEBREW_TAP`
+- `TAP_REPO` (path to your local tap clone)
+- `RELEASE_PUBLISH` (set to `1` for auto-publish)
+- `RELEASE_PUSH_TAP` (set to `1` to auto-push the tap)
+
 ## One-time setup (notarization)
 
 Create a keychain profile for `notarytool`:
@@ -37,11 +53,7 @@ export NOTARY_PROFILE="jamcon-notary"
    ```bash
    xcodegen generate
    ```
-3. Export your signing identity (Developer ID Application):
-   ```bash
-   export SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-   ```
-4. Run the release script:
+3. Run the release script:
    ```bash
    ./release.sh --publish --tap /path/to/homebrew-tap --push-tap
    ```

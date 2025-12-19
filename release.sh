@@ -3,15 +3,21 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+RELEASE_ENV="${RELEASE_ENV:-./release.env}"
+if [ -f "$RELEASE_ENV" ]; then
+  # shellcheck source=/dev/null
+  . "$RELEASE_ENV"
+fi
+
 APP_NAME="JamCon"
 BUILD_DIR="build"
 DIST_DIR="dist"
 
 VERSION=""
-TAP_REPO=""
-PUBLISH=0
-PUSH_TAP=0
-SKIP_NOTARY=0
+TAP_REPO="${TAP_REPO:-}"
+PUBLISH="${RELEASE_PUBLISH:-0}"
+PUSH_TAP="${RELEASE_PUSH_TAP:-0}"
+SKIP_NOTARY="${RELEASE_SKIP_NOTARY:-0}"
 
 usage() {
   cat <<'EOF'
@@ -25,7 +31,9 @@ Options:
   --skip-notary     Skip notarization (for local testing only)
 
 Environment:
-  SIGNING_IDENTITY  Developer ID Application identity (default: "Developer ID Application")
+  RELEASE_ENV       Path to a local env file (default: ./release.env)
+  SIGNING_IDENTITY  Developer ID Application identity (auto-detected if unset)
+  TAP_REPO          Default tap path (alternative to --tap)
   HOMEBREW_TAP      Tap name used in release notes (default: "jturnshek/tap")
 
   NOTARY_PROFILE    Keychain profile name (created via notarytool store-credentials)
@@ -33,6 +41,10 @@ Environment:
   NOTARY_KEY_ID, NOTARY_ISSUER_ID, NOTARY_KEY_PATH
   or:
   NOTARY_APPLE_ID, NOTARY_PASSWORD, NOTARY_TEAM_ID
+
+  RELEASE_PUBLISH   Set to 1 to publish GitHub Releases without --publish
+  RELEASE_PUSH_TAP  Set to 1 to push tap updates without --push-tap
+  RELEASE_SKIP_NOTARY Set to 1 to skip notarization without --skip-notary
 EOF
 }
 
@@ -97,7 +109,16 @@ if [ -n "$VERSION" ] && [ "$VERSION" != "$PROJECT_VERSION" ]; then
 fi
 VERSION="$PROJECT_VERSION"
 
-SIGNING_IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
+if [ -z "${SIGNING_IDENTITY:-}" ]; then
+  SIGNING_IDENTITY=$(
+    security find-identity -v -p codesigning 2>/dev/null \
+      | awk -F'"' '/Developer ID Application:/{print $2; exit}'
+  )
+fi
+if [ -z "${SIGNING_IDENTITY:-}" ]; then
+  echo "Missing SIGNING_IDENTITY. Install a Developer ID Application certificate or set SIGNING_IDENTITY."
+  exit 1
+fi
 HOMEBREW_TAP="${HOMEBREW_TAP:-jturnshek/tap}"
 
 NOTARY_ARGS=()

@@ -21,3 +21,6 @@ Package.resolved
 
 # Temporary image files (used for icon creation)
 /*.png
+
+# Local release credentials
+release.env
