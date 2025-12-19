@@ -23,6 +23,7 @@ AUTO_TAG="${RELEASE_TAG:-}"
 AUTO_PUSH_TAG="${RELEASE_PUSH_TAG:-}"
 AUTO_BUMP="${RELEASE_BUMP:-}"
 AUTO_PUSH_BRANCH="${RELEASE_PUSH_BRANCH:-}"
+SYNC_LOCAL_CASK="${RELEASE_SYNC_LOCAL_CASK:-1}"
 TIMESTAMP_URL="${CODESIGN_TIMESTAMP_URL:-http://timestamp.apple.com/ts01}"
 
 usage() {
@@ -56,6 +57,7 @@ Environment:
   RELEASE_PUSH_TAG  Set to 1 to push the git tag to origin
   RELEASE_BUMP      Set to patch|minor|major to auto-bump MARKETING_VERSION
   RELEASE_PUSH_BRANCH Set to 1 to push the current branch after bumping
+  RELEASE_SYNC_LOCAL_CASK Set to 1 to keep homebrew/jamcon.rb in sync
   CODESIGN_TIMESTAMP_URL  Override the timestamp server (default: http://timestamp.apple.com/ts01)
 EOF
 }
@@ -335,6 +337,8 @@ update_cask() {
 }
 
 CASK_PATH=""
+LOCAL_CASK_PATH="homebrew/jamcon.rb"
+LOCAL_CASK_UPDATED=0
 if [ -n "$TAP_REPO" ]; then
   if [ -d "$TAP_REPO/Casks" ]; then
     CASK_PATH="$TAP_REPO/Casks/jamcon.rb"
@@ -345,6 +349,16 @@ else
   CASK_PATH="homebrew/jamcon.rb"
 fi
 update_cask "$CASK_PATH"
+
+if [ "$SYNC_LOCAL_CASK" -eq 1 ] && [ -f "$LOCAL_CASK_PATH" ] && [ "$LOCAL_CASK_PATH" != "$CASK_PATH" ]; then
+  update_cask "$LOCAL_CASK_PATH"
+  if ! git diff --quiet -- "$LOCAL_CASK_PATH"; then
+    require_cmd git
+    git add "$LOCAL_CASK_PATH"
+    git commit -m "Update cask for ${VERSION}"
+    LOCAL_CASK_UPDATED=1
+  fi
+fi
 
 if [ "$PUSH_TAP" -eq 1 ]; then
   if [ -z "$TAP_REPO" ]; then
@@ -360,7 +374,7 @@ if [ "$PUSH_TAP" -eq 1 ]; then
   git -C "$TAP_REPO" push
 fi
 
-if [ "$AUTO_PUSH_BRANCH" -eq 1 ] && [ "$BUMPED" -eq 1 ]; then
+if [ "$AUTO_PUSH_BRANCH" -eq 1 ] && { [ "$BUMPED" -eq 1 ] || [ "$LOCAL_CASK_UPDATED" -eq 1 ]; }; then
   require_cmd git
   git push origin HEAD
 fi

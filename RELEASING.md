@@ -30,6 +30,7 @@ Then edit it to set:
 - `CODESIGN_TIMESTAMP_URL` (override timestamp server if HTTPS is blocked)
 - `RELEASE_BUMP` (set to `patch`, `minor`, or `major` for auto version bump)
 - `RELEASE_PUSH_BRANCH` (set to `1` to push the branch after bumping)
+- `RELEASE_SYNC_LOCAL_CASK` (set to `1` to keep `homebrew/jamcon.rb` in sync)
 
 ## One-time setup (notarization)
 

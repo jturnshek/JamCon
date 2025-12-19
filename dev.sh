@@ -5,8 +5,26 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-SIGNING_IDENTITY="Apple Development: James Turnshek (FY9D4ZL9L8)"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 BUILD_LOG="${BUILD_LOG:-/tmp/jamcon-build.log}"
+
+if [ -z "$SIGNING_IDENTITY" ]; then
+    SIGNING_IDENTITY=$(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | awk -F'"' '/Developer ID Application:/{print $2; exit}'
+    )
+fi
+if [ -z "$SIGNING_IDENTITY" ]; then
+    SIGNING_IDENTITY=$(
+        security find-identity -v -p codesigning 2>/dev/null \
+            | awk -F'"' '/Apple Development:/{print $2; exit}'
+    )
+fi
+if [ -z "$SIGNING_IDENTITY" ]; then
+    echo "Missing SIGNING_IDENTITY. Set it to a Developer ID Application or Apple Development identity."
+    echo "Find available identities with: security find-identity -v -p codesigning"
+    exit 1
+fi
 
 # Generate Xcode project if needed
 if [ ! -f "JamCon.xcodeproj/project.pbxproj" ]; then
