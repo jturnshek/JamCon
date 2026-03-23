@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents when working with code in this repository.
 
 ## Build and Development
 
@@ -32,7 +32,7 @@ security find-identity -v -p codesigning
 
 ### Threading Model
 
-Input processing happens off the main thread to minimize latency. The `SettingsStore` class provides thread-safe access to settings using `OSAllocatedUnfairLock`, avoiding main thread dispatch for high-frequency gyro updates (~66Hz).
+Input processing happens off the main thread to minimize latency. The `SettingsStore` class provides thread-safe access to settings using `OSAllocatedUnfairLock`, avoiding main thread dispatch for high-frequency gyro updates (~66Hz). Controller-local hot settings that need to cross UI, engine, and HID threads use small lock-protected runtime config objects with explicit last-writer-wins semantics.
 
 **Input flow:**
 1. `SenseController` or `JoyConHIDController` receives HID reports on a background queue
@@ -43,7 +43,7 @@ Input processing happens off the main thread to minimize latency. The `SettingsS
 
 ### Key Components
 
-- **AppState** (`AppState.swift`): Central state management. `@Published` properties for UI, bridges to `SettingsStore` for thread-safe input processing. Routes controller events to appropriate handlers based on controller role (primary/secondary).
+- **AppState** (`AppState.swift`): Central UI state. Owns managed-device state, persists per-profile settings, and mirrors engine callbacks into SwiftUI.
 
 - **SenseController** (`SenseController.swift`): PlayStation Sense controller Bluetooth HID driver. Direct IOHIDManager access for low-latency gyro data.
 
@@ -59,17 +59,17 @@ Input processing happens off the main thread to minimize latency. The `SettingsS
 
 - **RadialMenuState/View** (`Models/RadialMenuState.swift`, `Views/RadialMenuView.swift`): Joystick-activated pie menu system. State management and SwiftUI view for the radial menu overlay.
 
-### Dual Controller Support
+### Multi-Device Management
 
-When two controllers are connected:
-- Primary controller handles gyro mouse + primary button mappings
-- Secondary controller only sends button inputs with separate mappings
-- `selectedControllerID` in AppState determines which controller is primary
-- Each has independent clutch/scroll/zoom button assignments
+JamCon can manage multiple supported devices at the same time:
+- Managed devices are selected explicitly in the UI
+- Button mappings are stored per controller profile
+- Cursor control can be enabled or disabled per profile
+- Multiple managed controllers can stay connected simultaneously
 
 ### Button Mapping System
 
-`SenseButtonMappingProfile` and `JoyConButtonMappingProfile` map logical buttons → `ButtonActions` (press + hold actions). Actions can be mouse clicks, keyboard shortcuts, or system actions. Override buttons (clutch/scroll/zoom) bypass normal mappings to convert gyro to drag/scroll/magnify gestures.
+`SenseButtonMappingProfile` and `JoyConButtonMappingProfile` map logical buttons → `ButtonActions` (press + hold actions). Actions can be mouse clicks, keyboard shortcuts, or system actions. Override buttons (clutch/scroll/radial menu) bypass normal mappings to convert input into drag, scrolling, or radial-menu gestures.
 
 ## Accessibility Permission
 

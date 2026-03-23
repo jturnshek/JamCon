@@ -365,27 +365,6 @@ class SenseController {
 
     // MARK: - Controller Selection
 
-    /// Select a controller by ID
-    func selectController(id: String) {
-        setControllerManaged(id: id, managed: true)
-    }
-
-    /// Deselect all controllers (stop receiving input).
-    func deselectController() {
-        let activeIDs = stateLock.withLock { state in
-            state.managedControllerIDs.removeAll(keepingCapacity: true)
-            return Array(state.activeControllers.keys)
-        }
-        guard !activeIDs.isEmpty else { return }
-
-        performHIDOperation { [weak self] in
-            guard let self else { return }
-            for id in activeIDs {
-                self.deactivateController(id: id)
-            }
-        }
-    }
-
     /// Enable/disable processing for a specific physical controller ID.
     func setControllerManaged(id: String, managed: Bool) {
         if managed {

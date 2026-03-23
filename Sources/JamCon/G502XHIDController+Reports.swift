@@ -18,7 +18,7 @@ extension G502XHIDController {
             return
         }
 
-        let debugInterfaceEnabled = interfaceDebugEnabledLock.withLock { _interfaceDebugEnabled }
+        let debugInterfaceEnabled = runtimeConfig.snapshot().interfaceDebugEnabled
         let isVendor = buffer.usagePage >= 0xFF00
         let isStandardMouse = buffer.usagePage == 0x0001 && buffer.usage == 0x0002
         guard debugInterfaceEnabled || isVendor || isStandardMouse else { return }

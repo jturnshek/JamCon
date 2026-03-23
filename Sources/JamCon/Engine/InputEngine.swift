@@ -177,8 +177,9 @@ final class InputEngine {
 
     // MARK: - Radial Menu UI Callback
 
-    /// Called when radial menu should show/hide - UI can observe this
-    /// This is the ONLY callback to UI, and it's for radial menu overlay
+    /// Called when radial menu should show/hide - UI can observe this.
+    /// This is the ONLY callback to UI, and it's for radial menu overlay.
+    /// The position is reported in Quartz global display coordinates.
     var onRadialMenuShow: ((_ position: CGPoint, _ configuration: RadialMenuConfiguration, _ pointerStyle: RadialMenuPointerStyle) -> Void)?
     var onRadialMenuHide: ((_ selectedItem: RadialMenuItem?) -> Void)?
     var onRadialMenuUpdate: ((_ delta: CGPoint) -> Void)?
@@ -265,6 +266,7 @@ final class InputEngine {
         }
         guard shouldStart else { return }
 
+        syncControllerRuntimeConfig(from: settings.snapshot())
         setupCallbacks()
 
         senseController.start()
@@ -311,6 +313,15 @@ final class InputEngine {
         senseController.stop()
         joyConController.stop()
         g502xController.stop()
+    }
+
+    /// Push hot controller-local settings into thread-safe runtime config objects.
+    /// These settings are intentionally last-writer-wins and may take effect between packets.
+    func syncControllerRuntimeConfig(from snapshot: SettingsStore.InputSettings) {
+        joyConController.setTimingMode(
+            useTimerFallback: snapshot.joyConTimerFallbackEnabled,
+            useTimerHybrid: snapshot.joyConTimerHybridEnabled
+        )
     }
 
     // MARK: - Controller Selection
@@ -380,42 +391,6 @@ final class InputEngine {
         }
         clearBatteryLevel(for: key)
         cancelRadialMenuIfOwned(by: key)
-    }
-
-    func selectController(id: String, kind: ControllerKind, isLeft: Bool) {
-        settings.update { $0.activeProfile = ControllerProfile(kind: kind, isLeft: isLeft) }
-        setDeviceManaged(id: id, kind: kind, isLeft: isLeft, managed: true)
-    }
-
-    func deselectController() {
-        engineQueueSync {
-            // Deselect in HID controllers (stop receiving input)
-            senseController.deselectController()
-            joyConController.deselectController()
-            g502xController.deselectMouse()
-
-            if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
-                let owner = radialMenuOwner
-                stopRadialMenuUIUpdateTimer()
-                stopRadialMenuCursorTracking()
-                mouseMode.radialMenuButtonHeld = false
-                if owner?.kind != .mouse {
-                    mouseController.showCursor()
-                }
-                radialMenuOwner = nil
-                onRadialMenuHide?(nil)
-            }
-
-            selectedMouseID = nil
-            senseDevices.values.forEach { $0.cancelHoldTimers() }
-            joyConDevices.values.forEach { $0.cancelHoldTimers() }
-            senseDevices.removeAll(keepingCapacity: true)
-            joyConDevices.removeAll(keepingCapacity: true)
-            batteryLevels.removeAll(keepingCapacity: true)
-
-            // Reset battery
-            updateBatteryLevel(0)
-        }
     }
 
     /// Get list of available controllers

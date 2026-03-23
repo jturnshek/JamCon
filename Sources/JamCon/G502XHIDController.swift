@@ -165,7 +165,14 @@ class G502XHIDController {
         var mouseName: String?
     }
 
+    struct RuntimeConfigState {
+        var interfaceDebugEnabled: Bool = false
+    }
+
     let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
+    let runtimeConfig = LockedRuntimeConfig(initialState: RuntimeConfigState())
+
+
 
     /// UI-safe snapshot of all discovered G502X mice.
     func mouseInfosSnapshot() -> [ControllerInfo] {
@@ -230,8 +237,6 @@ class G502XHIDController {
     let interfaceInfoLock = NSLock()
     var cachedInterfaceInfo: [G502XInterfaceInfo] = []
     var lastInterfaceInfoUpdate: TimeInterval = 0
-    let interfaceDebugEnabledLock = OSAllocatedUnfairLock()
-    var _interfaceDebugEnabled: Bool = false
 
     /// Get info about all discovered interfaces for the selected mouse (for debug UI)
     /// Thread-safe: returns a cached snapshot
@@ -244,8 +249,8 @@ class G502XHIDController {
     /// Enable/disable the expensive per-interface debug cache updates.
     /// When disabled, cached snapshots are cleared to free memory and avoid background work.
     func setInterfaceDebugEnabled(_ enabled: Bool) {
-        interfaceDebugEnabledLock.withLock {
-            _interfaceDebugEnabled = enabled
+        runtimeConfig.update { config in
+            config.interfaceDebugEnabled = enabled
         }
         if !enabled {
             interfaceInfoLock.lock()

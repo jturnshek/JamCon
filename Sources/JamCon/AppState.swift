@@ -60,11 +60,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Currently active runtime profile (derived from activeControllerKind and isLeftController).
-    var runtimeProfile: ControllerProfile {
-        ControllerProfile(kind: activeControllerKind, isLeft: isLeftController)
-    }
-
     private enum DefaultsKeys {
         static let configurationKind = "configurationProfile.kind"
         static let configurationIsLeft = "configurationProfile.isLeft"
@@ -401,6 +396,7 @@ final class AppState: ObservableObject {
 
         // Load settings from store into published properties
         loadSettingsFromStore()
+        syncEngineRuntimeConfig()
 
         // Setup engine callbacks for UI updates
         setupEngineCallbacks()
@@ -464,7 +460,7 @@ final class AppState: ObservableObject {
             }
         }
 
-        let primary = managedAvailable.sorted { a, b in
+        let displayDevice = managedAvailable.sorted { a, b in
             if kindSortIndex(a.kind) != kindSortIndex(b.kind) {
                 return kindSortIndex(a.kind) < kindSortIndex(b.kind)
             }
@@ -474,18 +470,19 @@ final class AppState: ObservableObject {
             return a.name < b.name
         }.first!
 
-        activeControllerKind = primary.kind
-        isLeftController = primary.isLeft
+        activeControllerKind = displayDevice.kind
+        isLeftController = displayDevice.isLeft
 
         if managedAvailable.count == 1 {
-            controllerName = primary.kind.hasSides ? "\(primary.name) (\(primary.side))" : primary.name
+            controllerName = displayDevice.kind.hasSides ? "\(displayDevice.name) (\(displayDevice.side))" : displayDevice.name
         } else {
             controllerName = "Managing \(managedAvailable.count) devices"
         }
 
-        // On first run (no saved configuration target), default to configuring the primary managed device.
+        // On first run (no saved configuration target), default to configuring the first
+        // managed device in the display/sort order used by the UI.
         if UserDefaults.standard.string(forKey: DefaultsKeys.configurationKind) == nil {
-            configurationProfile = ControllerProfile(from: primary)
+            configurationProfile = ControllerProfile(from: displayDevice)
         }
     }
 
@@ -515,6 +512,10 @@ final class AppState: ObservableObject {
 
         // Load settings for the restored configuration target.
         reloadSettingsForConfigurationProfile()
+    }
+
+    private func syncEngineRuntimeConfig() {
+        engine.syncControllerRuntimeConfig(from: settingsStore.snapshot())
     }
 
     private func saveGyroSettings() {
@@ -548,6 +549,7 @@ final class AppState: ObservableObject {
 
         let updatedState = state
         settingsStore.update { $0.gyroSettings[kind] = updatedState }
+        syncEngineRuntimeConfig()
         scheduleGyroSettingsPersistence(kind: kind, state: updatedState)
     }
 
@@ -620,6 +622,7 @@ final class AppState: ObservableObject {
         settingsStore.update { s in
             s.gyroSettings[kind] = gyroState
         }
+        syncEngineRuntimeConfig()
 
         withApplyingLoadedSettings {
             sensitivity = gyroState.sensitivity
@@ -722,11 +725,12 @@ final class AppState: ObservableObject {
         engine.onRadialMenuShow = { [weak self] position, configuration, pointerStyle in
             Task { @MainActor in
                 guard let self else { return }
+                let screenPosition = DisplayCoordinateConverter.appKitScreenPoint(fromQuartz: position)
                 if self.radialMenuWindowController == nil {
                     self.radialMenuWindowController = RadialMenuWindowController(state: self.radialMenuState)
                 }
-                self.radialMenuState.show(at: position, configuration: configuration, pointerStyle: pointerStyle)
-                self.radialMenuWindowController?.show(at: position)
+                self.radialMenuState.show(at: screenPosition, configuration: configuration, pointerStyle: pointerStyle)
+                self.radialMenuWindowController?.show(at: screenPosition)
             }
         }
 

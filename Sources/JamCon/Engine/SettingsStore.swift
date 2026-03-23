@@ -10,9 +10,7 @@ final class SettingsStore: @unchecked Sendable {
 
     /// All settings needed by the input engine
     struct InputSettings {
-        // MARK: - Controller Selection
         var isEnabled: Bool = true
-        var activeProfile: ControllerProfile = .senseRight
 
         // MARK: - Per-Type Gyro Settings
         var gyroSettings: [ControllerKind: GyroSettingsState] = [
@@ -52,99 +50,6 @@ final class SettingsStore: @unchecked Sendable {
         /// only for that controller kind.
         var debugRecordingTargetKind: ControllerKind?
 
-        // MARK: - Convenience Accessors
-
-        /// Current gyro settings for the active controller type
-        var currentGyroSettings: GyroSettingsState {
-            get { gyroSettings[activeProfile.kind] ?? .defaultForKind(activeProfile.kind) }
-            set { gyroSettings[activeProfile.kind] = newValue }
-        }
-
-        /// Current Sense button mapping for the active profile
-        var currentSenseButtonMapping: SenseButtonMappingProfile {
-            get { senseButtonMappings[activeProfile] ?? .load(for: activeProfile) }
-            set { senseButtonMappings[activeProfile] = newValue }
-        }
-
-        /// Current Joy-Con button mapping for the active profile
-        var currentJoyConButtonMapping: JoyConButtonMappingProfile {
-            get { joyConButtonMappings[activeProfile] ?? .load(for: activeProfile) }
-            set { joyConButtonMappings[activeProfile] = newValue }
-        }
-
-        /// Current G502X button mapping for the active profile
-        var currentG502XButtonMapping: G502XButtonMappingProfile {
-            get { g502xButtonMappings[activeProfile] ?? .load(for: activeProfile) }
-            set { g502xButtonMappings[activeProfile] = newValue }
-        }
-
-        // MARK: - Legacy Accessors (for backwards compatibility during migration)
-
-        var isLeftController: Bool {
-            get { activeProfile.isLeft }
-            set {
-                activeProfile = ControllerProfile(kind: activeProfile.kind, isLeft: newValue)
-            }
-        }
-
-        var activeControllerKind: ControllerKind {
-            get { activeProfile.kind }
-            set {
-                activeProfile = ControllerProfile(kind: newValue, isLeft: activeProfile.isLeft)
-            }
-        }
-
-        // Flat gyro accessors that read/write to the current type's settings
-        var sensitivity: Double {
-            get { currentGyroSettings.sensitivity }
-            set { gyroSettings[activeProfile.kind]?.sensitivity = newValue }
-        }
-
-        var gyroScale: Double {
-            get { currentGyroSettings.gyroScale }
-            set { gyroSettings[activeProfile.kind]?.gyroScale = newValue }
-        }
-
-        var filterEnabled: Bool {
-            get { currentGyroSettings.filterEnabled }
-            set { gyroSettings[activeProfile.kind]?.filterEnabled = newValue }
-        }
-
-        var minCutoff: Double {
-            get { currentGyroSettings.minCutoff }
-            set { gyroSettings[activeProfile.kind]?.minCutoff = newValue }
-        }
-
-        var beta: Double {
-            get { currentGyroSettings.beta }
-            set { gyroSettings[activeProfile.kind]?.beta = newValue }
-        }
-
-        var adaptiveSmoothingMode: AdaptiveSmoothingMode {
-            get { currentGyroSettings.adaptiveSmoothingMode }
-            set { gyroSettings[activeProfile.kind]?.adaptiveSmoothingMode = newValue }
-        }
-
-        var expectedSampleRate: Double {
-            get { currentGyroSettings.expectedSampleRate }
-            set { gyroSettings[activeProfile.kind]?.expectedSampleRate = newValue }
-        }
-
-        var biasMotionThreshold: Double {
-            get { currentGyroSettings.biasMotionThreshold }
-            set { gyroSettings[activeProfile.kind]?.biasMotionThreshold = newValue }
-        }
-
-        var autoTuneSampleRate: Bool {
-            get { currentGyroSettings.autoTuneSampleRate }
-            set { gyroSettings[activeProfile.kind]?.autoTuneSampleRate = newValue }
-        }
-
-        var autoNeutralEnabled: Bool {
-            get { currentGyroSettings.autoNeutralEnabled }
-            set { gyroSettings[activeProfile.kind]?.autoNeutralEnabled = newValue }
-        }
-
         var joyConTimerFallbackEnabled: Bool {
             get { gyroSettings[.joyCon]?.joyConTimerFallbackEnabled ?? true }
             set { gyroSettings[.joyCon]?.joyConTimerFallbackEnabled = newValue }
@@ -158,67 +63,6 @@ final class SettingsStore: @unchecked Sendable {
         var joyConUseAveragedGyroSamples: Bool {
             get { gyroSettings[.joyCon]?.joyConUseAveragedGyroSamples ?? false }
             set { gyroSettings[.joyCon]?.joyConUseAveragedGyroSamples = newValue }
-        }
-
-        var accelerationMode: AccelerationMode {
-            get { currentGyroSettings.accelerationMode }
-            set { gyroSettings[activeProfile.kind]?.accelerationMode = newValue }
-        }
-
-        var simpleAcceleration: Double {
-            get { currentGyroSettings.simpleAcceleration }
-            set { gyroSettings[activeProfile.kind]?.simpleAcceleration = newValue }
-        }
-
-        var curveExponent: Double {
-            get { currentGyroSettings.curveExponent }
-            set { gyroSettings[activeProfile.kind]?.curveExponent = newValue }
-        }
-
-        var rampSpeed: Double {
-            get { currentGyroSettings.rampSpeed }
-            set { gyroSettings[activeProfile.kind]?.rampSpeed = newValue }
-        }
-
-        var sensitivityCap: Double {
-            get { currentGyroSettings.sensitivityCap }
-            set { gyroSettings[activeProfile.kind]?.sensitivityCap = newValue }
-        }
-
-        var accelerationCurve: AccelerationCurve {
-            get { currentGyroSettings.accelerationCurve }
-            set { gyroSettings[activeProfile.kind]?.accelerationCurve = newValue }
-        }
-
-        var accelerationStrength: Double {
-            get { currentGyroSettings.accelerationStrength }
-            set { gyroSettings[activeProfile.kind]?.accelerationStrength = newValue }
-        }
-
-        var softCutoffThreshold: Double {
-            get { currentGyroSettings.softCutoffThreshold }
-            set { gyroSettings[activeProfile.kind]?.softCutoffThreshold = newValue }
-        }
-
-        var recoveryThreshold: Double {
-            get { currentGyroSettings.recoveryThreshold }
-            set { gyroSettings[activeProfile.kind]?.recoveryThreshold = newValue }
-        }
-
-        // Legacy button mapping accessors
-        var buttonMappingProfile: SenseButtonMappingProfile {
-            get { currentSenseButtonMapping }
-            set { senseButtonMappings[activeProfile] = newValue }
-        }
-
-        var joyConButtonMappingProfile: JoyConButtonMappingProfile {
-            get { currentJoyConButtonMapping }
-            set { joyConButtonMappings[activeProfile] = newValue }
-        }
-
-        var g502xButtonMappingProfile: G502XButtonMappingProfile {
-            get { currentG502XButtonMapping }
-            set { g502xButtonMappings[activeProfile] = newValue }
         }
 
         // MARK: - Persistence
@@ -357,11 +201,6 @@ final class SettingsStore: @unchecked Sendable {
                 legacyJoyCon.save(for: .joyConRight)
             }
         }
-
-        /// Convert current gyro settings to GyroSettingsState for the GyroProcessor
-        func toGyroSettingsState() -> GyroSettingsState {
-            currentGyroSettings
-        }
     }
 
     // MARK: - Thread-Safe Access
@@ -386,27 +225,5 @@ final class SettingsStore: @unchecked Sendable {
         lock.withLock {
             _settings = settings
         }
-    }
-
-    // MARK: - Convenience Accessors (for UI binding)
-
-    var isEnabled: Bool {
-        get { lock.withLock { _settings.isEnabled } }
-        set { lock.withLock { _settings.isEnabled = newValue } }
-    }
-
-    var activeProfile: ControllerProfile {
-        get { lock.withLock { _settings.activeProfile } }
-        set { lock.withLock { _settings.activeProfile = newValue } }
-    }
-
-    var isLeftController: Bool {
-        get { lock.withLock { _settings.isLeftController } }
-        set { lock.withLock { _settings.isLeftController = newValue } }
-    }
-
-    var activeControllerKind: ControllerKind {
-        get { lock.withLock { _settings.activeControllerKind } }
-        set { lock.withLock { _settings.activeControllerKind = newValue } }
     }
 }

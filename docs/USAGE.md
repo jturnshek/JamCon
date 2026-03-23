@@ -31,18 +31,18 @@ Open the menu bar icon and expand Button Mappings:
 - Hold: action when button is held (configurable delay)
 - Clutch: hold to drag (mouse down while held, mouse up on release)
 - Scroll: hold to convert gyro tilt into scrolling
-- Zoom: hold to convert gyro tilt into pinch-to-zoom gestures
+- Radial Menu: hold to open the radial menu and select with gyro or mouse movement
 
-Each button can be assigned to only one override mode (Clutch/Scroll/Zoom).
+Each button can be assigned to only one override mode (Clutch/Scroll/Radial Menu).
 
-## Dual controller mode
+## Multiple devices
 
-When two controllers are connected:
+JamCon lets you manage multiple supported devices at once:
 
-- Primary handles mouse movement and primary button mappings
-- Secondary sends button inputs with its own mappings
-- Each controller has independent Clutch/Scroll/Zoom assignments
-- Use Set Primary to switch which one controls the mouse
+- Managed devices are selected in the Devices screen
+- Button mappings are saved per controller profile
+- Cursor control can be enabled or disabled per controller profile
+- Multiple managed controllers can stay connected at the same time
 
 ## Settings
 

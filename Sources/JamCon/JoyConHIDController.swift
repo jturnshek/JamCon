@@ -75,10 +75,15 @@ final class JoyConHIDController {
     var onControllersChanged: (() -> Void)?
     var onDebugMessage: ((_ message: String) -> Void)?
 
-    /// Whether to use packet timer fallback when device timestamps are unavailable
-    var useTimerFallback: Bool = true
-    /// Whether to prefer a hybrid timer path (controller timer with device timestamp as anchor)
-    var useTimerHybrid: Bool = false
+    struct RuntimeConfigState {
+        /// Whether to use packet timer fallback when device timestamps are unavailable.
+        var useTimerFallback: Bool = true
+
+        /// Whether to prefer a hybrid timer path (controller timer with device timestamp as anchor).
+        var useTimerHybrid: Bool = false
+    }
+
+    let runtimeConfig = LockedRuntimeConfig(initialState: RuntimeConfigState())
 
     // MARK: - State
 
@@ -210,6 +215,13 @@ final class JoyConHIDController {
 
     func start() {
         startHIDThreadIfNeeded()
+    }
+
+    func setTimingMode(useTimerFallback: Bool, useTimerHybrid: Bool) {
+        runtimeConfig.update { config in
+            config.useTimerFallback = useTimerFallback
+            config.useTimerHybrid = useTimerHybrid
+        }
     }
 
     func stop() {
@@ -419,26 +431,6 @@ final class JoyConHIDController {
         }
     }
 
-    func selectController(id: String) {
-        setControllerManaged(id: id, managed: true)
-    }
-
-    /// Deselect all controllers (stop receiving input).
-    func deselectController() {
-        let activeIDs = stateLock.withLock { state in
-            state.managedControllerIDs.removeAll(keepingCapacity: true)
-            return Array(state.activeControllers.keys)
-        }
-        guard !activeIDs.isEmpty else { return }
-
-        performHIDOperation { [weak self] in
-            guard let self else { return }
-            for id in activeIDs {
-                self.deactivateController(id: id)
-            }
-        }
-    }
-
     /// Enable/disable processing for a specific Joy-Con controller ID.
     func setControllerManaged(id: String, managed: Bool) {
         if managed {
@@ -597,6 +589,7 @@ final class JoyConHIDController {
     /// Compute a stable timestamp using device time if available; otherwise fall back to packet timer (byte 1) before host time.
     private func computeTimestamp(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
         let hostNow = CACurrentMediaTime()
+        let runtime = runtimeConfig.snapshot()
 
         // Timer byte (packet counter)
         let timerByteIndex = JoyConHIDProtocol.Offset.timer
@@ -607,7 +600,7 @@ final class JoyConHIDController {
         return stateLock.withLock { state in
             guard let active = state.activeControllers[controllerID] else { return hostNow }
 
-            if useTimerHybrid, let timer = timerByte {
+            if runtime.useTimerHybrid, let timer = timerByte {
                 // Hybrid: prefer controller timer; device timestamp seeds anchor if present
                 let anchor = active.lastTimerTimestamp ?? active.lastDeviceTimestamp ?? hostNow
                 if let lastByte = active.lastTimerByte {
@@ -632,7 +625,7 @@ final class JoyConHIDController {
                 return deviceTs
             }
 
-            guard useTimerFallback, let timer = timerByte else {
+            guard runtime.useTimerFallback, let timer = timerByte else {
                 active.lastTimerByte = nil
                 active.lastTimerTimestamp = nil
                 return hostNow

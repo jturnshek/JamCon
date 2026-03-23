@@ -22,7 +22,7 @@ extension InputEngine {
         if pointerStyle == .ghostCursor {
             mouseController.hideCursor()
         }
-        onRadialMenuShow?(quartzToCocoa(position), config, pointerStyle)
+        onRadialMenuShow?(position, config, pointerStyle)
 
         if pointerStyle == .systemCursor {
             startRadialMenuCursorTracking(anchor: position)
@@ -198,11 +198,6 @@ extension InputEngine {
 
     private func currentCursorPositionQuartz() -> CGPoint? {
         CGEvent(source: nil)?.location
-    }
-
-    private func quartzToCocoa(_ quartz: CGPoint) -> CGPoint {
-        let mainHeight = CGDisplayBounds(CGMainDisplayID()).height
-        return CGPoint(x: quartz.x, y: mainHeight - quartz.y)
     }
 
     // MARK: - Radial Menu

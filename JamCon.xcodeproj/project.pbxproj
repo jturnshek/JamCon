@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,6 +11,7 @@
 		025742718620188765E3FE97 /* SenseHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94A70C97BCF40ABB92A069F9 /* SenseHIDProtocol.swift */; };
 		05288CE54A6CE03AACB7229E /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49ADE054843492EEE54E60F5 /* AppState.swift */; };
 		05E153980EBEE7DB0CA522AC /* ButtonsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2125ADE648F458AAAF0269C4 /* ButtonsTab.swift */; };
+		06F28899D85823943181C103 /* LockedRuntimeConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6587389D0C707A15E16452F /* LockedRuntimeConfig.swift */; };
 		09B770A6F1F092FD188BC44C /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A7855A1E10189EABA24208 /* MouseController.swift */; };
 		0A690939457C311691E3FCC7 /* StickTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF4E6221314FE64E89F2DEE /* StickTab.swift */; };
 		0CB54EAE878B6FDC762F7BB7 /* SliderWithLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A40500343CC8A0DB54D74AF /* SliderWithLabel.swift */; };
@@ -24,6 +25,7 @@
 		3330AD6551ED17D23AA41508 /* JoyConHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62203646E95111A4D67E46C9 /* JoyConHIDController.swift */; };
 		3AB975A63B80209AB6D81E21 /* G502XHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */; };
 		3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */; };
+		3C5E42B3ED04667C6725E7A5 /* DisplayCoordinateConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */; };
 		412BBEC8E88003D16190F825 /* G502XHIDController+Reports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD8C718C55AD53C57B6BEC /* G502XHIDController+Reports.swift */; };
 		4DCADBA39379F43AC90DD100 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04EB933AD21491B69DCFE64 /* SettingsView.swift */; };
 		4F2655D098E358C285CC7296 /* ControllerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */; };
@@ -78,6 +80,7 @@
 		01FFD05D2FB52AD9A3A1C658 /* SenseDebugSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseDebugSections.swift; sourceTree = "<group>"; };
 		0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDProtocol.swift; sourceTree = "<group>"; };
 		0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
+		1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayCoordinateConverter.swift; sourceTree = "<group>"; };
 		1E2C66CE3F326B6D45B21CF1 /* ByteInspectorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ByteInspectorViews.swift; sourceTree = "<group>"; };
 		2125ADE648F458AAAF0269C4 /* ButtonsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonsTab.swift; sourceTree = "<group>"; };
 		239C2974D577B18805DA1237 /* KeyCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaptureManager.swift; sourceTree = "<group>"; };
@@ -130,6 +133,7 @@
 		B5A02C858DDA1884589796E0 /* OneEuroFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneEuroFilter.swift; sourceTree = "<group>"; };
 		B63F03DEFB5C92AF3CC98131 /* DebugBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugBuffer.swift; sourceTree = "<group>"; };
 		B84620F15CB71F402575BEE6 /* StatusIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicators.swift; sourceTree = "<group>"; };
+		C6587389D0C707A15E16452F /* LockedRuntimeConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockedRuntimeConfig.swift; sourceTree = "<group>"; };
 		CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		D04EB933AD21491B69DCFE64 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D920CEDAF995B8D68634D45C /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
@@ -157,7 +161,9 @@
 			isa = PBXGroup;
 			children = (
 				D920CEDAF995B8D68634D45C /* BatteryHelper.swift */,
+				1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */,
 				99BC1822796226D93320015C /* JamLog.swift */,
+				C6587389D0C707A15E16452F /* LockedRuntimeConfig.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -337,7 +343,6 @@
 				};
 			};
 			buildConfigurationList = 9D4C7819EC5AF94AD1D9CA15 /* Build configuration list for PBXProject "JamCon" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -346,6 +351,8 @@
 			);
 			mainGroup = 5314E75E4147E98244999FAC;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 58496D4639B8272E28565458 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -375,6 +382,7 @@
 				7A5A8E822D6BE73E42ED1DA3 /* DebugTab.swift in Sources */,
 				8ACAEF38B79C6B0F3D003BEA /* DebugTelemetryState.swift in Sources */,
 				BE38FECB6C5468C335D221F1 /* DebugVisualizationViews.swift in Sources */,
+				3C5E42B3ED04667C6725E7A5 /* DisplayCoordinateConverter.swift in Sources */,
 				E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */,
 				5BEE11DEBE41F602F4768C95 /* G502XHIDController+DeviceCallbacks.swift in Sources */,
 				8AE18F8B03A97334819C3FB0 /* G502XHIDController+HIDPP.swift in Sources */,
@@ -400,6 +408,7 @@
 				3330AD6551ED17D23AA41508 /* JoyConHIDController.swift in Sources */,
 				76A5FC9931444E2485230F84 /* JoyConHIDProtocol.swift in Sources */,
 				9FA0EA8597A5CD03A939E151 /* KeyCaptureManager.swift in Sources */,
+				06F28899D85823943181C103 /* LockedRuntimeConfig.swift in Sources */,
 				B7E54485EDBB225ACE05508F /* LogTab.swift in Sources */,
 				01772595B7A51F43AEBAEB6B /* MenuBarView.swift in Sources */,
 				BA2AF22A9DDCD0D611944E6D /* MouseControlTab.swift in Sources */,
@@ -434,14 +443,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/JamCon.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 3EZHX57W9Y;
 				INFOPLIST_FILE = Resources/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.jamcon.app;
 				SDKROOT = macosx;
 			};
@@ -451,6 +455,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -512,14 +517,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/JamCon.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = 3EZHX57W9Y;
 				INFOPLIST_FILE = Resources/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.jamcon.app;
 				SDKROOT = macosx;
 			};
@@ -529,6 +529,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";

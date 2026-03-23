@@ -19,10 +19,6 @@ extension InputEngine {
         let profile = device.profile
         let owner = ManagedDeviceKey(kind: .joyCon, id: device.id)
 
-        // Keep Joy-Con timing mode in sync with settings
-        joyConController.useTimerFallback = s.joyConTimerFallbackEnabled
-        joyConController.useTimerHybrid = s.joyConTimerHybridEnabled
-
         let isLeft = profile.isLeft
         let buttonProfile: JoyConButtonMappingProfile = s.joyConButtonMappings[profile] ?? .defaultProfile(for: profile)
         let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true

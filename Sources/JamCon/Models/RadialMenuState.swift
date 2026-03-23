@@ -34,7 +34,7 @@ class RadialMenuState: ObservableObject {
     /// How pointer movement is represented (ghost dot vs system cursor).
     @Published var pointerStyle: RadialMenuPointerStyle = .ghostCursor
 
-    /// Current mouse position where menu is anchored (screen coordinates)
+    /// Current mouse position where menu is anchored (AppKit global screen coordinates)
     @Published var anchorPosition: CGPoint = .zero
 
     /// Currently highlighted slice index for inner ring (nil = center/none)
@@ -128,7 +128,7 @@ class RadialMenuState: ObservableObject {
 
     // MARK: - Methods
 
-    /// Show the menu at the given screen position
+    /// Show the menu at the given AppKit global screen position
     func show(at position: CGPoint, configuration: RadialMenuConfiguration? = nil, pointerStyle: RadialMenuPointerStyle = .ghostCursor) {
         if let config = configuration {
             activeConfiguration = config

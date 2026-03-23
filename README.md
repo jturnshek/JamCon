@@ -9,8 +9,8 @@ It includes a custom Joy-Con HID implementation, low-latency gyro mouse control,
 - Gyro mouse control with adaptive smoothing
 - Joy-Con and PS VR2 Sense controller support
 - Button mapping for clicks, shortcuts, and system actions
-- Dual controller mode (primary + secondary)
-- Clutch, scroll, zoom, and radial menu modes
+- Multi-device management with per-profile settings
+- Drag, scroll, and radial menu modes
 
 ## Requirements
 
