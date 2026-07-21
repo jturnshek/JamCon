@@ -3,7 +3,7 @@ import CoreGraphics
 
 // MARK: - Mouse Button Types
 
-enum MouseButton: String, Codable, CaseIterable, Hashable {
+enum MouseButton: String, Codable, CaseIterable, Hashable, Sendable {
     case left
     case right
     case middle
@@ -19,7 +19,7 @@ enum MouseButton: String, Codable, CaseIterable, Hashable {
 
 // MARK: - System Actions
 
-enum SystemAction: String, Codable, CaseIterable, Hashable {
+enum SystemAction: String, Codable, CaseIterable, Hashable, Sendable {
     case missionControl
     case launchpad
     case showDesktop
@@ -39,7 +39,7 @@ enum SystemAction: String, Codable, CaseIterable, Hashable {
 
 // MARK: - Key Combination
 
-struct KeyCombo: Codable, Hashable {
+struct KeyCombo: Codable, Hashable, Sendable {
     let keyCode: UInt16
     let modifiers: UInt64  // CGEventFlags.rawValue
 
@@ -128,7 +128,7 @@ struct KeyCombo: Codable, Hashable {
 
 // MARK: - Button Action
 
-enum ButtonAction: Codable, Hashable {
+enum ButtonAction: Codable, Hashable, Sendable {
     case none
     case mouseClick(MouseButton)
     case keyPress(KeyCombo)
@@ -227,7 +227,7 @@ enum ButtonAction: Codable, Hashable {
 // MARK: - Button Actions (Press + Hold)
 
 /// Combined actions for press (tap) and hold (long press) on a button
-struct ButtonActions: Codable, Hashable {
+struct ButtonActions: Codable, Hashable, Sendable {
     var press: ButtonAction
     var hold: ButtonAction
 
@@ -245,7 +245,7 @@ struct ButtonActions: Codable, Hashable {
 
 // MARK: - Button Mapping Profile
 
-struct SenseButtonMappingProfile: Codable {
+struct SenseButtonMappingProfile: Codable, Sendable {
     private(set) var mappings: [String: ButtonActions]  // LogicalButton.rawValue -> actions
     private var actionsCache: [ButtonActions] = Array(repeating: ButtonActions(), count: LogicalButton.allCases.count)
     var triggerThreshold: UInt8
@@ -447,7 +447,7 @@ struct SenseButtonMappingProfile: Codable {
 
 // MARK: - Joy-Con Button Mapping Profile
 
-struct JoyConButtonMappingProfile: Codable {
+struct JoyConButtonMappingProfile: Codable, Sendable {
     private(set) var mappings: [String: ButtonActions]  // JoyConLogicalButton.rawValue -> actions
     private var actionsCache: [ButtonActions] = Array(repeating: ButtonActions(), count: JoyConLogicalButton.count)
     var holdThreshold: Double  // Seconds before hold action fires

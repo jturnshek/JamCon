@@ -88,6 +88,7 @@ final class InputEngine {
         var buttonStates: [Bool]
         var previousButtonStates: [Bool]
         var previousTriggerPressed: Bool = false
+        var joystickScrollTiming = JoystickScrollTiming()
         var buttonPressStates: [ButtonPressState?]
         var holdTimers: [DispatchWorkItem?]
 
@@ -224,6 +225,7 @@ final class InputEngine {
     }
 
     func setBatteryLevel(_ level: Int, for device: ManagedDeviceKey) {
+        guard batteryLevels[device] != level else { return }
         batteryLevels[device] = level
         updateBatteryFromLevels()
     }
@@ -631,6 +633,7 @@ final class InputEngine {
         }
 
         device.previousTriggerPressed = false
+        device.joystickScrollTiming.reset()
         for idx in device.buttonStates.indices {
             device.buttonStates[idx] = false
             device.previousButtonStates[idx] = false

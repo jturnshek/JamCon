@@ -141,7 +141,7 @@ struct G502XButtonMapping {
 
 // MARK: - G502X Button Mapping Profile
 
-struct G502XButtonMappingProfile: Codable {
+struct G502XButtonMappingProfile: Codable, Sendable {
     private(set) var mappings: [String: ButtonActions]  // G502XLogicalButton.rawValue -> actions
     private var actionsCache: [ButtonActions] = Array(repeating: ButtonActions(), count: G502XLogicalButton.count)
     var holdThreshold: Double  // Seconds before hold action fires

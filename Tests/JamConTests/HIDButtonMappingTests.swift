@@ -19,6 +19,26 @@ final class HIDButtonMappingTests: XCTestCase {
         XCTAssertFalse(mapping.isPressed(.faceBottom, in: bytes))
     }
 
+    func testLeftSensePhysicalButtonAndTriggerOffsets() {
+        var bytes = [UInt8](repeating: 0, count: SenseHIDProtocol.reportLength)
+        bytes[SenseHIDProtocol.Offset.faceButtons] = SenseHIDProtocol.FaceButtonMask.triangleButton
+            | SenseHIDProtocol.FaceButtonMask.squareButton
+            | SenseHIDProtocol.FaceButtonMask.leftGrip
+        bytes[SenseHIDProtocol.Offset.systemButtons] = SenseHIDProtocol.SystemButtonMask.createButton
+            | SenseHIDProtocol.SystemButtonMask.leftStickClick
+            | SenseHIDProtocol.SystemButtonMask.playStationButton
+        bytes[SenseHIDProtocol.Offset.triggerAnalog] = 173
+        let mapping = SenseButtonMapping(isLeft: true)
+
+        XCTAssertTrue(mapping.isPressed(.faceTop, in: bytes))
+        XCTAssertTrue(mapping.isPressed(.faceBottom, in: bytes))
+        XCTAssertTrue(mapping.isPressed(.bumper, in: bytes))
+        XCTAssertTrue(mapping.isPressed(.menuButton, in: bytes))
+        XCTAssertTrue(mapping.isPressed(.stickClick, in: bytes))
+        XCTAssertTrue(mapping.isPressed(.playStation, in: bytes))
+        XCTAssertEqual(mapping.triggerValue(in: bytes), 173)
+    }
+
     func testJoyConSideSpecificButtonsDoNotAlias() {
         var rightBytes = [UInt8](repeating: 0, count: JoyConHIDProtocol.reportLength)
         rightBytes[3] = 0x08 | 0x80 // A + ZR

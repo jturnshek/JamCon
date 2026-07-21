@@ -9,8 +9,6 @@ struct SenseDebugView: View {
     let currentTime: Date
 
     private var byte11: UInt8 { telemetry.safeReportByte(SenseHIDProtocol.Offset.touchStates) }
-    private var faceTopTouch: Bool { (byte11 & 0x01) != 0 }
-    private var faceBottomTouch: Bool { (byte11 & 0x02) != 0 }
     private var stickTouch: Bool { (byte11 & SenseHIDProtocol.TouchStateMask.joystickTouch) != 0 }
 
     var body: some View {
@@ -29,8 +27,6 @@ struct SenseDebugView: View {
                 DebugButtonsSection(
                     telemetry: telemetry,
                     isLeft: isLeft,
-                    faceTopTouch: faceTopTouch,
-                    faceBottomTouch: faceBottomTouch,
                     stickTouch: stickTouch
                 )
 
@@ -54,7 +50,7 @@ struct SenseDebugView: View {
 
                 // Section 5: Button Lab
                 ButtonLabView(
-                    buttonName: "Circle, X, Grip (R1)",
+                    buttonName: isLeft ? "Triangle, Square, Grip (L1)" : "Circle, X, Grip (R1)",
                     candidateBytes: [9],
                     reportBytes: telemetry.reportBytes,
                     bitLastChanged: telemetry.bitLastChanged,
@@ -62,7 +58,7 @@ struct SenseDebugView: View {
                 )
 
                 ButtonLabView(
-                    buttonName: "Joystick Click, Start, PlayStation",
+                    buttonName: isLeft ? "Joystick Click, Create, PlayStation" : "Joystick Click, Options, PlayStation",
                     candidateBytes: [10],
                     reportBytes: telemetry.reportBytes,
                     bitLastChanged: telemetry.bitLastChanged,
@@ -79,7 +75,7 @@ struct SenseDebugView: View {
                 AnalogLabView(
                     title: "Analog Inputs",
                     inputs: [
-                        ("Trigger (R2)", 4),
+                        (isLeft ? "Trigger (L2)" : "Trigger (R2)", 4),
                     ],
                     reportBytes: telemetry.reportBytes
                 )

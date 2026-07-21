@@ -123,28 +123,4 @@ enum SenseHIDProtocol {
     /// Default gyro scale factor (raw units to degrees/second)
     static let defaultGyroScale: Double = 1.0 / 16.0
 
-    // MARK: - Output Report Constants (Experimental - may not work over Bluetooth)
-
-    enum OutputReport {
-        static let reportID: UInt8 = 0x31
-        static let length: Int = 78
-
-        // Bluetooth header
-        static let tagByteValue: UInt8 = 0x10
-
-        // Valid flags for output report byte 2
-        enum ValidFlag0: UInt8 {
-            case rumble = 0x01
-            case led = 0x04
-            case rumbleAndLed = 0x05
-        }
-
-        // LED settings offsets (DualSense-style, may differ for Sense)
-        static let lightbarSetup: Int = 44
-        static let ledBrightness: Int = 45
-        static let playerLEDs: Int = 46
-        static let ledRed: Int = 47
-        static let ledGreen: Int = 48
-        static let ledBlue: Int = 49
-    }
 }

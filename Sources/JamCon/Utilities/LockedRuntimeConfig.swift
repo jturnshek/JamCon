@@ -18,6 +18,8 @@ final class LockedRuntimeConfig<State: Sendable>: @unchecked Sendable {
     }
 
     func update(_ body: (inout State) -> Void) {
-        lock.withLock { body(&$0) }
+        // The mutation is synchronous and remains inside this lock; callers do
+        // not transfer the closure to another task or executor.
+        lock.withLockUnchecked { body(&$0) }
     }
 }

@@ -5,8 +5,6 @@ import SwiftUI
 struct DebugButtonsSection: View {
     @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
-    let faceTopTouch: Bool
-    let faceBottomTouch: Bool
     let stickTouch: Bool
 
     var body: some View {
@@ -21,7 +19,7 @@ struct DebugButtonsSection: View {
                     Text(isLeft ? "Triangle" : "Circle")
                         .font(.system(size: 12, weight: .medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    TouchIndicator(active: faceTopTouch)
+                    Color.clear.gridCellUnsizedAxes(.horizontal)
                     Arrow()
                     PressIndicator(active: telemetry.buttonStates[.faceTop] ?? false)
                 }
@@ -30,7 +28,7 @@ struct DebugButtonsSection: View {
                     Text(isLeft ? "Square" : "X")
                         .font(.system(size: 12, weight: .medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    TouchIndicator(active: faceBottomTouch)
+                    Color.clear.gridCellUnsizedAxes(.horizontal)
                     Arrow()
                     PressIndicator(active: telemetry.buttonStates[.faceBottom] ?? false)
                 }
@@ -220,4 +218,3 @@ struct DebugRawReportSection: View {
         )
     }
 }
-

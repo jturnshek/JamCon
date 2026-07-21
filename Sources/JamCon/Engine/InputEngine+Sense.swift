@@ -3,6 +3,23 @@ import CoreGraphics
 import QuartzCore
 import os
 
+enum SenseTriggerHysteresis {
+    static let defaultReleaseMargin: UInt8 = 8
+
+    static func isPressed(
+        value: UInt8,
+        pressThreshold: UInt8,
+        wasPressed: Bool,
+        releaseMargin: UInt8 = defaultReleaseMargin
+    ) -> Bool {
+        guard wasPressed else { return value >= pressThreshold }
+        let releaseThreshold = pressThreshold > releaseMargin
+            ? pressThreshold - releaseMargin
+            : 0
+        return value > releaseThreshold
+    }
+}
+
 extension InputEngine {
 
     // MARK: - Sense Report Processing
@@ -69,11 +86,19 @@ extension InputEngine {
 
         // 2. Process joystick scroll if enabled
         if s.joystickScrollEnabled, cursorEnabled {
-            processJoystickScroll(bytes: report.bytes, mapping: mapping, settings: s)
+            processJoystickScroll(
+                bytes: report.bytes,
+                mapping: mapping,
+                timestamp: report.timestamp,
+                timing: &device.joystickScrollTiming,
+                settings: s
+            )
+        } else {
+            device.joystickScrollTiming.reset()
         }
 
         // 3. Process gyro through unified remap → process pipeline
-        let pipeline = GyroRemapper.process(
+        let remappedGyro = GyroRemapper.remap(
             rawX: report.gyroX,
             rawY: report.gyroY,
             rawZ: report.gyroZ,
@@ -85,9 +110,9 @@ extension InputEngine {
         gyroSettings.expectedSampleRate = 60.0
         gyroSettings.biasMotionThreshold = 50.0
         if let (dx, dy) = device.gyroProcessor.process(
-            rawX: pipeline.remapped.pitch,
-            rawY: pipeline.remapped.yaw,
-            rawZ: pipeline.remapped.roll,
+            rawX: remappedGyro.pitch,
+            rawY: remappedGyro.yaw,
+            rawZ: remappedGyro.roll,
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
@@ -116,6 +141,12 @@ extension InputEngine {
         // 5. Record to debug buffer with all pipeline stages
         if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .sense) {
             let engineEndTimestamp = CACurrentMediaTime()
+            let normalizedGyro = GyroRemapper.normalize(
+                pitch: remappedGyro.pitch,
+                yaw: remappedGyro.yaw,
+                roll: remappedGyro.roll,
+                controllerKind: .sense
+            )
             debugBuffer.recordTrace(
                 device: owner,
                 reportID: SenseHIDProtocol.inputReportID,
@@ -125,9 +156,9 @@ extension InputEngine {
             debugBuffer.record(
                 bytes: report.bytes,
                 length: report.length,
-                rawGyro: pipeline.raw,
-                remappedGyro: pipeline.remapped,
-                normalizedGyro: pipeline.normalized,
+                rawGyro: (x: report.gyroX, y: report.gyroY, z: report.gyroZ),
+                remappedGyro: remappedGyro,
+                normalizedGyro: normalizedGyro,
                 accel: (report.accelX, report.accelY, report.accelZ),
                 buttonStates: device.buttonStates,
                 controllerKind: .sense,
@@ -175,7 +206,11 @@ extension InputEngine {
 
         // Handle trigger with threshold
         let triggerValue = mapping.triggerValue(in: bytes)
-        let triggerPressed = triggerValue >= triggerThreshold
+        let triggerPressed = SenseTriggerHysteresis.isPressed(
+            value: triggerValue,
+            pressThreshold: triggerThreshold,
+            wasPressed: device.previousTriggerPressed
+        )
 
         if triggerPressed != device.previousTriggerPressed {
             let actions = profile.actions(for: .trigger)
@@ -207,7 +242,11 @@ extension InputEngine {
         }
 
         let triggerValue = mapping.triggerValue(in: bytes)
-        let triggerPressed = triggerValue >= triggerThreshold
+        let triggerPressed = SenseTriggerHysteresis.isPressed(
+            value: triggerValue,
+            pressThreshold: triggerThreshold,
+            wasPressed: false
+        )
         device.previousTriggerPressed = triggerPressed
         device.buttonStates[LogicalButton.trigger.index] = triggerPressed
     }

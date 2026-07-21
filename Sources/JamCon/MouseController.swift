@@ -2,6 +2,28 @@ import Foundation
 import CoreGraphics
 import QuartzCore
 
+struct PixelScrollAccumulator {
+    private var remainderX: CGFloat = 0
+    private var remainderY: CGFloat = 0
+
+    mutating func consume(dx: CGFloat, dy: CGFloat) -> (x: Int32, y: Int32) {
+        remainderX += dx.isFinite ? dx : 0
+        remainderY += dy.isFinite ? dy : 0
+
+        let x = integralComponent(of: remainderX)
+        let y = integralComponent(of: remainderY)
+        remainderX -= CGFloat(x)
+        remainderY -= CGFloat(y)
+        return (x, y)
+    }
+
+    private func integralComponent(of value: CGFloat) -> Int32 {
+        let integral = value.rounded(.towardZero)
+        let clamped = min(CGFloat(Int32.max), max(CGFloat(Int32.min), integral))
+        return Int32(clamped)
+    }
+}
+
 /// Mouse controller using CGEvent with proper drag support
 class MouseController {
 
@@ -21,6 +43,7 @@ class MouseController {
     private var cachedDisplayBounds: [CGRect]
     private var cachedPosition: CGPoint
     private var lastResyncTime: TimeInterval = 0
+    private var scrollAccumulator = PixelScrollAccumulator()
 
     private let doubleClickInterval: TimeInterval
     private let resyncInterval: TimeInterval
@@ -94,15 +117,18 @@ class MouseController {
         // Gyro values are in screen pixels, scroll needs smaller values
         let scrollScale: CGFloat = 0.5
 
-        let scrollX = Int32(dx * scrollScale)
-        let scrollY = Int32(-dy * scrollScale)  // Negate: positive dy = tilt down = scroll content up
+        let scroll = scrollAccumulator.consume(
+            dx: dx * scrollScale,
+            dy: -dy * scrollScale // Positive input dy scrolls content upward.
+        )
+        guard scroll.x != 0 || scroll.y != 0 else { return }
 
         guard let event = CGEvent(
             scrollWheelEvent2Source: Self.eventSource,
             units: .pixel,
             wheelCount: 2,
-            wheel1: scrollY,  // Vertical scroll
-            wheel2: scrollX,  // Horizontal scroll
+            wheel1: scroll.y,  // Vertical scroll
+            wheel2: scroll.x,  // Horizontal scroll
             wheel3: 0
         ) else {
             return

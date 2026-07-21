@@ -108,7 +108,7 @@ final class OneEuroFilter: @unchecked Sendable {
 // MARK: - Adaptive Smoothing Mode
 
 /// Mode for dynamic filter adjustment based on motion characteristics
-enum AdaptiveSmoothingMode: String, CaseIterable, Codable {
+enum AdaptiveSmoothingMode: String, CaseIterable, Codable, Sendable {
     /// Static beta value (no adaptation)
     case off
     /// Beta increases with angular velocity

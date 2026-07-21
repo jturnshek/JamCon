@@ -1,15 +1,13 @@
 import Foundation
-import IOKit
-import IOKit.hid
 import QuartzCore
 import os.lock
 
-/// Represents a discovered Sense controller (internal use only - contains IOHIDDevice)
-struct DiscoveredController: Identifiable, Equatable {
+/// Represents a discovered Sense controller without exposing its raw IOKit device.
+struct DiscoveredController: Identifiable, Equatable, Sendable {
     let id: String  // Unique identifier
     let name: String
     let productID: Int
-    let device: IOHIDDevice
+    let device: any SenseHIDDeviceHandle
 
     var isLeft: Bool { productID == 0x0E45 }
     var isRight: Bool { productID == 0x0E46 }
@@ -27,8 +25,15 @@ struct DiscoveredController: Identifiable, Equatable {
 
 /// Minimal controller for PlayStation Sense Controller
 /// Reads raw HID reports and extracts gyro data
-class SenseController {
+final class SenseController: @unchecked Sendable {
     private static let deactivationRetentionSeconds: TimeInterval = 30.0
+
+    private enum LifecycleState {
+        case stopped
+        case starting(Thread)
+        case running(thread: Thread, runLoop: CFRunLoop)
+        case stopping(thread: Thread, runLoop: CFRunLoop)
+    }
 
     // MARK: - Constants (use SenseHIDProtocol for shared constants)
 
@@ -38,49 +43,30 @@ class SenseController {
 
     // MARK: - Properties
 
-    private var hidManager: IOHIDManager?
-    private var hidRunLoop: CFRunLoop?
-    private var hidThread: Thread?
-    private let hidRunLoopReady = DispatchSemaphore(value: 0)
+    /// Serializes start/stop and makes teardown completion observable. IOKit
+    /// resources themselves remain confined to the HID thread.
+    private let lifecycleCondition = NSCondition()
+    private var lifecycleState: LifecycleState = .stopped
+    private let transport: any SenseHIDTransport
 
     // MARK: - Thread-safe state (read from UI / other threads)
 
-    private final class CallbackContext {
-        weak var owner: SenseController?
-        let controllerID: String
-
-        init(owner: SenseController, controllerID: String) {
-            self.owner = owner
-            self.controllerID = controllerID
-        }
-    }
-
-    private struct RetiredController {
+    private struct RetiredController: Sendable {
         let controller: ActiveController
         let retiredAt: TimeInterval
     }
 
-    private final class ActiveController {
+    private final class ActiveController: Sendable {
         let controller: DiscoveredController
-        let callbackContext: CallbackContext
-        let reportBuffer: UnsafeMutablePointer<UInt8>
-        let reportBufferLength: Int
+        let registration: any SenseHIDInputRegistration
 
-        init(controller: DiscoveredController, owner: SenseController) {
+        init(controller: DiscoveredController, registration: any SenseHIDInputRegistration) {
             self.controller = controller
-            self.callbackContext = CallbackContext(owner: owner, controllerID: controller.id)
-            self.reportBufferLength = 256
-            self.reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportBufferLength)
-            self.reportBuffer.initialize(repeating: 0, count: reportBufferLength)
-        }
-
-        deinit {
-            reportBuffer.deinitialize(count: reportBufferLength)
-            reportBuffer.deallocate()
+            self.registration = registration
         }
     }
 
-    private struct ControllerState {
+    private struct ControllerState: Sendable {
         var discoveredControllers: [DiscoveredController] = []
         var managedControllerIDs: Set<String> = []
         var activeControllers: [String: ActiveController] = [:]
@@ -112,15 +98,7 @@ class SenseController {
     // Callback contract:
     // All callbacks are invoked on the controller's HID thread/run loop ("JamCon.Sense.HID").
 
-    /// Callback for gyro data (x, y, z in raw units, timestamp)
-    var onGyroData: ((_ x: Int16, _ y: Int16, _ z: Int16, _ timestamp: TimeInterval) -> Void)?
-
-    /// Callback for combined IMU data (gyro + accel for sensor fusion)
-    var onIMUData: ((_ gyroX: Int16, _ gyroY: Int16, _ gyroZ: Int16,
-                     _ accelX: Int16, _ accelY: Int16, _ accelZ: Int16,
-                     _ timestamp: TimeInterval) -> Void)?
-
-    struct InputReport {
+    struct InputReport: Sendable {
         let controllerID: String
         let bytes: [UInt8]
         let length: Int
@@ -134,7 +112,6 @@ class SenseController {
         let receivedTimestamp: TimeInterval
         let inputTimestamp: TimeInterval?
         let timestampSource: InputTimestampSource
-        let motionSamples: [IMUSample]
     }
 
     /// Callback for full report data (bytes are a stable snapshot, includes decoded IMU)
@@ -149,41 +126,50 @@ class SenseController {
     /// Callback for debug/status messages
     var onDebugMessage: ((_ message: String) -> Void)?
 
-    /// Track how many devices we've seen
-    private(set) var devicesScanned: Int = 0
-
     // MARK: - Initialization
 
-    init() {}
-
-    private func dispatchToHIDThread(_ work: @escaping () -> Void) {
-        if Thread.current == hidThread {
-            work()
-            return
-        }
-
-        guard let runLoop = hidRunLoop else {
-            work()
-            return
-        }
-
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
+    init(transport: any SenseHIDTransport = IOKitSenseHIDTransport()) {
+        self.transport = transport
     }
 
     private func performHIDOperation(_ work: @escaping () -> Void) {
-        if Thread.current == hidThread {
+        lifecycleCondition.lock()
+        let target: (thread: Thread, runLoop: CFRunLoop)?
+        if case let .running(thread, runLoop) = lifecycleState {
+            target = (thread, runLoop)
+        } else {
+            target = nil
+        }
+        lifecycleCondition.unlock()
+
+        guard let target else {
+            // Selection state is retained while starting and reconciled as
+            // soon as enumeration is ready. IOKit work is ignored while
+            // stopped or tearing down.
+            return
+        }
+
+        if Thread.current === target.thread {
             work()
             return
         }
 
-        guard let runLoop = hidRunLoop else {
-            // If the HID thread isn't running yet, don't perform IOKit operations on an arbitrary thread.
-            return
-        }
+        CFRunLoopPerformBlock(target.runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(target.runLoop)
+    }
 
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
+    private func assertOnHIDThread(file: StaticString = #fileID, line: UInt = #line) {
+        lifecycleCondition.lock()
+        let thread: Thread?
+        switch lifecycleState {
+        case let .starting(candidate), let .running(candidate, _), let .stopping(candidate, _):
+            thread = candidate
+        case .stopped:
+            thread = nil
+        }
+        lifecycleCondition.unlock()
+
+        assert(Thread.current === thread, "SenseController IOKit operation must run on the HID thread", file: file, line: line)
     }
 
     private func log(_ message: String) {
@@ -196,30 +182,81 @@ class SenseController {
 
     // MARK: - Public Methods
 
-    func start() {
-        startHIDThreadIfNeeded()
-    }
+    @discardableResult
+    func start() -> Bool {
+        lifecycleCondition.lock()
+        while true {
+            switch lifecycleState {
+            case .running:
+                lifecycleCondition.unlock()
+                return true
+            case .starting, .stopping:
+                lifecycleCondition.wait()
+            case .stopped:
+                let thread = Thread { [weak self] in
+                    self?.runHIDThread()
+                }
+                thread.name = "JamCon.Sense.HID"
+                thread.qualityOfService = .userInteractive
+                lifecycleState = .starting(thread)
+                lifecycleCondition.unlock()
+                thread.start()
 
-    private func startHIDThreadIfNeeded() {
-        guard hidThread == nil else { return }
-
-        let thread = Thread { [weak self] in
-            self?.runHIDThread()
+                lifecycleCondition.lock()
+                while case .starting = lifecycleState {
+                    lifecycleCondition.wait()
+                }
+                let started: Bool
+                if case .running = lifecycleState {
+                    started = true
+                } else {
+                    started = false
+                }
+                lifecycleCondition.unlock()
+                return started
+            }
         }
-        thread.name = "JamCon.Sense.HID"
-        thread.qualityOfService = .userInteractive
-        hidThread = thread
-        thread.start()
-
-        // Wait until the HID run loop is ready so callers know callbacks are active
-        hidRunLoopReady.wait()
     }
 
     private func runHIDThread() {
-        hidRunLoop = CFRunLoopGetCurrent()
-        hidRunLoopReady.signal()
+        let currentThread = Thread.current
+        guard let runLoop = CFRunLoopGetCurrent() else {
+            lifecycleCondition.lock()
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            JamLog.error(.sense, "Failed to obtain HID thread run loop")
+            return
+        }
 
-        configureHIDManager(on: hidRunLoop ?? CFRunLoopGetCurrent())
+        lifecycleCondition.lock()
+        guard case let .starting(thread) = lifecycleState, thread === currentThread else {
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            return
+        }
+        lifecycleCondition.unlock()
+
+        let startupResult = configureHIDManager(on: runLoop)
+        guard case .success = startupResult else {
+            cleanupHIDResources(on: runLoop)
+            lifecycleCondition.lock()
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            if case let .failure(error) = startupResult {
+                JamLog.error(.sense, "Sense HID backend did not start: \(error)")
+            }
+            return
+        }
+
+        lifecycleCondition.lock()
+        lifecycleState = .running(thread: currentThread, runLoop: runLoop)
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
+
+        activateManagedControllersIfNeeded()
 
         // Run loop with periodic autorelease pool drain to prevent memory accumulation
         // from autoreleased objects created in HID callbacks
@@ -229,123 +266,110 @@ class SenseController {
             }
         }
 
-        // Cleanup after the run loop stops
-        hidRunLoop = nil
-        hidThread = nil
+        // This is idempotent and also covers an unexpected run-loop exit.
+        cleanupHIDResources(on: runLoop)
+
+        lifecycleCondition.lock()
+        lifecycleState = .stopped
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
     }
 
-    private func configureHIDManager(on runLoop: CFRunLoop) {
-        guard hidManager == nil else { return }
-
+    private func configureHIDManager(on runLoop: CFRunLoop) -> Result<Void, SenseHIDTransportError> {
         log("Creating HID manager...")
-        // Use kIOHIDOptionsTypeNone for the manager - we'll seize individual Sense devices in handleDeviceConnected
-        hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard let manager = hidManager else {
-            log("Failed to create HID manager")
-            return
-        }
-
-        // Match only the two supported Sony Sense product IDs. Opening an
-        // all-device IOHID manager is unsupported on current macOS releases
-        // and also needlessly observes unrelated keyboards and pointing devices.
-        let matchDictionaries: [[String: Any]] = [
-            [
-                kIOHIDVendorIDKey as String: Self.sonyVendorID,
-                kIOHIDProductIDKey as String: Self.senseLeftProductID,
-            ],
-            [
-                kIOHIDVendorIDKey as String: Self.sonyVendorID,
-                kIOHIDProductIDKey as String: Self.senseRightProductID,
-            ],
-        ]
         log("Matching supported Sony Sense devices...")
-        IOHIDManagerSetDeviceMatchingMultiple(manager, matchDictionaries as CFArray)
-
-        // Set up device callbacks
-        let context = Unmanaged.passUnretained(self).toOpaque()
-
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, result, sender, device in
-            guard let ctx = context else { return }
-            let controller = Unmanaged<SenseController>.fromOpaque(ctx).takeUnretainedValue()
-            controller.handleDeviceConnected(device)
-        }, context)
-
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, result, sender, device in
-            guard let ctx = context else { return }
-            let controller = Unmanaged<SenseController>.fromOpaque(ctx).takeUnretainedValue()
-            controller.handleDeviceDisconnected(device)
-        }, context)
-
-        // Schedule with run loop
-        IOHIDManagerScheduleWithRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-
-        // Open the manager (individual devices will be seized in handleDeviceConnected)
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        if result != kIOReturnSuccess {
-            JamLog.error(.sense, "Failed to open HID manager: \(result)")
-        } else {
+        let result = transport.startDiscovery(
+            on: runLoop,
+            deviceConnected: { [weak self] device in
+                self?.handleDeviceConnected(device)
+            },
+            deviceDisconnected: { [weak self] device in
+                self?.handleDeviceDisconnected(device)
+            }
+        )
+        if case .success = result {
             log("HID manager started, scanning...")
         }
+        return result
     }
 
     func stop() {
-        // Signal the HID thread to exit its run loop
-        hidThread?.cancel()
+        lifecycleCondition.lock()
+        while case .starting = lifecycleState {
+            lifecycleCondition.wait()
+        }
 
-        guard let runLoop = hidRunLoop else {
-            // Fallback cleanup if the HID thread was never started
-            let activeControllersSnapshot: [ActiveController] = stateLock.withLock { state in
-                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
-            }
-            for active in activeControllersSnapshot {
-                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
-            }
-            if let manager = hidManager {
-                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-                hidManager = nil
-            }
-            stateLock.withLock { state in
-                state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.managedControllerIDs.removeAll(keepingCapacity: true)
-                state.activeControllers.removeAll(keepingCapacity: true)
-                state.retiredControllers.removeAll(keepingCapacity: true)
-            }
+        switch lifecycleState {
+        case .stopped:
+            lifecycleCondition.unlock()
             return
+        case .stopping:
+            while case .stopping = lifecycleState {
+                lifecycleCondition.wait()
+            }
+            lifecycleCondition.unlock()
+            return
+        case let .running(thread, runLoop):
+            lifecycleState = .stopping(thread: thread, runLoop: runLoop)
+            thread.cancel()
+            lifecycleCondition.unlock()
+
+            if Thread.current === thread {
+                CFRunLoopStop(runLoop)
+                return
+            }
+
+            // Wake the run loop and let runHIDThread perform teardown exactly
+            // once after its cancellation loop exits.
+            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) {
+                CFRunLoopStop(runLoop)
+            }
+            CFRunLoopWakeUp(runLoop)
+
+            lifecycleCondition.lock()
+            while case .stopping = lifecycleState {
+                lifecycleCondition.wait()
+            }
+            lifecycleCondition.unlock()
+        case .starting:
+            // The loop above waits until this state has resolved.
+            lifecycleCondition.unlock()
+        }
+    }
+
+    private func cleanupHIDResources(on runLoop: CFRunLoop) {
+        assertOnHIDThread()
+
+        let activeControllers: [ActiveController] = stateLock.withLock { state in
+            let active = Array(state.activeControllers.values)
+            state.activeControllers.removeAll(keepingCapacity: true)
+            return active
+        }
+        for active in activeControllers {
+            close(active)
         }
 
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
-            guard let self else { return }
+        transport.stopDiscovery(on: runLoop)
 
-            let activeControllersSnapshot: [ActiveController] = self.stateLock.withLock { state in
-                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
-            }
-            for active in activeControllersSnapshot {
-                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
-            }
-
-            if let manager = self.hidManager {
-                IOHIDManagerUnscheduleFromRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-                self.hidManager = nil
-            }
-
-            self.stateLock.withLock { state in
-                state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.managedControllerIDs.removeAll(keepingCapacity: true)
-                state.activeControllers.removeAll(keepingCapacity: true)
-                state.retiredControllers.removeAll(keepingCapacity: true)
-            }
-
-            CFRunLoopStop(runLoop)
+        stateLock.withLock { state in
+            state.discoveredControllers.removeAll(keepingCapacity: true)
+            state.retiredControllers.removeAll(keepingCapacity: true)
         }
-
-        // Wake the run loop so the stop block executes promptly
-        CFRunLoopWakeUp(runLoop)
     }
 
     // MARK: - Controller Selection
+
+    private func activateManagedControllersIfNeeded() {
+        assertOnHIDThread()
+        let controllers = stateLock.withLock { state in
+            state.discoveredControllers.filter {
+                state.managedControllerIDs.contains($0.id) && state.activeControllers[$0.id] == nil
+            }
+        }
+        for controller in controllers {
+            activateController(controller)
+        }
+    }
 
     /// Enable/disable processing for a specific physical controller ID.
     func setControllerManaged(id: String, managed: Bool) {
@@ -374,54 +398,75 @@ class SenseController {
     }
 
     private func activateController(_ controller: DiscoveredController) {
-        assert(Thread.current == hidThread, "SenseController.activateController must run on the HID thread")
+        assertOnHIDThread()
 
         let controllerID = controller.id
-        let needsActivation: Bool = stateLock.withLock { state in
-            state.activeControllers[controllerID] == nil
+        // This method is commonly queued from another thread. Re-resolve the
+        // device at execution time so a preceding unmanage or removal callback
+        // cannot make us seize a stale controller.
+        let currentController: DiscoveredController? = stateLock.withLock { state in
+            guard state.managedControllerIDs.contains(controllerID),
+                  state.activeControllers[controllerID] == nil,
+                  let discovered = state.discoveredControllers.first(where: { $0.id == controllerID }),
+                  discovered.device.transportIdentifier == controller.device.transportIdentifier else {
+                return nil
+            }
+            return discovered
         }
-        guard needsActivation else { return }
+        guard let currentController else { return }
 
-        let device = controller.device
-
-        // Open the device with exclusive access (prevents macOS Game Controller from seeing inputs)
-        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-        if result != kIOReturnSuccess && result != -536870201 { // Already open is OK
-            log("Failed to open device: \(result)")
+        guard let runLoop = CFRunLoopGetCurrent() else {
+            JamLog.error(.sense, "Cannot activate Sense device without a HID run loop")
             return
         }
 
-        let active = ActiveController(controller: controller, owner: self)
-        stateLock.withLock { state in
-            state.activeControllers[controllerID] = active
-        }
-
-        // Register input report callback
-        let context = Unmanaged.passUnretained(active.callbackContext).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(
-            device,
-            active.reportBuffer,
-            active.reportBufferLength,
-            { context, _, _, _, reportID, report, length in
-                guard let context else { return }
-                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
-                callbackContext.owner?.handleInputReport(
-                    controllerID: callbackContext.controllerID,
+        // Managed Sense devices require exclusive access so macOS does not also
+        // translate controller buttons into system actions.
+        let registrationResult = transport.openInput(
+            for: currentController.device,
+            on: runLoop,
+            reportLength: 256,
+            handler: { [weak self] reportID, report, length in
+                self?.handleInputReport(
+                    controllerID: controllerID,
                     report: report,
                     length: length,
                     reportID: reportID
                 )
-            },
-            context
+            }
         )
+        guard case let .success(registration) = registrationResult else {
+            if case let .failure(error) = registrationResult {
+                JamLog.error(.sense, "Failed to seize managed device: \(error)")
+            }
+            return
+        }
 
-        let displayName = "\(controller.name) (\(controller.side))"
+        let active = ActiveController(controller: currentController, registration: registration)
+        let activated = stateLock.withLock { state in
+            guard state.managedControllerIDs.contains(controllerID),
+                  state.activeControllers[controllerID] == nil,
+                  let discovered = state.discoveredControllers.first(where: { $0.id == controllerID }),
+                  discovered.device.transportIdentifier == currentController.device.transportIdentifier else {
+                return false
+            }
+            state.activeControllers[controllerID] = active
+            return true
+        }
+        guard activated else {
+            if case let .failure(error) = transport.closeInput(registration) {
+                JamLog.error(.sense, "Failed to close stale managed device: \(error)")
+            }
+            return
+        }
+
+        let displayName = "\(currentController.name) (\(currentController.side))"
         log("Activated: \(displayName)")
-        onConnectionChange?(true, displayName, controller.id)
+        onConnectionChange?(true, displayName, currentController.id)
     }
 
     private func deactivateController(id: String) {
-        assert(Thread.current == hidThread, "SenseController.deactivateController must run on the HID thread")
+        assertOnHIDThread()
 
         let now = CACurrentMediaTime()
         let active: ActiveController? = stateLock.withLock { state in
@@ -432,19 +477,35 @@ class SenseController {
         }
         guard let active else { return }
 
-        IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
+        close(active)
         let displayName = "\(active.controller.name) (\(active.controller.side))"
         onConnectionChange?(false, displayName, active.controller.id)
     }
 
+    private func close(_ active: ActiveController) {
+        assertOnHIDThread()
+        if case let .failure(error) = transport.closeInput(active.registration) {
+            JamLog.errorThrottled(
+                .sense,
+                key: "device.close.\(active.controller.id)",
+                interval: 2,
+                "Failed to close Sense device: \(error)"
+            )
+        }
+    }
+
     // MARK: - Device Callbacks
 
-    private func handleDeviceConnected(_ device: IOHIDDevice) {
-        devicesScanned += 1
+    private func handleDeviceConnected(_ device: any SenseHIDDeviceHandle) {
+        assertOnHIDThread()
 
-        let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
-        let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
-        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
+        guard let properties = transport.properties(for: device) else {
+            JamLog.error(.sense, "Ignoring Sense device with unreadable HID properties")
+            return
+        }
+        let vendorID = properties.vendorID
+        let productID = properties.productID
+        let name = properties.name
 
         // Only log Sony devices
         if vendorID == Self.sonyVendorID {
@@ -457,19 +518,7 @@ class SenseController {
             return
         }
 
-        // Seize this specific device to prevent macOS Game Controller framework
-        // from intercepting button presses and mapping them to keyboard keys
-        let seizeResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-        if seizeResult != kIOReturnSuccess {
-            log("Warning: Could not seize device exclusively: \(seizeResult)")
-        } else {
-            log("Device seized for exclusive access")
-        }
-
-        // Create unique ID from device properties
-        let serialNumber = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
-        let locationID = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int ?? 0
-        let uniqueID = serialNumber ?? "loc-\(locationID)-pid-\(productID)"
+        let uniqueID = SenseDeviceIdentity.identifier(for: properties)
 
         // Check if already discovered
         let alreadyDiscovered = stateLock.withLock { state in
@@ -499,10 +548,14 @@ class SenseController {
         }
     }
 
-    private func handleDeviceDisconnected(_ device: IOHIDDevice) {
+    private func handleDeviceDisconnected(_ device: any SenseHIDDeviceHandle) {
+        assertOnHIDThread()
+
         // Find and remove the disconnected controller
         let disconnected: DiscoveredController? = stateLock.withLock { state in
-            guard let index = state.discoveredControllers.firstIndex(where: { $0.device == device }) else { return nil }
+            guard let index = state.discoveredControllers.firstIndex(where: {
+                $0.device.transportIdentifier == device.transportIdentifier
+            }) else { return nil }
             let controller = state.discoveredControllers[index]
             state.discoveredControllers.remove(at: index)
             return controller
@@ -510,11 +563,9 @@ class SenseController {
         if let controller = disconnected {
             log("Sense \(controller.side) Controller disconnected")
 
-            // If this was active, deactivate first to ensure callbacks are unregistered.
+            // If this was active, deactivation unregisters callbacks and balances
+            // the exclusive open performed during activation.
             deactivateController(id: controller.id)
-
-            // Close the seized device to release exclusive access
-            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
             onControllersChanged?()
         }
     }
@@ -557,22 +608,6 @@ class SenseController {
         // Use the timestamp captured at callback entry rather than a cached value
         // from a separately ordered IOHIDValue callback.
         let effectiveTimestamp = timestamp
-        if let onGyroData {
-            onGyroData(motion.gyroX, motion.gyroY, motion.gyroZ, effectiveTimestamp)
-        }
-
-        // Call the combined IMU callback for sensor fusion
-        if let onIMUData {
-            onIMUData(
-                motion.gyroX,
-                motion.gyroY,
-                motion.gyroZ,
-                motion.accelX,
-                motion.accelY,
-                motion.accelZ,
-                effectiveTimestamp
-            )
-        }
 
         if let onReportData {
             onReportData(
@@ -589,143 +624,9 @@ class SenseController {
                     timestamp: effectiveTimestamp,
                     receivedTimestamp: timestamp,
                     inputTimestamp: nil,
-                    timestampSource: .hostReceipt,
-                    motionSamples: [motion]
+                    timestampSource: .hostReceipt
                 )
             )
         }
-    }
-
-    // MARK: - Output Reports (EXPERIMENTAL - based on DualSense/Sense protocol)
-
-    /// Sequence tag for Bluetooth output reports
-    private var outputSeqTag: UInt8 = 0
-
-    /// Send a raw output report to the controller
-    /// Returns true if the report was sent successfully
-    @discardableResult
-    func sendOutputReport(_ data: [UInt8], reportID: UInt8 = SenseHIDProtocol.OutputReport.reportID) -> Bool {
-        let devices: [IOHIDDevice] = stateLock.withLock { state in
-            state.activeControllers.values.map { $0.controller.device }
-        }
-        guard !devices.isEmpty else {
-            JamLog.infoThrottled(.sense, key: "output.noDevices", interval: 2.0, "Cannot send output: no active devices")
-            return false
-        }
-
-        var didSucceed = true
-        for device in devices {
-            var reportData = data
-            let result = IOHIDDeviceSetReport(
-                device,
-                kIOHIDReportTypeOutput,
-                CFIndex(reportID),
-                &reportData,
-                reportData.count
-            )
-
-            if result != kIOReturnSuccess {
-                didSucceed = false
-                JamLog.errorThrottled(.sense, key: "output.failed.\(reportID)", interval: 2.0, "Output report failed: \(result)")
-            }
-        }
-        return didSucceed
-    }
-
-    /// Build a DualSense-style Bluetooth output report
-    /// This is EXPERIMENTAL - Sense controller may use different format
-    private func buildBTOutputReport(
-        motorLeft: UInt8 = 0,
-        motorRight: UInt8 = 0,
-        ledRed: UInt8 = 0,
-        ledGreen: UInt8 = 0,
-        ledBlue: UInt8 = 0,
-        playerLEDs: UInt8 = 0,
-        validFlags0: UInt8 = 0,
-        validFlags1: UInt8 = 0
-    ) -> [UInt8] {
-        var report = [UInt8](repeating: 0, count: SenseHIDProtocol.OutputReport.length)
-
-        // Bluetooth header
-        report[0] = outputSeqTag << 4  // Sequence tag in upper nibble
-        outputSeqTag = (outputSeqTag + 1) & 0x0F
-        report[1] = SenseHIDProtocol.OutputReport.tagByteValue
-
-        // Common report structure starts at offset 2
-        report[2] = validFlags0  // Valid flags 0
-        report[3] = validFlags1  // Valid flags 1
-        report[4] = motorRight   // Right motor
-        report[5] = motorLeft    // Left motor
-
-        // Skip audio/mic settings (bytes 6-10)
-
-        // Trigger effects would go here (bytes 11-21 for right, 22-32 for left)
-
-        // LED settings (offset varies - trying DualSense offsets)
-        report[SenseHIDProtocol.OutputReport.lightbarSetup] = 0x02  // Lightbar setup - enable
-        report[SenseHIDProtocol.OutputReport.ledBrightness] = 0x02  // LED brightness
-        report[SenseHIDProtocol.OutputReport.playerLEDs] = playerLEDs
-        report[SenseHIDProtocol.OutputReport.ledRed] = ledRed
-        report[SenseHIDProtocol.OutputReport.ledGreen] = ledGreen
-        report[SenseHIDProtocol.OutputReport.ledBlue] = ledBlue
-
-        // CRC32 would go in bytes 74-77, but we'll try without first
-
-        return report
-    }
-
-    // MARK: - Convenience Methods for Testing
-
-    /// Test rumble motors (EXPERIMENTAL - may not work over Bluetooth)
-    func testRumble(left: UInt8, right: UInt8) {
-        log("Testing rumble: L=\(left), R=\(right)")
-
-        // Flag 0x01 = enable rumble
-        let report = buildBTOutputReport(
-            motorLeft: left,
-            motorRight: right,
-            validFlags0: 0x01
-        )
-        sendOutputReport(report)
-    }
-
-    /// Test LED/lightbar color (EXPERIMENTAL)
-    func testLED(red: UInt8, green: UInt8, blue: UInt8) {
-        log("Testing LED: R=\(red), G=\(green), B=\(blue)")
-
-        // Flag 0x04 = enable LED control
-        let report = buildBTOutputReport(
-            ledRed: red,
-            ledGreen: green,
-            ledBlue: blue,
-            validFlags0: 0x04
-        )
-        sendOutputReport(report)
-    }
-
-    /// Test player indicator LEDs (EXPERIMENTAL)
-    func testPlayerLEDs(mask: UInt8) {
-        log("Testing player LEDs: 0x\(String(format: "%02X", mask))")
-
-        let report = buildBTOutputReport(
-            playerLEDs: mask,
-            validFlags0: 0x04
-        )
-        sendOutputReport(report)
-    }
-
-    /// Stop all effects
-    func stopAllEffects() {
-        log("Stopping all effects")
-
-        let report = buildBTOutputReport(
-            motorLeft: 0,
-            motorRight: 0,
-            ledRed: 0,
-            ledGreen: 0,
-            ledBlue: 0,
-            validFlags0: 0x05  // Rumble + LED
-        )
-        sendOutputReport(report)
     }
 }

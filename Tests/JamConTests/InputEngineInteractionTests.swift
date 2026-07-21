@@ -1,4 +1,5 @@
 import XCTest
+import QuartzCore
 @testable import JamCon
 
 final class InputEngineInteractionTests: XCTestCase {
@@ -127,6 +128,47 @@ final class InputEngineInteractionTests: XCTestCase {
         ])
     }
 
+    func testSenseTriggerHysteresisPreventsThresholdChatter() {
+        let harness = makeHarness(actions: ButtonActions(press: .mouseClick(.left)))
+
+        harness.process(trigger: 0, timestamp: 1.0)
+        harness.process(trigger: 128, timestamp: 1.1)
+        harness.process(trigger: 125, timestamp: 1.2)
+        harness.process(trigger: 121, timestamp: 1.3)
+        harness.process(trigger: 120, timestamp: 1.4)
+
+        XCTAssertEqual(harness.backend.events, [
+            .mouseButton(.left, isPressed: true),
+            .mouseButton(.left, isPressed: false),
+        ])
+        harness.shutdown()
+    }
+
+    func testSenseJoystickScrollTimingIsReportRateIndependentAndBounded() {
+        var timing = JoystickScrollTiming()
+
+        XCTAssertEqual(timing.frameScale(at: 1, nominalRate: 60), 1)
+        XCTAssertEqual(timing.frameScale(at: 1 + 1.0 / 120.0, nominalRate: 60), 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(timing.frameScale(at: 1 + 1.0 / 60.0, nominalRate: 60), 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(timing.frameScale(at: 2, nominalRate: 60), 3, accuracy: 0.000_001)
+        XCTAssertEqual(timing.frameScale(at: 1.5, nominalRate: 60), 0)
+    }
+
+    func testPixelScrollAccumulatorPreservesSubpixelMotion() {
+        var accumulator = PixelScrollAccumulator()
+
+        let first = accumulator.consume(dx: 0.4, dy: -0.4)
+        let second = accumulator.consume(dx: 0.4, dy: -0.4)
+        let third = accumulator.consume(dx: 0.4, dy: -0.4)
+
+        XCTAssertEqual(first.x, 0)
+        XCTAssertEqual(first.y, 0)
+        XCTAssertEqual(second.x, 0)
+        XCTAssertEqual(second.y, 0)
+        XCTAssertEqual(third.x, 1)
+        XCTAssertEqual(third.y, -1)
+    }
+
     private func makeHarness(actions: ButtonActions) -> SenseEngineHarness {
         SenseEngineHarness(actions: actions)
     }
@@ -161,11 +203,12 @@ private final class SenseEngineHarness {
         }
     }
 
-    func process(trigger: UInt8, timestamp: TimeInterval) {
+    func process(trigger: UInt8, timestamp _: TimeInterval) {
         var bytes = [UInt8](repeating: 0, count: SenseHIDProtocol.reportLength)
         bytes[0] = UInt8(SenseHIDProtocol.inputReportID)
         bytes[SenseHIDProtocol.Offset.triggerAnalog] = trigger
         let motion = try! SenseInputReportDecoder.decode(bytes).motion
+        let timestamp = CACurrentMediaTime()
         let report = SenseController.InputReport(
             controllerID: deviceID,
             bytes: bytes,
@@ -179,8 +222,7 @@ private final class SenseEngineHarness {
             timestamp: timestamp,
             receivedTimestamp: timestamp,
             inputTimestamp: nil,
-            timestampSource: .hostReceipt,
-            motionSamples: [motion]
+            timestampSource: .hostReceipt
         )
 
         engine.engineQueue.sync {

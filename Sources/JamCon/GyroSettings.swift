@@ -4,7 +4,7 @@ import os.lock
 // MARK: - Acceleration Mode
 
 /// Simple vs Advanced acceleration configuration mode
-enum AccelerationMode: String, CaseIterable, Codable {
+enum AccelerationMode: String, CaseIterable, Codable, Sendable {
     case simple
     case advanced
 
@@ -19,7 +19,7 @@ enum AccelerationMode: String, CaseIterable, Codable {
 // MARK: - Acceleration Curve
 
 /// Preset acceleration curve types for gyro-to-mouse translation
-enum AccelerationCurve: String, CaseIterable, Codable {
+enum AccelerationCurve: String, CaseIterable, Codable, Sendable {
     /// No acceleration - linear 1:1 mapping
     case off
     /// Smooth concave curve approaching cap (most comfortable for most users)
@@ -60,7 +60,7 @@ enum AccelerationCurve: String, CaseIterable, Codable {
 // MARK: - Gyro Settings State
 
 /// All gyro processing settings in a single struct for atomic access
-struct GyroSettingsState: Equatable {
+struct GyroSettingsState: Equatable, Sendable {
     // MARK: Core
     var sensitivity: Double = 40.0
     var gyroScale: Double = 1.0 / 16.0
@@ -158,7 +158,7 @@ final class GyroSettings: @unchecked Sendable {
 
     /// Update settings atomically
     func update(_ transform: (inout GyroSettingsState) -> Void) {
-        lock.withLock { transform(&$0) }
+        lock.withLockUnchecked { transform(&$0) }
     }
 
     // MARK: - Persistence Keys

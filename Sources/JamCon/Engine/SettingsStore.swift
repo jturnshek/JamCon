@@ -9,7 +9,7 @@ final class SettingsStore: @unchecked Sendable {
     private var _settings = InputSettings.loadFromDefaults()
 
     /// All settings needed by the input engine
-    struct InputSettings {
+    struct InputSettings: Sendable {
         var isEnabled: Bool = true
 
         // MARK: - Per-Type Gyro Settings
@@ -196,7 +196,9 @@ final class SettingsStore: @unchecked Sendable {
     /// The block receives a mutable copy of settings
     func update(_ block: (inout InputSettings) -> Void) {
         assert(Thread.isMainThread, "SettingsStore.update must be called from the main thread")
-        lock.withLock {
+        // UI-only mutation is an intentionally synchronous lock boundary. The
+        // closure itself never escapes to another executor.
+        lock.withLockUnchecked {
             block(&_settings)
         }
     }

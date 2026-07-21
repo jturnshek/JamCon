@@ -208,15 +208,26 @@ The HID driver exposes a vendor-defined input element that carries the 0x31 IMU 
 - Report ID: `0x31`
 - Length: 77 bytes
 
-Registering an input value callback (`IOHIDDeviceRegisterInputValueCallback`) surfaces this element with a kernel-provided monotonic timestamp via `IOHIDValueGetTimeStamp(value)`. Converting with `Double(ts) / Double(NSEC_PER_SEC)` yields per-report timing (~60 Hz) independent of main-run-loop jitter. Use this timestamp for `dt` in gyro processing instead of host arrival time.
+Registering an input value callback (`IOHIDDeviceRegisterInputValueCallback`) surfaces this element with a kernel-provided monotonic timestamp via `IOHIDValueGetTimeStamp(value)`. That timestamp belongs to the value callback, however, while JamCon consumes the separate raw-report callback. The two callback streams have no sequence identifier that can associate a value timestamp with one specific raw report safely.
 
 Time conversion: `IOHIDValueGetTimeStamp` returns mach absolute ticks. Convert using `mach_timebase_info` (e.g., numer=125, denom=3 on Apple Silicon) and `ticksToSeconds = ticks * numer/denom / 1e9` for accurate per-report timing.
 
+JamCon therefore timestamps Sense reports at raw callback entry with `CACurrentMediaTime()`. This is an honest host-receipt timestamp: it is suitable for gyro `dt` and queue/processing measurements, but it is not presented as device input age. A future Game Controller backend may provide an unambiguously associated event timestamp.
+
+## JamCon Transport Lifecycle
+
+- The IOKit manager uses independent-device discovery and does not open every enumerated controller.
+- JamCon opens a Sense device exclusively only after the user marks that physical controller as managed.
+- Queued activation revalidates both managed state and the current transport handle, so an unmanage or removal event cannot reopen a stale device.
+- Input callbacks, raw IOKit references, scheduling, and close operations stay on the dedicated Sense HID thread.
+- Manager startup failure tears down partial resources and leaves the backend stopped and retryable.
+- Device identity prefers the existing serial-number format, then the physical-device unique ID. Location and registry identifiers are collision-resistant fallbacks when neither is available.
+
 ### Raw report bytes vs timestamps
 
-- Bytes 0–1: fast 16-bit counter (~265k ticks/sec inferred when reconstructed across wraps). Wraps every ~15 ms and is noisy; not suitable as a `dt` source without heavy reconstruction. We prefer the HID timestamp.
+- Bytes 0–1: fast 16-bit counter (~265k ticks/sec inferred when reconstructed across wraps). Wraps every ~15 ms and is noisy; not suitable as a `dt` source without heavy reconstruction. JamCon uses raw callback-entry time.
 - Bytes 14/32/52 and other “unknown” bytes (29–31, 74–77, 49–64) show noisy deltas and frequent wraps; no clean per-report sequence or timer found.
-- Conclusion: rely on the HID driver timestamp for `dt`; treat byte-level counters as diagnostic only.
+- Conclusion: use raw callback-entry time for `dt`; treat the separately delivered HID value timestamp and byte-level counters as diagnostic only unless a reliable report association is discovered.
 
 ## Known Issues
 
@@ -225,7 +236,7 @@ Time conversion: `IOHIDValueGetTimeStamp` returns mach absolute ticks. Convert u
    - Disabling the Apple Arcade shortcut
    - Accepting this button is unavailable
 
-2. **Output Reports (Haptics/LEDs)**: DualSense-style output reports do not work over Bluetooth. The PSVR2 Sense controllers may require USB connection or different report format for bidirectional communication.
+2. **Output Reports (Haptics/LEDs)**: DualSense-style output reports do not work over Bluetooth. Guessed output support is intentionally not shipped; reintroduce it only through a verified protocol or a framework-provided capability.
 
 ## Unconfirmed Claims (from other projects)
 
