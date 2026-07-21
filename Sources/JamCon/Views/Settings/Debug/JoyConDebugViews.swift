@@ -19,6 +19,10 @@ struct JoyConDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InputPerformanceMetricsView(telemetry: telemetry)
+
+                Divider()
+
                 // Pipeline visualization (all 3 stages)
                 GyroPipelineView(controllerKind: .joyCon, telemetry: telemetry)
 

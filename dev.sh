@@ -55,7 +55,14 @@ cp -R "$APP_PATH" /Applications/
 xattr -cr /Applications/JamCon.app
 
 echo "Signing with Developer ID..."
-codesign --force --sign "$SIGNING_IDENTITY" --entitlements Resources/JamCon.entitlements --options runtime /Applications/JamCon.app
+codesign_args=(--force --sign "$SIGNING_IDENTITY" --entitlements Resources/JamCon.entitlements --options runtime)
+if [ -n "${CODESIGN_TIMESTAMP:-}" ]; then
+    codesign_args+=(--timestamp="$CODESIGN_TIMESTAMP")
+fi
+if ! codesign "${codesign_args[@]}" /Applications/JamCon.app; then
+    echo "Codesign failed (timestamp service unavailable?). Retrying without timestamp..."
+    codesign --force --sign "$SIGNING_IDENTITY" --entitlements Resources/JamCon.entitlements --options runtime --timestamp=none /Applications/JamCon.app
+fi
 
 echo "Launching JamCon..."
 open -a /Applications/JamCon.app

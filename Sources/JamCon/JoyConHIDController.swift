@@ -63,6 +63,12 @@ final class JoyConHIDController {
         let accelY: Int16
         let accelZ: Int16
         let timestamp: TimeInterval
+        let receivedTimestamp: TimeInterval
+        let motionSamples: [IMUSample]
+
+        var averagedGyro: (x: Int16, y: Int16, z: Int16) {
+            JoyConDecodedInputReport(motionSamples: motionSamples).averagedGyro
+        }
     }
 
     // MARK: - Callbacks
@@ -545,6 +551,7 @@ final class JoyConHIDController {
 
     private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
+        let receivedTimestamp = CACurrentMediaTime()
         let timestamp = computeTimestamp(controllerID: controllerID, report: report, length: length)
 
         let maxLength = min(length, JoyConHIDProtocol.reportLength)
@@ -560,29 +567,25 @@ final class JoyConHIDController {
         }
         #endif
 
-        func readInt16LE(_ offset: Int) -> Int16 {
-            guard offset + 1 < maxLength else { return 0 }
-            return Int16(bitPattern: UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8))
+        guard let decoded = try? JoyConInputReportDecoder.decode(bytes) else {
+            log("Discarded malformed Joy-Con input report (length=\(maxLength))")
+            return
         }
-
-        let gyroX = readInt16LE(JoyConHIDProtocol.Offset.gyroXLow)
-        let gyroY = readInt16LE(JoyConHIDProtocol.Offset.gyroYLow)
-        let gyroZ = readInt16LE(JoyConHIDProtocol.Offset.gyroZLow)
-        let accelX = readInt16LE(JoyConHIDProtocol.Offset.accelXLow)
-        let accelY = readInt16LE(JoyConHIDProtocol.Offset.accelYLow)
-        let accelZ = readInt16LE(JoyConHIDProtocol.Offset.accelZLow)
+        let motion = decoded.latest
 
         onReportData?(InputReport(
             controllerID: controllerID,
             bytes: bytes,
             length: maxLength,
-            gyroX: gyroX,
-            gyroY: gyroY,
-            gyroZ: gyroZ,
-            accelX: accelX,
-            accelY: accelY,
-            accelZ: accelZ,
-            timestamp: timestamp
+            gyroX: motion.gyroX,
+            gyroY: motion.gyroY,
+            gyroZ: motion.gyroZ,
+            accelX: motion.accelX,
+            accelY: motion.accelY,
+            accelZ: motion.accelZ,
+            timestamp: timestamp,
+            receivedTimestamp: receivedTimestamp,
+            motionSamples: decoded.motionSamples
         ))
     }
 

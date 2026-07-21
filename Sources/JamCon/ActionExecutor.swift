@@ -2,125 +2,126 @@ import Foundation
 import CoreGraphics
 import AppKit
 
-/// Executes button actions (mouse clicks, key presses, system actions)
-class ActionExecutor {
-
-    /// Mouse controller for click/drag operations - must be the same instance used for gyro movement
+final class MacOSSyntheticEventBackend: SyntheticEventBackend {
     private let mouseController: MouseController
 
     init(mouseController: MouseController) {
         self.mouseController = mouseController
     }
 
+    func post(_ event: SyntheticOutputEvent) {
+        switch event {
+        case .mouseButton(let button, let isPressed):
+            if isPressed {
+                mouseController.mouseDown(button: button)
+            } else {
+                mouseController.mouseUp(button: button)
+            }
+
+        case .key(let combo, let isPressed):
+            var flags = combo.eventFlags
+            let arrowKeys: Set<UInt16> = [123, 124, 125, 126]
+            if arrowKeys.contains(combo.keyCode) {
+                flags.insert(.maskNumericPad)
+            }
+            if flags.contains(.maskControl), arrowKeys.contains(combo.keyCode) {
+                flags.insert(.maskSecondaryFn)
+            }
+
+            if let event = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: CGKeyCode(combo.keyCode),
+                keyDown: isPressed
+            ) {
+                event.flags = flags
+                event.post(tap: .cghidEventTap)
+            }
+        }
+    }
+}
+
+/// Executes button actions (mouse clicks, key presses, system actions)
+class ActionExecutor {
+    private let outputCoordinator: SyntheticOutputCoordinator
+
+    init(mouseController: MouseController) {
+        self.outputCoordinator = SyntheticOutputCoordinator(
+            backend: MacOSSyntheticEventBackend(mouseController: mouseController)
+        )
+    }
+
+    init(eventBackend: SyntheticEventBackend) {
+        self.outputCoordinator = SyntheticOutputCoordinator(backend: eventBackend)
+    }
+
     // MARK: - Execute Action
 
-    func execute(_ action: ButtonAction, isPressed: Bool) {
+    func execute(_ action: ButtonAction, isPressed: Bool, owner: SyntheticOutputOwner) {
         switch action {
         case .none, .drag, .scroll, .radialMenu:
             // No-op: drag/scroll/radialMenu are handled by AppState gyro routing
             break
         case .mouseClick(let button):
-            if isPressed {
-                performMouseDown(button)
-            } else {
-                performMouseUp(button)
-            }
+            outputCoordinator.set(.mouseButton(button), pressed: isPressed, owner: owner)
         case .keyPress(let combo):
-            if isPressed {
-                performKeyDown(combo)
-            } else {
-                performKeyUp(combo)
-            }
+            outputCoordinator.set(.key(combo), pressed: isPressed, owner: owner)
         case .systemAction(let action):
             if isPressed {
-                performSystemAction(action)
+                performSystemAction(action, owner: owner)
             }
         }
     }
 
-    /// Execute a system action (public for radial menu use)
-    func executeSystemAction(_ action: SystemAction) {
-        performSystemAction(action)
-    }
-
-    // MARK: - Mouse Actions
-
-    private func performMouseDown(_ button: MouseButton) {
-        // Delegate to MouseController for proper drag state tracking
-        mouseController.mouseDown(button: button)
-    }
-
-    private func performMouseUp(_ button: MouseButton) {
-        // Delegate to MouseController for proper drag state tracking
-        mouseController.mouseUp(button: button)
-    }
-
-    // MARK: - Keyboard Actions
-
-    private func performKeyDown(_ combo: KeyCombo) {
-        var flags = combo.eventFlags
-
-        // Arrow keys need numeric pad flag for macOS to recognize them
-        let arrowKeys: [UInt16] = [123, 124, 125, 126]  // left, right, down, up
-        if arrowKeys.contains(combo.keyCode) {
-            flags.insert(.maskNumericPad)
-        }
-
-        // Control+Arrow needs secondary Fn flag for desktop switching shortcuts
-        if flags.contains(.maskControl) && arrowKeys.contains(combo.keyCode) {
-            flags.insert(.maskSecondaryFn)
-        }
-
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: true) {
-            event.flags = flags
-            event.post(tap: .cghidEventTap)
+    func tap(_ action: ButtonAction, owner: SyntheticOutputOwner) {
+        switch action {
+        case .mouseClick(let button):
+            outputCoordinator.tap(.mouseButton(button), owner: owner)
+        case .keyPress(let combo):
+            outputCoordinator.tap(.key(combo), owner: owner)
+        case .systemAction(let systemAction):
+            performSystemAction(systemAction, owner: owner)
+        case .none, .drag, .scroll, .radialMenu:
+            break
         }
     }
 
-    private func performKeyUp(_ combo: KeyCombo) {
-        var flags = combo.eventFlags
+    func executeSystemAction(_ action: SystemAction, owner: SyntheticOutputOwner) {
+        performSystemAction(action, owner: owner)
+    }
 
-        // Arrow keys need numeric pad flag for macOS to recognize them
-        let arrowKeys: [UInt16] = [123, 124, 125, 126]  // left, right, down, up
-        if arrowKeys.contains(combo.keyCode) {
-            flags.insert(.maskNumericPad)
-        }
+    /// Release every synthetic down event still owned by JamCon.
+    /// Call this before stopping input, disabling output, or losing a device.
+    func releaseAll() {
+        outputCoordinator.releaseAll()
+    }
 
-        // Control+Arrow needs secondary Fn flag for desktop switching shortcuts
-        if flags.contains(.maskControl) && arrowKeys.contains(combo.keyCode) {
-            flags.insert(.maskSecondaryFn)
-        }
-
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: false) {
-            event.flags = flags
-            event.post(tap: .cghidEventTap)
-        }
+    func releaseAll(for device: ManagedDeviceKey) {
+        outputCoordinator.releaseAll(for: device)
     }
 
     // MARK: - System Actions
 
-    private func performSystemAction(_ action: SystemAction) {
+    private func performSystemAction(_ action: SystemAction, owner: SyntheticOutputOwner) {
         switch action {
         case .missionControl:
-            openMissionControl()
+            outputCoordinator.tap(
+                .key(KeyCombo(keyCode: 126, modifiers: .maskControl)),
+                owner: owner.withRole(.systemAction, control: SystemAction.missionControl.rawValue)
+            )
         case .launchpad:
             openLaunchpad()
         case .showDesktop:
-            showDesktop()
+            outputCoordinator.tap(
+                .key(KeyCombo(keyCode: 103, modifiers: .maskSecondaryFn)),
+                owner: owner.withRole(.systemAction, control: SystemAction.showDesktop.rawValue)
+            )
         case .appSwitcher:
-            openAppSwitcher()
+            outputCoordinator.tap(
+                .key(KeyCombo(keyCode: 48, modifiers: .maskCommand)),
+                owner: owner.withRole(.systemAction, control: SystemAction.appSwitcher.rawValue)
+            )
         case .playPause:
             sendMediaKey(.playPause)
-        }
-    }
-
-    private func openMissionControl() {
-        // F3 key (key code 99) or Control+Up
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 160, keyDown: true) {
-            event.post(tap: .cghidEventTap)
-        }
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 160, keyDown: false) {
-            event.post(tap: .cghidEventTap)
         }
     }
 
@@ -133,29 +134,6 @@ class ActionExecutor {
         }
     }
 
-    private func showDesktop() {
-        // F11 key (key code 103) - Show Desktop
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 103, keyDown: true) {
-            event.flags = .maskSecondaryFn
-            event.post(tap: .cghidEventTap)
-        }
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 103, keyDown: false) {
-            event.flags = .maskSecondaryFn
-            event.post(tap: .cghidEventTap)
-        }
-    }
-
-    private func openAppSwitcher() {
-        // Command+Tab
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 48, keyDown: true) {
-            event.flags = .maskCommand
-            event.post(tap: .cghidEventTap)
-        }
-        if let event = CGEvent(keyboardEventSource: nil, virtualKey: 48, keyDown: false) {
-            event.flags = .maskCommand
-            event.post(tap: .cghidEventTap)
-        }
-    }
 
     // MARK: - Media Keys
 

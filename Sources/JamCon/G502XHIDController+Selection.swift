@@ -41,6 +41,24 @@ extension G502XHIDController {
         }
 	    }
 
+    /// Attempt to recover from stalled input by reinitializing the active mouse.
+    func recoverFromStall(expectedMouseID: String, reason: String) {
+        start()
+        performHIDOperation { [weak self] in
+            guard let self else { return }
+            guard let selected = self.selectedMouseID, selected == expectedMouseID else { return }
+            guard let mouse = self.stateLock.withLock({ state in
+                state.discoveredMice.first(where: { $0.id == expectedMouseID })
+            }) else {
+                self.log("G502X stall recovery skipped: mouse not discovered (\(expectedMouseID))")
+                return
+            }
+            self.log("G502X stall recovery: \(reason) — reinitializing interfaces for \(mouse.name)")
+            self.deactivateCurrentMouse()
+            self.activateMouse(mouse)
+        }
+    }
+
 	    func activateMouse(_ mouse: DiscoveredG502X) {
 	        assert(Thread.current == hidThread, "G502XHIDController.activateMouse must run on the HID thread")
 	        log("Activating mouse with \(mouse.interfaces.count) interface(s)...")
@@ -191,8 +209,8 @@ extension G502XHIDController {
         }
         stableButtonBytes = [0, 0]
         lastStandardMouseReport.removeAll()
+        resetReportStats()
 
 	        onConnectionChange?(false, name, mouseID)
 	    }
 }
-

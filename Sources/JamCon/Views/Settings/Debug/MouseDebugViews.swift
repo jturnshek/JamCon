@@ -13,6 +13,10 @@ struct MouseDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InputPerformanceMetricsView(telemetry: telemetry)
+
+                Divider()
+
                 // Section 0: HID Interfaces (per-interface byte visualization)
                 MouseHIDInterfacesSection(
                     appState: appState,
@@ -425,4 +429,3 @@ private struct MouseBitInspectorSection: View {
         return lastTime > .distantPast ? (lastByte, lastBit, lastTime) : nil
     }
 }
-

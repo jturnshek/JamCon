@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import QuartzCore
 import os
 
 extension InputEngine {
@@ -9,6 +10,18 @@ extension InputEngine {
     func processG502XReport(_ report: G502XHIDController.InputReport) {
         assertOnEngineQueue()
         guard isRunning else { return }
+        let engineStartTimestamp = CACurrentMediaTime()
+        let signpostID = Self.inputPerformanceLog.signpostsEnabled
+            ? OSSignpostID(log: Self.inputPerformanceLog)
+            : nil
+        if let signpostID {
+            os_signpost(.begin, log: Self.inputPerformanceLog, name: "Mouse Input", signpostID: signpostID)
+        }
+        defer {
+            if let signpostID {
+                os_signpost(.end, log: Self.inputPerformanceLog, name: "Mouse Input", signpostID: signpostID)
+            }
+        }
 
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
@@ -35,6 +48,13 @@ extension InputEngine {
         )
 
         if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .mouse) {
+            let engineEndTimestamp = CACurrentMediaTime()
+            debugBuffer.recordTrace(
+                device: ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse"),
+                reportID: 0,
+                bytes: report.bytes,
+                timestamp: report.receivedTimestamp
+            )
             debugBuffer.record(
                 bytes: report.bytes,
                 length: report.length,
@@ -43,7 +63,13 @@ extension InputEngine {
                 normalizedGyro: (0, 0, 0),
                 accel: (0, 0, 0),
                 buttonStates: g502xPreviousButtonStates,
-                controllerKind: .mouse
+                controllerKind: .mouse,
+                pipelineTiming: DebugBuffer.PipelineTiming(
+                    reportTimestamp: report.timestamp,
+                    receivedTimestamp: report.receivedTimestamp,
+                    engineStartTimestamp: engineStartTimestamp,
+                    engineEndTimestamp: engineEndTimestamp
+                )
             )
         }
     }
@@ -51,6 +77,12 @@ extension InputEngine {
     func resetG502XButtonStateBaseline() {
         g502xHasPrimedButtonState = false
         for i in 0..<g502xPreviousButtonStates.count {
+            if let pressState = g502xButtonPressStates[i] {
+                actionExecutor.execute(pressState.actions.press, isPressed: false, owner: pressState.pressOwner)
+                if pressState.holdFired {
+                    actionExecutor.execute(pressState.actions.hold, isPressed: false, owner: pressState.holdOwner)
+                }
+            }
             g502xPreviousButtonStates[i] = false
             g502xButtonStates[i] = false
             g502xButtonPressStates[i] = nil
@@ -108,9 +140,11 @@ extension InputEngine {
 
     private func handleG502XButtonDown(button: G502XLogicalButton, actions: ButtonActions, holdThreshold: Double) {
         let idx = button.index
+        let deviceOwner = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
 
         // Handle gyro mode actions (radial menu for mouse)
         if actions.pressIsGyroMode {
+            g502xButtonPressStates[idx] = ButtonPressState(actions: actions, device: deviceOwner, control: button.rawValue)
             switch actions.press {
             case .radialMenu:
                 JamLog.debug(.g502x, "Opening radial menu (button=\(button))")
@@ -130,15 +164,12 @@ extension InputEngine {
             return
         }
 
-        // Handle mouse clicks immediately
-        if case .mouseClick = actions.press {
-            actionExecutor.execute(actions.press, isPressed: true)
-            g502xButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
-            return
-        }
+        let state = ButtonPressState(actions: actions, device: deviceOwner, control: button.rawValue)
+        g502xButtonPressStates[idx] = state
 
-        // Record press state
-        g502xButtonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+        if case .mouseClick = actions.press {
+            actionExecutor.execute(actions.press, isPressed: true, owner: state.pressOwner)
+        }
 
         // Schedule hold timer if there's a hold action
         if actions.hold != .none {
@@ -149,11 +180,11 @@ extension InputEngine {
 
                 state.holdFired = true
                 self.g502xButtonPressStates[idx] = state
-                self.actionExecutor.execute(actions.hold, isPressed: true)
+                self.actionExecutor.execute(state.actions.hold, isPressed: true, owner: state.holdOwner)
             }
             g502xHoldTimers[idx]?.cancel()
             g502xHoldTimers[idx] = timer
-            engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+            holdScheduler.schedule(timer, after: holdThreshold, on: engineQueue)
         }
     }
 
@@ -184,19 +215,21 @@ extension InputEngine {
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {
-            actionExecutor.execute(state.actions.press, isPressed: false)
+            actionExecutor.execute(state.actions.press, isPressed: false, owner: state.pressOwner)
+            if state.holdFired {
+                actionExecutor.execute(state.actions.hold, isPressed: false, owner: state.holdOwner)
+            }
             g502xButtonPressStates[idx] = nil
             return
         }
 
         if state.holdFired {
             // Hold action was executed, release it
-            actionExecutor.execute(state.actions.hold, isPressed: false)
+            actionExecutor.execute(state.actions.hold, isPressed: false, owner: state.holdOwner)
         } else {
             // Hold didn't fire, execute press action as tap
             if state.actions.press != .none {
-                actionExecutor.execute(state.actions.press, isPressed: true)
-                actionExecutor.execute(state.actions.press, isPressed: false)
+                actionExecutor.tap(state.actions.press, owner: state.pressOwner)
             }
         }
 

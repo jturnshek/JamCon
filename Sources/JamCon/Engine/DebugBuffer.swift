@@ -6,6 +6,7 @@ import os
 /// This is the ONE-WAY bridge: Engine → UI (debug data flows up via polling)
 final class DebugBuffer: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
+    private let traceRecorder = HIDReportTraceRecorder()
 
     // MARK: - Types
 
@@ -55,11 +56,49 @@ final class DebugBuffer: @unchecked Sendable {
         let lastNeutralUpdate: TimeInterval?
     }
 
+    /// Monotonic timing captured at the input pipeline boundaries.
+    struct PipelineTiming {
+        let inputAgeMilliseconds: Double
+        let queueDelayMilliseconds: Double
+        let processingMilliseconds: Double
+
+        init(
+            reportTimestamp: TimeInterval,
+            receivedTimestamp: TimeInterval,
+            engineStartTimestamp: TimeInterval,
+            engineEndTimestamp: TimeInterval
+        ) {
+            inputAgeMilliseconds = Self.milliseconds(engineEndTimestamp - reportTimestamp)
+            queueDelayMilliseconds = Self.milliseconds(engineStartTimestamp - receivedTimestamp)
+            processingMilliseconds = Self.milliseconds(engineEndTimestamp - engineStartTimestamp)
+        }
+
+        private static func milliseconds(_ seconds: TimeInterval) -> Double {
+            guard seconds.isFinite else { return 0 }
+            return max(0, seconds * 1_000)
+        }
+    }
+
+    struct MetricSummary {
+        let latest: Double
+        let average: Double
+        let p95: Double
+        let maximum: Double
+    }
+
+    struct PipelineTimingSummary {
+        let sampleCount: Int
+        let inputAge: MetricSummary
+        let queueDelay: MetricSummary
+        let processing: MetricSummary
+    }
+
     /// Aggregated statistics for display
     struct Stats {
         var reportCount: Int = 0
         var lastReportTime: Date = .distantPast
         var reportsPerSecond: Double = 0
+        var timing: PipelineTimingSummary?
     }
 
     // MARK: - State
@@ -77,13 +116,16 @@ final class DebugBuffer: @unchecked Sendable {
     /// Statistics
     private var _stats = Stats()
     private var reportTimestamps: [Date] = []
+    private var timingSamples: [PipelineTiming] = []
+    private var timingWriteIndex: Int = 0
+    private let timingCapacity = 512
 
     /// Whether recording is enabled (UI can disable to save CPU)
     private var _isRecording: Bool = false
 
     // MARK: - Initialization
 
-    init(capacity: Int = 120, maxReportLength: Int = 64) {
+    init(capacity: Int = 120, maxReportLength: Int = 256) {
         self.capacity = capacity
         self.samples = []
         self.samples.reserveCapacity(capacity)
@@ -101,6 +143,7 @@ final class DebugBuffer: @unchecked Sendable {
     }
 
     func startRecording() {
+        traceRecorder.start()
         lock.withLock {
             _isRecording = true
         }
@@ -114,6 +157,29 @@ final class DebugBuffer: @unchecked Sendable {
 
     // MARK: - Writing (Called from HID thread)
 
+    func recordTrace(
+        device: ManagedDeviceKey,
+        reportID: UInt32,
+        bytes: [UInt8],
+        timestamp: TimeInterval
+    ) {
+        guard isRecording else { return }
+        traceRecorder.record(
+            device: device,
+            reportID: reportID,
+            bytes: bytes,
+            timestamp: timestamp
+        )
+    }
+
+    func hidTraceSnapshot(createdAt: Date = Date()) -> HIDReportTrace {
+        traceRecorder.snapshot(createdAt: createdAt)
+    }
+
+    func encodedHIDTrace(prettyPrinted: Bool = true) throws -> Data {
+        try HIDReportTraceCodec.encode(hidTraceSnapshot(), prettyPrinted: prettyPrinted)
+    }
+
     /// Record a new sample with all pipeline stages - fast, non-blocking write
     func record(
         bytes: [UInt8],
@@ -124,7 +190,8 @@ final class DebugBuffer: @unchecked Sendable {
         accel: (x: Int16, y: Int16, z: Int16),
         buttonStates: [Bool],
         controllerKind: ControllerKind,
-        gyroDebug: GyroDebug? = nil
+        gyroDebug: GyroDebug? = nil,
+        pipelineTiming: PipelineTiming? = nil
     ) {
         lock.withLock {
             guard _isRecording else { return }
@@ -176,6 +243,15 @@ final class DebugBuffer: @unchecked Sendable {
             let cutoff = now.addingTimeInterval(-1.0)
             reportTimestamps.removeAll { $0 < cutoff }
             _stats.reportsPerSecond = Double(reportTimestamps.count)
+
+            if let pipelineTiming {
+                if timingSamples.count < timingCapacity {
+                    timingSamples.append(pipelineTiming)
+                } else {
+                    timingSamples[timingWriteIndex] = pipelineTiming
+                }
+                timingWriteIndex = (timingWriteIndex + 1) % timingCapacity
+            }
         }
     }
 
@@ -222,7 +298,27 @@ final class DebugBuffer: @unchecked Sendable {
 
     /// Get current statistics
     func stats() -> Stats {
-        lock.withLock { _stats }
+        let snapshot = lock.withLock { () -> (Stats, [PipelineTiming], PipelineTiming?) in
+            let latest: PipelineTiming?
+            if timingSamples.isEmpty {
+                latest = nil
+            } else {
+                let index = (timingWriteIndex - 1 + timingSamples.count) % timingSamples.count
+                latest = timingSamples[index]
+            }
+            return (_stats, timingSamples, latest)
+        }
+
+        var result = snapshot.0
+        if let latest = snapshot.2 {
+            result.timing = PipelineTimingSummary(
+                sampleCount: snapshot.1.count,
+                inputAge: Self.summarize(snapshot.1.map(\.inputAgeMilliseconds), latest: latest.inputAgeMilliseconds),
+                queueDelay: Self.summarize(snapshot.1.map(\.queueDelayMilliseconds), latest: latest.queueDelayMilliseconds),
+                processing: Self.summarize(snapshot.1.map(\.processingMilliseconds), latest: latest.processingMilliseconds)
+            )
+        }
+        return result
     }
 
     /// Get byte change timestamps (for heat map visualization)
@@ -302,9 +398,27 @@ final class DebugBuffer: @unchecked Sendable {
             writeIndex = 0
             _stats = Stats()
             reportTimestamps.removeAll()
+            timingSamples.removeAll(keepingCapacity: true)
+            timingWriteIndex = 0
             byteLastChanged = Array(repeating: .distantPast, count: byteLastChanged.count)
             bitLastChanged = Array(repeating: Array(repeating: .distantPast, count: 8), count: bitLastChanged.count)
             previousBytes = Array(repeating: 0, count: previousBytes.count)
         }
+        traceRecorder.clear()
+    }
+
+    private static func summarize(_ values: [Double], latest: Double) -> MetricSummary {
+        guard !values.isEmpty else {
+            return MetricSummary(latest: latest, average: latest, p95: latest, maximum: latest)
+        }
+
+        let sorted = values.sorted()
+        let percentileIndex = min(Int(ceil(Double(sorted.count) * 0.95)) - 1, sorted.count - 1)
+        return MetricSummary(
+            latest: latest,
+            average: values.reduce(0, +) / Double(values.count),
+            p95: sorted[max(0, percentileIndex)],
+            maximum: sorted.last ?? latest
+        )
     }
 }

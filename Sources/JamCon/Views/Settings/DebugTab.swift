@@ -103,6 +103,11 @@ struct DeviceDebugView: View {
         .navigationTitle("Live Debug")
         .toolbar {
             ToolbarItem {
+                Button("Export Trace…", systemImage: "square.and.arrow.up") {
+                    appState.exportHIDTrace()
+                }
+            }
+            ToolbarItem {
                 Toggle("Live", isOn: liveBinding)
                     .toggleStyle(.switch)
                     .disabled(!isManaged)
@@ -158,8 +163,13 @@ struct DebugTab: View {
     var body: some View {
         VStack(spacing: 0) {
             TabHeader(appState: appState) {
-                Toggle("Live", isOn: liveBinding)
-                    .toggleStyle(.switch)
+                HStack {
+                    Button("Export Trace…", systemImage: "square.and.arrow.up") {
+                        appState.exportHIDTrace()
+                    }
+                    Toggle("Live", isOn: liveBinding)
+                        .toggleStyle(.switch)
+                }
             }
 
             if appState.debugPollingEnabled && appState.isConnected {
@@ -224,4 +234,3 @@ struct DebugTab: View {
         }
     }
 }
-

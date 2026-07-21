@@ -15,9 +15,13 @@
 		09B770A6F1F092FD188BC44C /* MouseController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72A7855A1E10189EABA24208 /* MouseController.swift */; };
 		0A690939457C311691E3FCC7 /* StickTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF4E6221314FE64E89F2DEE /* StickTab.swift */; };
 		0CB54EAE878B6FDC762F7BB7 /* SliderWithLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A40500343CC8A0DB54D74AF /* SliderWithLabel.swift */; };
+		0E1D29559B082FF05E53AA53 /* DebugBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1688D339B155F8A9A2BD7CD /* DebugBufferTests.swift */; };
 		165A8C9EC315A2BA3880F725 /* InputIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = B47E51C9B09A8F9FF9A6298F /* InputIndicators.swift */; };
+		1B4B2C826770E9C71671BD06 /* SyntheticOutputCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABAA59B316572E85D9EE23D /* SyntheticOutputCoordinatorTests.swift */; };
+		1CB3FF8011DE5FBD05478CF9 /* HIDReportDecoders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09CDE9F45FF5A7A3E0DC1068 /* HIDReportDecoders.swift */; };
 		26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */; };
 		2825E809B62C7960707B5265 /* BatteryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = D920CEDAF995B8D68634D45C /* BatteryHelper.swift */; };
+		29A48D0A2155B85E42A2C511 /* HIDReportTraceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D980C43478DE65C61974E481 /* HIDReportTraceTests.swift */; };
 		29D0F762CF86FACF39E46978 /* InputEngine+RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E7AC5D94676D46304336BCC /* InputEngine+RadialMenu.swift */; };
 		2C6267710B3C81EB75346F5B /* StatusIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84620F15CB71F402575BEE6 /* StatusIndicators.swift */; };
 		2EB7D8846AA024AC050AAD96 /* InputEngine+Gyro.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A28FDAEC546BD9D6CEF1D8C /* InputEngine+Gyro.swift */; };
@@ -27,21 +31,26 @@
 		3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */; };
 		3C5E42B3ED04667C6725E7A5 /* DisplayCoordinateConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */; };
 		412BBEC8E88003D16190F825 /* G502XHIDController+Reports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD8C718C55AD53C57B6BEC /* G502XHIDController+Reports.swift */; };
+		41A0E61F9DF8EF52A9D39003 /* InputEngineInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77E469C11B836491B6C362B1 /* InputEngineInteractionTests.swift */; };
+		472B1316F16FD832975446E1 /* InputPerformanceMetricsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33FDFAF7610DFF97848ECFC /* InputPerformanceMetricsView.swift */; };
 		4DCADBA39379F43AC90DD100 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04EB933AD21491B69DCFE64 /* SettingsView.swift */; };
 		4F2655D098E358C285CC7296 /* ControllerTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */; };
 		5BEE11DEBE41F602F4768C95 /* G502XHIDController+DeviceCallbacks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94985C91216EFCBE1D4275E8 /* G502XHIDController+DeviceCallbacks.swift */; };
 		5F05CEF24E20B0107C0C0DBC /* JamLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BC1822796226D93320015C /* JamLog.swift */; };
 		6867FE65E3DD0B0801E08E46 /* InputEngine+JoystickScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7386793FB111B905D1626404 /* InputEngine+JoystickScroll.swift */; };
+		6ABD0615AB3CAEE4D5973CA5 /* SyntheticOutputCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 729272B6BA204FBC63DA47BF /* SyntheticOutputCoordinator.swift */; };
 		700A56D3651426914F3642A2 /* MouseDebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7242DF63166C644BA82EB5DB /* MouseDebugViews.swift */; };
 		76A5FC9931444E2485230F84 /* JoyConHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E18E845D60DF3C99DD71E81 /* JoyConHIDProtocol.swift */; };
 		76CE0F0CF5826059587472DC /* ButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98A336E41CF4A257C4886654 /* ButtonMapping.swift */; };
 		78AA5868288AC1FD75401EC7 /* OneEuroFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A02C858DDA1884589796E0 /* OneEuroFilter.swift */; };
 		7A5A8E822D6BE73E42ED1DA3 /* DebugTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 840723E20C2E27D73D6411F5 /* DebugTab.swift */; };
 		7AA478EC08080190F06A3A49 /* ControllerTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = B520C8CE1E150F04FD530032 /* ControllerTab.swift */; };
+		82A376E4ACB3139981A1B1EA /* DisplayGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6D5B8D6A9957940732C9374 /* DisplayGeometryTests.swift */; };
 		834742EC92FC61665874289B /* InputEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB21011BC2F9F33F7C2294B /* InputEngine.swift */; };
 		86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */; };
 		873DA01BD3693033C66A5F6D /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B36A459FBA46E6F2F8703 /* CrashReporter.swift */; };
 		884F425447A8F986FAD7724F /* RadialMenuTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE750046AA88415C1C5FBE /* RadialMenuTab.swift */; };
+		899AC5107836E3C1A7BC3003 /* RadialMenuGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */; };
 		8A2833A40972CF2AC7D65E46 /* NoControllerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73BAA9918F9630E693743617 /* NoControllerView.swift */; };
 		8ACAEF38B79C6B0F3D003BEA /* DebugTelemetryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */; };
 		8AE18F8B03A97334819C3FB0 /* G502XHIDController+HIDPP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851F116E776C63D6BA568CA1 /* G502XHIDController+HIDPP.swift */; };
@@ -55,41 +64,63 @@
 		9D322FB4F89058D714E47BF9 /* InputEngine+JoyCon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F341B99D7A1904D272CDCA87 /* InputEngine+JoyCon.swift */; };
 		9FA0EA8597A5CD03A939E151 /* KeyCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 239C2974D577B18805DA1237 /* KeyCaptureManager.swift */; };
 		A05A676723A9839A4CE2F507 /* GyroRemapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ADB33724DF23ECDCF9D3614 /* GyroRemapper.swift */; };
+		A87895AD408D961B2A139806 /* DisplayGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1EBFA7EB4458AD580B08F8 /* DisplayGeometry.swift */; };
+		B729D32B59D3A4A7824E2D6B /* HIDReportTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B8A8557121620318EDB2E3 /* HIDReportTrace.swift */; };
 		B7E54485EDBB225ACE05508F /* LogTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1E00949E4E77614E6481C7 /* LogTab.swift */; };
 		BA2AF22A9DDCD0D611944E6D /* MouseControlTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D86130ACCBD5000097D7F3 /* MouseControlTab.swift */; };
 		BB0E36E2133A8D40663F6B5D /* AppState+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B051780DE7C520E9A2B9F9 /* AppState+Diagnostics.swift */; };
 		BCA4AAFFC1F9FB3FE1367633 /* DebugBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63F03DEFB5C92AF3CC98131 /* DebugBuffer.swift */; };
 		BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103F11341851C9371929B73 /* JamConApp.swift */; };
 		BE38FECB6C5468C335D221F1 /* DebugVisualizationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31741A0A20F44588424ECC4 /* DebugVisualizationViews.swift */; };
+		BF7B046A45F55E1032FC31CD /* HoldScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F72C4E072890499DF25A189 /* HoldScheduler.swift */; };
 		BF9A242464B1D450BFED6C0D /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA50FA041B846C309F580C8F /* SettingsStore.swift */; };
 		C6BEFD8D5ED08EB3189D40F5 /* ButtonMappingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99599D54372F55E7E8B62ADF /* ButtonMappingViews.swift */; };
 		C7766B5E4F542C051AF3A0B3 /* ButtonAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 429DF3A228AF0717776513FD /* ButtonAction.swift */; };
 		C9F20DDF222F97B2FD4D1CA8 /* TabHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FD489691A9B75A41664C23C /* TabHeader.swift */; };
 		CA1FE7FE21192BF679CCFBEE /* InputEngine+G502X.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4D1E28D1B041DCDBDD7E65 /* InputEngine+G502X.swift */; };
 		CC8218D06A6C54FC1E6D2F29 /* JoyConButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ADB2C885D2F10A6375BE8D4 /* JoyConButtonMapping.swift */; };
+		CFE5A5635D7EB52BF4164B8F /* HIDReportDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA83FE39F535BAD09608C8 /* HIDReportDecoderTests.swift */; };
+		D9D87158CF3C89C83EFEF984 /* RadialMenuGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EE21F4F3AE342904504DEF0 /* RadialMenuGeometry.swift */; };
 		D9FB2079CB78D61D11310DE6 /* GyroProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980EC5F0FFCA29665E42A75E /* GyroProcessor.swift */; };
 		DD30696DAAFCDDFDF60C0E2E /* SharedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 482C873BBFA74526B404F547 /* SharedComponents.swift */; };
 		E2F52932691CF13F4F700120 /* SenseDebugSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01FFD05D2FB52AD9A3A1C658 /* SenseDebugSections.swift */; };
 		E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A71BABCA2FB0A2DC34AAAFC /* G502XButtonMapping.swift */; };
 		E7436A6CDCF84C0AD2888755 /* JoyConDebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A81838AF98AE7582D22183C /* JoyConDebugViews.swift */; };
 		ED5CD22FDC47AFF8FD2D6C5C /* SensorValidationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E3C96DF01C9561153E345E7 /* SensorValidationViews.swift */; };
+		F1E7A2513151EA698E18E197 /* HIDButtonMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4799050F909A5B3718DE162B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E7EB9E337F160C013F5389CB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7210466D8F44E05FF788FC31;
+			remoteInfo = JamCon;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		008EAFD0998ED73B26E6579D /* GyroSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroSettings.swift; sourceTree = "<group>"; };
 		01FFD05D2FB52AD9A3A1C658 /* SenseDebugSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseDebugSections.swift; sourceTree = "<group>"; };
 		0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDProtocol.swift; sourceTree = "<group>"; };
+		09CDE9F45FF5A7A3E0DC1068 /* HIDReportDecoders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDReportDecoders.swift; sourceTree = "<group>"; };
 		0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenu.swift; sourceTree = "<group>"; };
+		104480A3C9AB360B1AACD5E9 /* JamConTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JamConTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayCoordinateConverter.swift; sourceTree = "<group>"; };
 		1E2C66CE3F326B6D45B21CF1 /* ByteInspectorViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ByteInspectorViews.swift; sourceTree = "<group>"; };
+		1EE21F4F3AE342904504DEF0 /* RadialMenuGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuGeometry.swift; sourceTree = "<group>"; };
 		2125ADE648F458AAAF0269C4 /* ButtonsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonsTab.swift; sourceTree = "<group>"; };
 		239C2974D577B18805DA1237 /* KeyCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaptureManager.swift; sourceTree = "<group>"; };
 		25D86130ACCBD5000097D7F3 /* MouseControlTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseControlTab.swift; sourceTree = "<group>"; };
 		2A28FDAEC546BD9D6CEF1D8C /* InputEngine+Gyro.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+Gyro.swift"; sourceTree = "<group>"; };
 		2E18E845D60DF3C99DD71E81 /* JoyConHIDProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConHIDProtocol.swift; sourceTree = "<group>"; };
+		3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDButtonMappingTests.swift; sourceTree = "<group>"; };
+		38B8A8557121620318EDB2E3 /* HIDReportTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDReportTrace.swift; sourceTree = "<group>"; };
 		3E3C96DF01C9561153E345E7 /* SensorValidationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorValidationViews.swift; sourceTree = "<group>"; };
 		3FD489691A9B75A41664C23C /* TabHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabHeader.swift; sourceTree = "<group>"; };
 		429DF3A228AF0717776513FD /* ButtonAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonAction.swift; sourceTree = "<group>"; };
+		46DA83FE39F535BAD09608C8 /* HIDReportDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDReportDecoderTests.swift; sourceTree = "<group>"; };
 		482C873BBFA74526B404F547 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
 		49ADE054843492EEE54E60F5 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		4A81838AF98AE7582D22183C /* JoyConDebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConDebugViews.swift; sourceTree = "<group>"; };
@@ -102,14 +133,17 @@
 		6E7AC5D94676D46304336BCC /* InputEngine+RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+RadialMenu.swift"; sourceTree = "<group>"; };
 		711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTypes.swift; sourceTree = "<group>"; };
 		7242DF63166C644BA82EB5DB /* MouseDebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseDebugViews.swift; sourceTree = "<group>"; };
+		729272B6BA204FBC63DA47BF /* SyntheticOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticOutputCoordinator.swift; sourceTree = "<group>"; };
 		72A7855A1E10189EABA24208 /* MouseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseController.swift; sourceTree = "<group>"; };
 		7386793FB111B905D1626404 /* InputEngine+JoystickScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+JoystickScroll.swift"; sourceTree = "<group>"; };
 		73BAA9918F9630E693743617 /* NoControllerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoControllerView.swift; sourceTree = "<group>"; };
+		77E469C11B836491B6C362B1 /* InputEngineInteractionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputEngineInteractionTests.swift; sourceTree = "<group>"; };
 		7A71BABCA2FB0A2DC34AAAFC /* G502XButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XButtonMapping.swift; sourceTree = "<group>"; };
 		7ADB2C885D2F10A6375BE8D4 /* JoyConButtonMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConButtonMapping.swift; sourceTree = "<group>"; };
 		7ADB33724DF23ECDCF9D3614 /* GyroRemapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroRemapper.swift; sourceTree = "<group>"; };
 		7AFD8C718C55AD53C57B6BEC /* G502XHIDController+Reports.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "G502XHIDController+Reports.swift"; sourceTree = "<group>"; };
 		7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDController.swift; sourceTree = "<group>"; };
+		7F72C4E072890499DF25A189 /* HoldScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldScheduler.swift; sourceTree = "<group>"; };
 		8103F11341851C9371929B73 /* JamConApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamConApp.swift; sourceTree = "<group>"; };
 		840723E20C2E27D73D6411F5 /* DebugTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTab.swift; sourceTree = "<group>"; };
 		851F116E776C63D6BA568CA1 /* G502XHIDController+HIDPP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "G502XHIDController+HIDPP.swift"; sourceTree = "<group>"; };
@@ -125,8 +159,10 @@
 		996B36A459FBA46E6F2F8703 /* CrashReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashReporter.swift; sourceTree = "<group>"; };
 		99BC1822796226D93320015C /* JamLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamLog.swift; sourceTree = "<group>"; };
 		9A40500343CC8A0DB54D74AF /* SliderWithLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliderWithLabel.swift; sourceTree = "<group>"; };
+		A1688D339B155F8A9A2BD7CD /* DebugBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugBufferTests.swift; sourceTree = "<group>"; };
 		A1B051780DE7C520E9A2B9F9 /* AppState+Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppState+Diagnostics.swift"; sourceTree = "<group>"; };
 		AA50FA041B846C309F580C8F /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
+		AABAA59B316572E85D9EE23D /* SyntheticOutputCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticOutputCoordinatorTests.swift; sourceTree = "<group>"; };
 		AB1E00949E4E77614E6481C7 /* LogTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogTab.swift; sourceTree = "<group>"; };
 		B47E51C9B09A8F9FF9A6298F /* InputIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputIndicators.swift; sourceTree = "<group>"; };
 		B520C8CE1E150F04FD530032 /* ControllerTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTab.swift; sourceTree = "<group>"; };
@@ -137,11 +173,16 @@
 		CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		D04EB933AD21491B69DCFE64 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D920CEDAF995B8D68634D45C /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
+		D980C43478DE65C61974E481 /* HIDReportTraceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDReportTraceTests.swift; sourceTree = "<group>"; };
 		DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTelemetryState.swift; sourceTree = "<group>"; };
+		E6D5B8D6A9957940732C9374 /* DisplayGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayGeometryTests.swift; sourceTree = "<group>"; };
+		EC1EBFA7EB4458AD580B08F8 /* DisplayGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayGeometry.swift; sourceTree = "<group>"; };
 		ED4D1E28D1B041DCDBDD7E65 /* InputEngine+G502X.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+G502X.swift"; sourceTree = "<group>"; };
 		EF67332E3B8816F16D267A67 /* ActionExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionExecutor.swift; sourceTree = "<group>"; };
 		F31741A0A20F44588424ECC4 /* DebugVisualizationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugVisualizationViews.swift; sourceTree = "<group>"; };
+		F33FDFAF7610DFF97848ECFC /* InputPerformanceMetricsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputPerformanceMetricsView.swift; sourceTree = "<group>"; };
 		F341B99D7A1904D272CDCA87 /* InputEngine+JoyCon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+JoyCon.swift"; sourceTree = "<group>"; };
+		F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuGeometryTests.swift; sourceTree = "<group>"; };
 		FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -152,6 +193,7 @@
 				711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */,
 				DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */,
 				0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */,
+				1EE21F4F3AE342904504DEF0 /* RadialMenuGeometry.swift */,
 				CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */,
 			);
 			path = Models;
@@ -162,6 +204,7 @@
 			children = (
 				D920CEDAF995B8D68634D45C /* BatteryHelper.swift */,
 				1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */,
+				EC1EBFA7EB4458AD580B08F8 /* DisplayGeometry.swift */,
 				99BC1822796226D93320015C /* JamLog.swift */,
 				C6587389D0C707A15E16452F /* LockedRuntimeConfig.swift */,
 			);
@@ -185,6 +228,7 @@
 			isa = PBXGroup;
 			children = (
 				735DCFF09B3A12E726444073 /* JamCon */,
+				7DE20E1C16280C84C9111862 /* JamConTests */,
 				58496D4639B8272E28565458 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -193,6 +237,7 @@
 			isa = PBXGroup;
 			children = (
 				8A018018F04F12A98D20A52F /* JamCon.app */,
+				104480A3C9AB360B1AACD5E9 /* JamConTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -208,6 +253,7 @@
 		735DCFF09B3A12E726444073 /* JamCon */ = {
 			isa = PBXGroup;
 			children = (
+				9B60A90191743AB3E9B21EC6 /* Devices */,
 				94A0715598BA3A14C7062A21 /* Engine */,
 				0D8E39DFC253166116995708 /* Models */,
 				2BB724188AE15627C40F362C /* Utilities */,
@@ -243,10 +289,27 @@
 			path = Sources/JamCon;
 			sourceTree = "<group>";
 		};
+		7DE20E1C16280C84C9111862 /* JamConTests */ = {
+			isa = PBXGroup;
+			children = (
+				A1688D339B155F8A9A2BD7CD /* DebugBufferTests.swift */,
+				E6D5B8D6A9957940732C9374 /* DisplayGeometryTests.swift */,
+				3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */,
+				46DA83FE39F535BAD09608C8 /* HIDReportDecoderTests.swift */,
+				D980C43478DE65C61974E481 /* HIDReportTraceTests.swift */,
+				77E469C11B836491B6C362B1 /* InputEngineInteractionTests.swift */,
+				F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */,
+				AABAA59B316572E85D9EE23D /* SyntheticOutputCoordinatorTests.swift */,
+			);
+			name = JamConTests;
+			path = Tests/JamConTests;
+			sourceTree = "<group>";
+		};
 		94A0715598BA3A14C7062A21 /* Engine */ = {
 			isa = PBXGroup;
 			children = (
 				B63F03DEFB5C92AF3CC98131 /* DebugBuffer.swift */,
+				7F72C4E072890499DF25A189 /* HoldScheduler.swift */,
 				6CB21011BC2F9F33F7C2294B /* InputEngine.swift */,
 				ED4D1E28D1B041DCDBDD7E65 /* InputEngine+G502X.swift */,
 				2A28FDAEC546BD9D6CEF1D8C /* InputEngine+Gyro.swift */,
@@ -255,14 +318,25 @@
 				6E7AC5D94676D46304336BCC /* InputEngine+RadialMenu.swift */,
 				58FF0A1F801CE4D9E912ED95 /* InputEngine+Sense.swift */,
 				AA50FA041B846C309F580C8F /* SettingsStore.swift */,
+				729272B6BA204FBC63DA47BF /* SyntheticOutputCoordinator.swift */,
 			);
 			path = Engine;
+			sourceTree = "<group>";
+		};
+		9B60A90191743AB3E9B21EC6 /* Devices */ = {
+			isa = PBXGroup;
+			children = (
+				09CDE9F45FF5A7A3E0DC1068 /* HIDReportDecoders.swift */,
+				38B8A8557121620318EDB2E3 /* HIDReportTrace.swift */,
+			);
+			path = Devices;
 			sourceTree = "<group>";
 		};
 		A14EC62262B6C6CE48DC3108 /* Debug */ = {
 			isa = PBXGroup;
 			children = (
 				F31741A0A20F44588424ECC4 /* DebugVisualizationViews.swift */,
+				F33FDFAF7610DFF97848ECFC /* InputPerformanceMetricsView.swift */,
 				4A81838AF98AE7582D22183C /* JoyConDebugViews.swift */,
 				7242DF63166C644BA82EB5DB /* MouseDebugViews.swift */,
 				01FFD05D2FB52AD9A3A1C658 /* SenseDebugSections.swift */,
@@ -328,6 +402,24 @@
 			productReference = 8A018018F04F12A98D20A52F /* JamCon.app */;
 			productType = "com.apple.product-type.application";
 		};
+		8561358ECD8C7D6CCE40943F /* JamConTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CCA60FD079AB09E25279C18F /* Build configuration list for PBXNativeTarget "JamConTests" */;
+			buildPhases = (
+				DE0125749C7620ED2F36F85E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				76B5F0F0982001FAE29B9499 /* PBXTargetDependency */,
+			);
+			name = JamConTests;
+			packageProductDependencies = (
+			);
+			productName = JamConTests;
+			productReference = 104480A3C9AB360B1AACD5E9 /* JamConTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -338,6 +430,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					7210466D8F44E05FF788FC31 = {
+						ProvisioningStyle = Automatic;
+					};
+					8561358ECD8C7D6CCE40943F = {
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -357,11 +452,27 @@
 			projectRoot = "";
 			targets = (
 				7210466D8F44E05FF788FC31 /* JamCon */,
+				8561358ECD8C7D6CCE40943F /* JamConTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
+		DE0125749C7620ED2F36F85E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0E1D29559B082FF05E53AA53 /* DebugBufferTests.swift in Sources */,
+				82A376E4ACB3139981A1B1EA /* DisplayGeometryTests.swift in Sources */,
+				F1E7A2513151EA698E18E197 /* HIDButtonMappingTests.swift in Sources */,
+				CFE5A5635D7EB52BF4164B8F /* HIDReportDecoderTests.swift in Sources */,
+				29A48D0A2155B85E42A2C511 /* HIDReportTraceTests.swift in Sources */,
+				41A0E61F9DF8EF52A9D39003 /* InputEngineInteractionTests.swift in Sources */,
+				899AC5107836E3C1A7BC3003 /* RadialMenuGeometryTests.swift in Sources */,
+				1B4B2C826770E9C71671BD06 /* SyntheticOutputCoordinatorTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F257B2FCA1F9552FCF6C95E9 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -383,6 +494,7 @@
 				8ACAEF38B79C6B0F3D003BEA /* DebugTelemetryState.swift in Sources */,
 				BE38FECB6C5468C335D221F1 /* DebugVisualizationViews.swift in Sources */,
 				3C5E42B3ED04667C6725E7A5 /* DisplayCoordinateConverter.swift in Sources */,
+				A87895AD408D961B2A139806 /* DisplayGeometry.swift in Sources */,
 				E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */,
 				5BEE11DEBE41F602F4768C95 /* G502XHIDController+DeviceCallbacks.swift in Sources */,
 				8AE18F8B03A97334819C3FB0 /* G502XHIDController+HIDPP.swift in Sources */,
@@ -393,6 +505,9 @@
 				D9FB2079CB78D61D11310DE6 /* GyroProcessor.swift in Sources */,
 				A05A676723A9839A4CE2F507 /* GyroRemapper.swift in Sources */,
 				9D1C03EBEB33010AC215B545 /* GyroSettings.swift in Sources */,
+				1CB3FF8011DE5FBD05478CF9 /* HIDReportDecoders.swift in Sources */,
+				B729D32B59D3A4A7824E2D6B /* HIDReportTrace.swift in Sources */,
+				BF7B046A45F55E1032FC31CD /* HoldScheduler.swift in Sources */,
 				CA1FE7FE21192BF679CCFBEE /* InputEngine+G502X.swift in Sources */,
 				2EB7D8846AA024AC050AAD96 /* InputEngine+Gyro.swift in Sources */,
 				9D322FB4F89058D714E47BF9 /* InputEngine+JoyCon.swift in Sources */,
@@ -401,6 +516,7 @@
 				9C259F990A062534091C79B0 /* InputEngine+Sense.swift in Sources */,
 				834742EC92FC61665874289B /* InputEngine.swift in Sources */,
 				165A8C9EC315A2BA3880F725 /* InputIndicators.swift in Sources */,
+				472B1316F16FD832975446E1 /* InputPerformanceMetricsView.swift in Sources */,
 				BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */,
 				5F05CEF24E20B0107C0C0DBC /* JamLog.swift in Sources */,
 				CC8218D06A6C54FC1E6D2F29 /* JoyConButtonMapping.swift in Sources */,
@@ -417,6 +533,7 @@
 				8A2833A40972CF2AC7D65E46 /* NoControllerView.swift in Sources */,
 				78AA5868288AC1FD75401EC7 /* OneEuroFilter.swift in Sources */,
 				86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */,
+				D9D87158CF3C89C83EFEF984 /* RadialMenuGeometry.swift in Sources */,
 				2F5E4744390D1EDD97C9815C /* RadialMenuState.swift in Sources */,
 				884F425447A8F986FAD7724F /* RadialMenuTab.swift in Sources */,
 				26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */,
@@ -431,13 +548,58 @@
 				0CB54EAE878B6FDC762F7BB7 /* SliderWithLabel.swift in Sources */,
 				2C6267710B3C81EB75346F5B /* StatusIndicators.swift in Sources */,
 				0A690939457C311691E3FCC7 /* StickTab.swift in Sources */,
+				6ABD0615AB3CAEE4D5973CA5 /* SyntheticOutputCoordinator.swift in Sources */,
 				C9F20DDF222F97B2FD4D1CA8 /* TabHeader.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		76B5F0F0982001FAE29B9499 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7210466D8F44E05FF788FC31 /* JamCon */;
+			targetProxy = 4799050F909A5B3718DE162B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		2F606964340C41DDF218298B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamcon.tests;
+				PRODUCT_NAME = JamConTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JamCon.app/Contents/MacOS/JamCon";
+			};
+			name = Release;
+		};
+		31AA3EB760F80666630E4180 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.jamcon.tests;
+				PRODUCT_NAME = JamConTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/JamCon.app/Contents/MacOS/JamCon";
+			};
+			name = Debug;
+		};
 		4642D4D61B88AF5DD331CB8D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -610,6 +772,15 @@
 			buildConfigurations = (
 				FE0C630389BCD7784E70CDFA /* Debug */,
 				7FA0AA6E34223C16EED44051 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CCA60FD079AB09E25279C18F /* Build configuration list for PBXNativeTarget "JamConTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				31AA3EB760F80666630E4180 /* Debug */,
+				2F606964340C41DDF218298B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

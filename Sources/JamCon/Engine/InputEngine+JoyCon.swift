@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import QuartzCore
 import os
 
 extension InputEngine {
@@ -9,6 +10,18 @@ extension InputEngine {
     func processJoyConReport(_ report: JoyConHIDController.InputReport) {
         assertOnEngineQueue()
         guard isRunning else { return }
+        let engineStartTimestamp = CACurrentMediaTime()
+        let signpostID = Self.inputPerformanceLog.signpostsEnabled
+            ? OSSignpostID(log: Self.inputPerformanceLog)
+            : nil
+        if let signpostID {
+            os_signpost(.begin, log: Self.inputPerformanceLog, name: "Joy-Con Input", signpostID: signpostID)
+        }
+        defer {
+            if let signpostID {
+                os_signpost(.end, log: Self.inputPerformanceLog, name: "Joy-Con Input", signpostID: signpostID)
+            }
+        }
 
         // Read settings ONCE at start of frame
         let s = settings.snapshot()
@@ -46,48 +59,26 @@ extension InputEngine {
             device.hasPrimedButtonState = true
         }
 
-	        // 2. Process gyro through unified pipeline
-	        // GyroRemapper handles the axis swapping for Joy-Con (different for left vs right)
-	        let rawGyro: (x: Int16, y: Int16, z: Int16)
-	        if s.joyConUseAveragedGyroSamples,
-	           report.bytes.count >= JoyConHIDProtocol.Offset.imuSample2 + 12 {
-	            func readInt16LE(_ offset: Int) -> Int16 {
-	                Int16(bitPattern: UInt16(report.bytes[offset]) | (UInt16(report.bytes[offset + 1]) << 8))
-	            }
+        // 2. Process gyro through unified pipeline. The decoder exposes all
+        // three batched Joy-Con IMU samples so policy stays in the engine.
+        let rawGyro = s.joyConUseAveragedGyroSamples
+            ? report.averagedGyro
+            : (x: report.gyroX, y: report.gyroY, z: report.gyroZ)
 
-	            let bases = [
-	                JoyConHIDProtocol.Offset.imuSample0,
-	                JoyConHIDProtocol.Offset.imuSample1,
-	                JoyConHIDProtocol.Offset.imuSample2
-	            ]
-
-	            var sumX: Int32 = 0
-	            var sumY: Int32 = 0
-	            var sumZ: Int32 = 0
-	            for base in bases {
-	                sumX += Int32(readInt16LE(base + 6))
-	                sumY += Int32(readInt16LE(base + 8))
-	                sumZ += Int32(readInt16LE(base + 10))
-	            }
-	            rawGyro = (x: Int16(sumX / 3), y: Int16(sumY / 3), z: Int16(sumZ / 3))
-	        } else {
-	            rawGyro = (x: report.gyroX, y: report.gyroY, z: report.gyroZ)
-	        }
-
-	        let pipeline = GyroRemapper.process(
-	            rawX: rawGyro.x,
-	            rawY: rawGyro.y,
-	            rawZ: rawGyro.z,
-	            controllerKind: .joyCon,
-	            isLeft: isLeft
-	        )
+        let pipeline = GyroRemapper.process(
+            rawX: rawGyro.x,
+            rawY: rawGyro.y,
+            rawZ: rawGyro.z,
+            controllerKind: .joyCon,
+            isLeft: isLeft
+        )
 
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
-	        var gyroSettings = s.gyroSettings[.joyCon] ?? .defaultForKind(.joyCon)
-	        let userScale = gyroSettings.gyroScale
-	        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
-	        gyroSettings.expectedSampleRate = 66.0  // Joy-Con packets are ~66 Hz (3 IMU samples per packet)
-	        gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
+        var gyroSettings = s.gyroSettings[.joyCon] ?? .defaultForKind(.joyCon)
+        let userScale = gyroSettings.gyroScale
+        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
+        gyroSettings.expectedSampleRate = 66.0  // Joy-Con packets are ~66 Hz (3 IMU samples per packet)
+        gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
         if let (dx, dy) = device.gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
             rawY: pipeline.remapped.yaw,
@@ -118,6 +109,13 @@ extension InputEngine {
 
         // 4. Record to debug buffer with all pipeline stages
         if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .joyCon) {
+            let engineEndTimestamp = CACurrentMediaTime()
+            debugBuffer.recordTrace(
+                device: owner,
+                reportID: JoyConHIDProtocol.inputReportID,
+                bytes: report.bytes,
+                timestamp: report.receivedTimestamp
+            )
             debugBuffer.record(
                 bytes: report.bytes,
                 length: report.length,
@@ -127,7 +125,13 @@ extension InputEngine {
                 accel: (report.accelX, report.accelY, report.accelZ),
                 buttonStates: device.buttonStates,
                 controllerKind: .joyCon,
-                gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState)
+                gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState),
+                pipelineTiming: DebugBuffer.PipelineTiming(
+                    reportTimestamp: report.timestamp,
+                    receivedTimestamp: report.receivedTimestamp,
+                    engineStartTimestamp: engineStartTimestamp,
+                    engineEndTimestamp: engineEndTimestamp
+                )
             )
         }
     }
@@ -192,6 +196,7 @@ extension InputEngine {
 
         // Handle gyro mode actions immediately
         if actions.pressIsGyroMode {
+            device.buttonPressStates[idx] = ButtonPressState(actions: actions, device: owner, control: button.rawValue)
             switch actions.press {
             case .drag:
                 device.mode.dragButtonHeld = true
@@ -205,15 +210,12 @@ extension InputEngine {
             return
         }
 
-        // Handle mouse clicks immediately
-        if case .mouseClick = actions.press {
-            actionExecutor.execute(actions.press, isPressed: true)
-            device.buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
-            return
-        }
+        let state = ButtonPressState(actions: actions, device: owner, control: button.rawValue)
+        device.buttonPressStates[idx] = state
 
-        // Record press state
-        device.buttonPressStates[idx] = ButtonPressState(pressTime: Date(), actions: actions)
+        if case .mouseClick = actions.press {
+            actionExecutor.execute(actions.press, isPressed: true, owner: state.pressOwner)
+        }
 
         // Schedule hold timer if there's a hold action
         if actions.hold != .none {
@@ -225,11 +227,11 @@ extension InputEngine {
 
                 state.holdFired = true
                 device.buttonPressStates[idx] = state
-                self.actionExecutor.execute(actions.hold, isPressed: true)
+                self.actionExecutor.execute(state.actions.hold, isPressed: true, owner: state.holdOwner)
             }
             device.holdTimers[idx]?.cancel()
             device.holdTimers[idx] = timer
-            engineQueue.asyncAfter(deadline: .now() + holdThreshold, execute: timer)
+            holdScheduler.schedule(timer, after: holdThreshold, on: engineQueue)
         }
     }
 
@@ -245,7 +247,12 @@ extension InputEngine {
         device.holdTimers[idx]?.cancel()
         device.holdTimers[idx] = nil
 
-        // Also check current mapping for gyro modes
+        if let state = device.buttonPressStates[idx], state.actions.pressIsGyroMode {
+            handleGyroModeRelease(owner: owner, action: state.actions.press, modeState: &device.mode)
+            device.buttonPressStates[idx] = nil
+            return
+        }
+
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
             handleGyroModeRelease(owner: owner, action: actions.press, modeState: &device.mode)
@@ -256,19 +263,21 @@ extension InputEngine {
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {
-            actionExecutor.execute(state.actions.press, isPressed: false)
+            actionExecutor.execute(state.actions.press, isPressed: false, owner: state.pressOwner)
+            if state.holdFired {
+                actionExecutor.execute(state.actions.hold, isPressed: false, owner: state.holdOwner)
+            }
             device.buttonPressStates[idx] = nil
             return
         }
 
         if state.holdFired {
             // Hold action was executed, release it
-            actionExecutor.execute(state.actions.hold, isPressed: false)
+            actionExecutor.execute(state.actions.hold, isPressed: false, owner: state.holdOwner)
         } else {
             // Hold didn't fire, execute press action as tap
             if state.actions.press != .none {
-                actionExecutor.execute(state.actions.press, isPressed: true)
-                actionExecutor.execute(state.actions.press, isPressed: false)
+                actionExecutor.tap(state.actions.press, owner: state.pressOwner)
             }
         }
 

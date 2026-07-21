@@ -92,6 +92,7 @@ final class AppState: ObservableObject {
         didSet {
             guard !isApplyingLoadedSettings else { return }
             settingsStore.update { $0.isEnabled = isEnabled }
+            engine.setInputEnabled(isEnabled)
         }
     }
 
@@ -346,6 +347,7 @@ final class AppState: ObservableObject {
     var debugPollingTask: Task<Void, Never>?
     var logPollingTask: Task<Void, Never>?
     var accessibilityPollingTask: Task<Void, Never>?
+    private var restartEngineAfterWake = false
 
     // MARK: - Tab Enum
 
@@ -494,6 +496,17 @@ final class AppState: ObservableObject {
         engine.stop()
         stopLogPolling()
         stopDebugPolling()
+    }
+
+    func prepareForSystemSleep() {
+        restartEngineAfterWake = engineDidStart
+        stopEngine()
+    }
+
+    func resumeAfterSystemWake() {
+        guard restartEngineAfterWake else { return }
+        restartEngineAfterWake = false
+        startEngine()
     }
 
     // MARK: - Settings Loading

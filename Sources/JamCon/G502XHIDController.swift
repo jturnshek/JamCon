@@ -172,7 +172,34 @@ class G502XHIDController {
     let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
     let runtimeConfig = LockedRuntimeConfig(initialState: RuntimeConfigState())
 
+    private struct ReportState {
+        var lastReportTime: TimeInterval = 0
+        var reportCount: UInt64 = 0
+    }
 
+    private let reportStateLock = OSAllocatedUnfairLock(initialState: ReportState())
+
+    func recordReportActivity(timestamp: TimeInterval) {
+        reportStateLock.withLock { state in
+            state.lastReportTime = timestamp
+            state.reportCount &+= 1
+        }
+    }
+
+    func resetReportStats() {
+        reportStateLock.withLock { state in
+            state.lastReportTime = 0
+            state.reportCount = 0
+        }
+    }
+
+    var lastReportTime: TimeInterval {
+        reportStateLock.withLock { $0.lastReportTime }
+    }
+
+    var reportCount: UInt64 {
+        reportStateLock.withLock { $0.reportCount }
+    }
 
     /// UI-safe snapshot of all discovered G502X mice.
     func mouseInfosSnapshot() -> [ControllerInfo] {
@@ -198,6 +225,7 @@ class G502XHIDController {
         let bytes: [UInt8]
         let length: Int
         let timestamp: TimeInterval
+        let receivedTimestamp: TimeInterval
     }
 
     /// Callback for full report data (merged from all interfaces)
@@ -481,6 +509,7 @@ class G502XHIDController {
                 state.isConnected = false
                 state.mouseName = nil
             }
+            resetReportStats()
             return
         }
 
@@ -519,6 +548,7 @@ class G502XHIDController {
                 state.isConnected = false
                 state.mouseName = nil
             }
+            self.resetReportStats()
 
             CFRunLoopStop(runLoop)
         }

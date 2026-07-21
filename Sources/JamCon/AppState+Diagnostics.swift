@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import ApplicationServices
+import UniformTypeIdentifiers
 
 extension AppState {
 
@@ -14,6 +15,7 @@ extension AppState {
         guard !debugPollingEnabled else { return }
         debugPollingEnabled = true
         debugTelemetry.reset()
+        debugBuffer.clear()
         debugBuffer.startRecording()
         settingsStore.update {
             $0.debugRecordingEnabled = true
@@ -51,6 +53,23 @@ extension AppState {
         let byteLastChanged = debugBuffer.getByteLastChanged()
         let bitLastChanged = debugBuffer.getBitLastChanged()
         debugTelemetry.update(sample: sample, stats: stats, byteLastChanged: byteLastChanged, bitLastChanged: bitLastChanged)
+    }
+
+    func exportHIDTrace() {
+        do {
+            let data = try debugBuffer.encodedHIDTrace()
+            let panel = NSSavePanel()
+            panel.title = "Export HID Trace"
+            panel.nameFieldStringValue = "JamCon-HID-Trace.json"
+            panel.allowedContentTypes = [.json]
+            panel.canCreateDirectories = true
+
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            try data.write(to: url, options: .atomic)
+            JamLog.info(.app, "Exported HID trace to \(url.lastPathComponent)")
+        } catch {
+            JamLog.error(.app, "Failed to export HID trace: \(error.localizedDescription)")
+        }
     }
 
     func updateG502XInterfaceDebugMode() {
@@ -167,4 +186,3 @@ extension AppState {
         engine.g502xController.getInterfaceInfo()
     }
 }
-

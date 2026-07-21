@@ -7,6 +7,11 @@ import os
 /// Processes HID input and drives mouse/keyboard output
 final class InputEngine {
 
+    static let inputPerformanceLog = OSLog(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.jamcon.app",
+        category: .pointsOfInterest
+    )
+
     // MARK: - Dependencies
 
     let settings: SettingsStore
@@ -19,6 +24,7 @@ final class InputEngine {
     let g502xController: G502XHIDController
     let mouseController: MouseController
     let actionExecutor: ActionExecutor
+    let holdScheduler: HoldScheduling
 
     // MARK: - Threading
 
@@ -49,16 +55,18 @@ final class InputEngine {
 
     // MARK: - Managed Device State (Internal - not observable)
 
-    struct ManagedDeviceKey: Hashable {
-        let kind: ControllerKind
-        let id: String
-    }
-
     // Hold detection (per button, per device)
     struct ButtonPressState {
-        let pressTime: Date
         let actions: ButtonActions
+        let pressOwner: SyntheticOutputOwner
+        let holdOwner: SyntheticOutputOwner
         var holdFired: Bool = false
+
+        init(actions: ButtonActions, device: ManagedDeviceKey, control: String) {
+            self.actions = actions
+            self.pressOwner = SyntheticOutputOwner(device: device, control: control, role: .press)
+            self.holdOwner = SyntheticOutputOwner(device: device, control: control, role: .hold)
+        }
     }
 
     struct GyroModeState {
@@ -236,18 +244,25 @@ final class InputEngine {
 
     // MARK: - Initialization
 
-    init(settings: SettingsStore, debugBuffer: DebugBuffer) {
+    init(
+        settings: SettingsStore,
+        debugBuffer: DebugBuffer,
+        mouseController: MouseController? = nil,
+        actionExecutor: ActionExecutor? = nil,
+        holdScheduler: HoldScheduling = DispatchHoldScheduler()
+    ) {
         self.settings = settings
         self.debugBuffer = debugBuffer
+        let mouseController = mouseController ?? MouseController()
+        self.mouseController = mouseController
+        self.actionExecutor = actionExecutor ?? ActionExecutor(mouseController: mouseController)
+        self.holdScheduler = holdScheduler
         engineQueue.setSpecific(key: engineQueueKey, value: ())
 
         // Initialize controllers
         self.senseController = SenseController()
         self.joyConController = JoyConHIDController()
         self.g502xController = G502XHIDController()
-        self.mouseController = MouseController()
-        self.actionExecutor = ActionExecutor(mouseController: mouseController)
-
         // Initialize G502X button state arrays
         let g502xButtonCount = G502XLogicalButton.count
         self.g502xButtonStates = Array(repeating: false, count: g502xButtonCount)
@@ -291,20 +306,21 @@ final class InputEngine {
                 onRadialMenuHide?(nil)
             }
 
-            // Cancel all hold timers
+            // Release all controller-owned actions before discarding their state.
             for device in senseDevices.values {
-                device.cancelHoldTimers()
+                resetSenseTransientState(device)
             }
             for device in joyConDevices.values {
-                device.cancelHoldTimers()
+                resetJoyConTransientState(device)
             }
-            for timer in g502xHoldTimers {
-                timer?.cancel()
-            }
+            resetG502XButtonStateBaseline()
+            actionExecutor.releaseAll()
+            mouseController.forceShowCursor()
 
             senseDevices.removeAll(keepingCapacity: true)
             joyConDevices.removeAll(keepingCapacity: true)
             batteryLevels.removeAll(keepingCapacity: true)
+            selectedMouseID = nil
 
             return true
         }
@@ -313,6 +329,36 @@ final class InputEngine {
         senseController.stop()
         joyConController.stop()
         g502xController.stop()
+    }
+
+    /// Apply the global output toggle synchronously so a key or mouse button can
+    /// never remain down while subsequent physical release reports are ignored.
+    func setInputEnabled(_ enabled: Bool) {
+        guard !enabled else { return }
+
+        engineQueueSync {
+            if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
+                let owner = radialMenuOwner
+                stopRadialMenuUIUpdateTimer()
+                stopRadialMenuCursorTracking()
+                if owner?.kind != .mouse {
+                    mouseController.showCursor()
+                }
+                radialMenuOwner = nil
+                onRadialMenuHide?(nil)
+            }
+
+            for device in senseDevices.values {
+                resetSenseTransientState(device)
+            }
+            for device in joyConDevices.values {
+                resetJoyConTransientState(device)
+            }
+            resetG502XButtonStateBaseline()
+            mouseMode = GyroModeState()
+            actionExecutor.releaseAll()
+            mouseController.forceShowCursor()
+        }
     }
 
     /// Push hot controller-local settings into thread-safe runtime config objects.
@@ -334,7 +380,9 @@ final class InputEngine {
                 let profile = ControllerProfile(kind: .sense, isLeft: isLeft)
                 if managed {
                     if senseDevices[id]?.profile != profile {
-                        senseDevices[id]?.cancelHoldTimers()
+                        if let existing = senseDevices[id] {
+                            resetSenseTransientState(existing)
+                        }
                         senseDevices[id] = SenseDeviceState(id: id, profile: profile)
                     }
                     senseController.setControllerManaged(id: id, managed: true)
@@ -347,7 +395,9 @@ final class InputEngine {
                 let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
                 if managed {
                     if joyConDevices[id]?.profile != profile {
-                        joyConDevices[id]?.cancelHoldTimers()
+                        if let existing = joyConDevices[id] {
+                            resetJoyConTransientState(existing)
+                        }
                         joyConDevices[id] = JoyConDeviceState(id: id, profile: profile)
                     }
                     joyConController.setControllerManaged(id: id, managed: true)
@@ -367,8 +417,11 @@ final class InputEngine {
                     resetG502XButtonStateBaseline()
                     g502xController.selectMouse(id: id)
                 } else if g502xController.selectedMouseID == id {
+                    let key = ManagedDeviceKey(kind: .mouse, id: id)
+                    cancelRadialMenuIfOwned(by: key)
                     selectedMouseID = nil
                     resetG502XButtonStateBaseline()
+                    actionExecutor.releaseAll(for: key)
                     g502xController.deselectMouse()
                 }
             }
@@ -378,7 +431,7 @@ final class InputEngine {
     private func removeSenseDevice(id: String) {
         let key = ManagedDeviceKey(kind: .sense, id: id)
         if let device = senseDevices.removeValue(forKey: id) {
-            device.cancelHoldTimers()
+            resetSenseTransientState(device)
         }
         clearBatteryLevel(for: key)
         cancelRadialMenuIfOwned(by: key)
@@ -387,7 +440,7 @@ final class InputEngine {
     private func removeJoyConDevice(id: String) {
         let key = ManagedDeviceKey(kind: .joyCon, id: id)
         if let device = joyConDevices.removeValue(forKey: id) {
-            device.cancelHoldTimers()
+            resetJoyConTransientState(device)
         }
         clearBatteryLevel(for: key)
         cancelRadialMenuIfOwned(by: key)
@@ -492,10 +545,13 @@ final class InputEngine {
             }
         }
 
-        g502xController.onConnectionChange = { [weak self] connected, name, _ in
+        g502xController.onConnectionChange = { [weak self] connected, name, controllerID in
             self?.engineQueueAsync { [weak self] in
                 guard let self else { return }
                 self.resetG502XButtonStateBaseline()
+                if !connected, let controllerID {
+                    self.actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .mouse, id: controllerID))
+                }
                 self.onConnectionChanged?(connected, name, .mouse)
             }
         }
@@ -515,11 +571,9 @@ final class InputEngine {
 
             guard let pressState = device.buttonPressStates[idx] else { continue }
 
-            if case .mouseClick = pressState.actions.press {
-                actionExecutor.execute(pressState.actions.press, isPressed: false)
-            }
+            actionExecutor.execute(pressState.actions.press, isPressed: false, owner: pressState.pressOwner)
             if pressState.holdFired {
-                actionExecutor.execute(pressState.actions.hold, isPressed: false)
+                actionExecutor.execute(pressState.actions.hold, isPressed: false, owner: pressState.holdOwner)
             }
 
             device.buttonPressStates[idx] = nil
@@ -533,6 +587,7 @@ final class InputEngine {
         device.hasPrimedButtonState = false
         device.mode = GyroModeState()
         device.gyroProcessor.reset()
+        actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .sense, id: device.id))
     }
 
     private func resetJoyConTransientState(_ device: JoyConDeviceState) {
@@ -542,11 +597,9 @@ final class InputEngine {
 
             guard let pressState = device.buttonPressStates[idx] else { continue }
 
-            if case .mouseClick = pressState.actions.press {
-                actionExecutor.execute(pressState.actions.press, isPressed: false)
-            }
+            actionExecutor.execute(pressState.actions.press, isPressed: false, owner: pressState.pressOwner)
             if pressState.holdFired {
-                actionExecutor.execute(pressState.actions.hold, isPressed: false)
+                actionExecutor.execute(pressState.actions.hold, isPressed: false, owner: pressState.holdOwner)
             }
 
             device.buttonPressStates[idx] = nil
@@ -559,6 +612,7 @@ final class InputEngine {
         device.hasPrimedButtonState = false
         device.mode = GyroModeState()
         device.gyroProcessor.reset()
+        actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .joyCon, id: device.id))
     }
 
 }

@@ -10,15 +10,15 @@ class MouseController {
     /// Shared event source for mouse events - uses private state to avoid inheriting system modifier flags
     private static let eventSource: CGEventSource? = CGEventSource(stateID: .privateState)
 
-    /// Track which mouse button is currently held (for drag events)
-    private var heldMouseButton: MouseButton? = nil
+    /// Track mouse buttons currently held so releasing one does not cancel another.
+    private var heldMouseButtons: Set<MouseButton> = []
 
     /// Track click timing for double/triple click detection
     private var lastClickTime: Date = .distantPast
     private var lastClickPosition: CGPoint = .zero
     private var clickCount: Int64 = 0
 
-    private var cachedBounds: CGRect
+    private var cachedDisplayBounds: [CGRect]
     private var cachedPosition: CGPoint
     private var lastResyncTime: TimeInterval = 0
 
@@ -30,7 +30,7 @@ class MouseController {
     init(doubleClickInterval: TimeInterval = 0.5, resyncInterval: TimeInterval = 5.0) {
         self.doubleClickInterval = doubleClickInterval
         self.resyncInterval = resyncInterval
-        self.cachedBounds = MouseController.computeScreenBounds()
+        self.cachedDisplayBounds = MouseController.activeDisplayBounds()
         self.cachedPosition = MouseController.currentCursorPosition()
         self.lastResyncTime = CACurrentMediaTime()
     }
@@ -45,14 +45,14 @@ class MouseController {
         // Update cached position in Quartz display coordinates (origin top-left)
         cachedPosition.x += dx
         cachedPosition.y += dy  // input dy is screen-down; Quartz Y increases downward
-        cachedPosition = clamp(cachedPosition, to: cachedBounds)
+        cachedPosition = DisplayGeometry.closestPoint(cachedPosition, in: cachedDisplayBounds)
         let point = cachedPosition
 
         // Determine event type based on whether a mouse button is held
         let mouseType: CGEventType
         let mouseButton: CGMouseButton
 
-        if let held = heldMouseButton {
+        if let held = dragButton {
             // Button is held - send drag event for proper drag-and-drop support
             switch held {
             case .left:
@@ -118,7 +118,7 @@ class MouseController {
         resyncIfNeeded(force: true)
         let currentPos = Self.currentCursorPosition()
         cachedPosition = currentPos
-        let point = clamp(currentPos, to: cachedBounds)
+        let point = DisplayGeometry.closestPoint(currentPos, in: cachedDisplayBounds)
 
         let eventType: CGEventType
         let cgButton: CGMouseButton
@@ -169,7 +169,7 @@ class MouseController {
         event.setIntegerValueField(.mouseEventClickState, value: clickCount)
 
         // Track this button as held (for drag events)
-        heldMouseButton = button
+        heldMouseButtons.insert(button)
 
         event.post(tap: .cghidEventTap)
     }
@@ -179,7 +179,8 @@ class MouseController {
         resyncIfNeeded(force: true)
         let currentPos = Self.currentCursorPosition()
         cachedPosition = currentPos
-        let point = clamp(currentPos, to: cachedBounds)
+        let point = DisplayGeometry.closestPoint(currentPos, in: cachedDisplayBounds)
+        heldMouseButtons.remove(button)
 
         let eventType: CGEventType
         let cgButton: CGMouseButton
@@ -211,9 +212,6 @@ class MouseController {
         // Set click state to match the mouseDown (for double/triple click recognition)
         event.setIntegerValueField(.mouseEventClickState, value: clickCount)
 
-        // Clear held button state (drag ended)
-        heldMouseButton = nil
-
         event.post(tap: .cghidEventTap)
     }
 
@@ -228,7 +226,7 @@ class MouseController {
     private func resyncIfNeeded(force: Bool = false) {
         let now = CACurrentMediaTime()
         guard force || now - lastResyncTime >= resyncInterval else { return }
-        cachedBounds = MouseController.computeScreenBounds()
+        cachedDisplayBounds = MouseController.activeDisplayBounds()
         cachedPosition = MouseController.currentCursorPosition()
         lastResyncTime = now
     }
@@ -238,23 +236,16 @@ class MouseController {
         return event.location
     }
 
-    private func clamp(_ point: CGPoint, to bounds: CGRect) -> CGPoint {
-        let x = min(max(point.x, bounds.minX), bounds.maxX)
-        let y = min(max(point.y, bounds.minY), bounds.maxY)
-        return CGPoint(x: x, y: y)
+    private var dragButton: MouseButton? {
+        if heldMouseButtons.contains(.left) { return .left }
+        if heldMouseButtons.contains(.right) { return .right }
+        if heldMouseButtons.contains(.middle) { return .middle }
+        return nil
     }
 
-    private static func computeScreenBounds() -> CGRect {
-        let displayIDs = activeDisplayIDs()
-        guard let first = displayIDs.first else {
-            return CGRect(x: 0, y: 0, width: 1920, height: 1080)
-        }
-
-        var union = CGDisplayBounds(first)
-        for displayID in displayIDs.dropFirst() {
-            union = union.union(CGDisplayBounds(displayID))
-        }
-        return union
+    private static func activeDisplayBounds() -> [CGRect] {
+        let bounds = activeDisplayIDs().map(CGDisplayBounds)
+        return bounds.isEmpty ? [CGRect(x: 0, y: 0, width: 1920, height: 1080)] : bounds
     }
 
     // MARK: - Cursor Visibility

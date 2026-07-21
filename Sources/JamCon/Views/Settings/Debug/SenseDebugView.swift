@@ -16,6 +16,10 @@ struct SenseDebugView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                InputPerformanceMetricsView(telemetry: telemetry)
+
+                Divider()
+
                 // Section 1: Gyro Pipeline (all 3 stages)
                 GyroPipelineView(controllerKind: .sense, telemetry: telemetry)
 
@@ -121,4 +125,3 @@ struct SenseDebugView: View {
         }
     }
 }
-

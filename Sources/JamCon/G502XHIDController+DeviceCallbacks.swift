@@ -187,20 +187,21 @@ extension G502XHIDController {
         deviceToMouseID.removeValue(forKey: deviceID)
 
         // If no more interfaces, remove the mouse entirely
-	        if removal.didRemoveMouse {
-	            log("G502X mouse disconnected: \(mouse.name)")
-	            onControllersChanged?()
+        if removal.didRemoveMouse {
+            log("G502X mouse disconnected: \(mouse.name)")
+            onControllersChanged?()
 
-	            // If this was the active mouse, report disconnect
-	            if removal.wasSelectedMouse {
-	                onConnectionChange?(false, mouse.name, mouse.id)
-	            }
-	        } else if removal.wasSelectedMouse && activeInterfaces.isEmpty {
-	            // All active interfaces gone but mouse still has interfaces
-	            stateLock.withLock { state in
+            // If this was the active mouse, report disconnect
+            if removal.wasSelectedMouse {
+                resetReportStats()
+                onConnectionChange?(false, mouse.name, mouse.id)
+            }
+        } else if removal.wasSelectedMouse && activeInterfaces.isEmpty {
+            // All active interfaces gone but mouse still has interfaces
+            stateLock.withLock { state in
                 state.isConnected = false
             }
+            resetReportStats()
         }
     }
 }
-

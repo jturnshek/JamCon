@@ -77,6 +77,10 @@ extension InputEngine {
             radialMenuLock.withLock {
                 radialMenuAccumulator.x += scaledDx
                 radialMenuAccumulator.y += scaledDy
+                radialMenuAccumulator = RadialMenuGeometry.resolve(
+                    offset: radialMenuAccumulator,
+                    configuration: configuration
+                ).clampedOffset
             }
             radialMenuPendingDelta.x += dx
             radialMenuPendingDelta.y += dy
@@ -104,7 +108,7 @@ extension InputEngine {
 
             // Execute the selected action
             if let item = selectedItem {
-                executeRadialMenuAction(item.action)
+                executeRadialMenuAction(item.action, device: owner)
             }
             if owner.kind != .mouse {
                 mouseController.showCursor()
@@ -205,67 +209,32 @@ extension InputEngine {
     private func calculateRadialMenuSelection() -> RadialMenuItem? {
         let config = settings.snapshot().radialMenuConfiguration
         let accumulator = radialMenuLock.withLock { radialMenuAccumulator }
-        let magnitude = sqrt(accumulator.x * accumulator.x + accumulator.y * accumulator.y)
-
-        guard magnitude > config.deadzoneSize else { return nil }
-
-        let angle = atan2(accumulator.y, accumulator.x)
-
-        // Determine ring and item
-        let outerRingEnabled = config.outerRingEnabled && !config.outerRingItems.isEmpty
-        let outerRingStart = config.deadzoneSize + config.innerRingSize
-
-        if outerRingEnabled && magnitude >= outerRingStart {
-            // Outer ring
-            let index = angleToIndex(angle, count: config.outerRingItems.count, rotation: config.outerRingRotation)
-            return config.outerRingItems[safe: index]
-        } else {
-            // Inner ring
-            let index = angleToIndex(angle, count: config.items.count, rotation: config.innerRingRotation)
+        switch RadialMenuGeometry.resolve(offset: accumulator, configuration: config).selection {
+        case .inner(let index):
             return config.items[safe: index]
+        case .outer(let index):
+            return config.outerRingItems[safe: index]
+        case nil:
+            return nil
         }
     }
 
-    private func angleToIndex(_ angle: Double, count: Int, rotation: Double) -> Int {
-        guard count > 0 else { return 0 }
+    private func executeRadialMenuAction(_ action: RadialMenuAction, device: ManagedDeviceKey) {
+        let owner = SyntheticOutputOwner(
+            device: device,
+            control: "radialMenu.selection",
+            role: .radialMenu
+        )
 
-        let rotationRadians = -rotation * Double.pi / 180.0
-        var normalizedAngle = angle + Double.pi / 2 - rotationRadians
-
-        let twoPi = Double.pi * 2.0
-        normalizedAngle = fmod(normalizedAngle, twoPi)
-        if normalizedAngle < 0 { normalizedAngle += twoPi }
-
-        let sliceAngle = twoPi / Double(count)
-        return min(Int(normalizedAngle / sliceAngle), count - 1)
-    }
-
-    private func executeRadialMenuAction(_ action: RadialMenuAction) {
         switch action {
         case .none:
             break
         case .keyPress(let combo):
-            var flags = combo.eventFlags
-            let arrowKeys: [UInt16] = [123, 124, 125, 126]
-            if arrowKeys.contains(combo.keyCode) {
-                flags.insert(.maskNumericPad)
-            }
-            if flags.contains(.maskControl) && arrowKeys.contains(combo.keyCode) {
-                flags.insert(.maskSecondaryFn)
-            }
-
-            if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: true) {
-                event.flags = flags
-                event.post(tap: .cghidEventTap)
-            }
-            if let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(combo.keyCode), keyDown: false) {
-                event.flags = flags
-                event.post(tap: .cghidEventTap)
-            }
+            actionExecutor.tap(.keyPress(combo), owner: owner)
         case .mouseClick(let button):
-            mouseController.click(button: button)
+            actionExecutor.tap(.mouseClick(button), owner: owner)
         case .systemAction(let action):
-            actionExecutor.executeSystemAction(action)
+            actionExecutor.executeSystemAction(action, owner: owner)
         }
     }
 }

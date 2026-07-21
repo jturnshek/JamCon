@@ -134,6 +134,8 @@ class SenseController {
         let accelY: Int16
         let accelZ: Int16
         let timestamp: TimeInterval
+        let receivedTimestamp: TimeInterval
+        let motionSamples: [IMUSample]
     }
 
     /// Callback for full report data (bytes are a stable snapshot, includes decoded IMU)
@@ -164,18 +166,6 @@ class SenseController {
         let nanos = (Double(ticks) * Double(timebase.numer)) / Double(timebase.denom)
         return nanos / 1_000_000_000.0
     }
-
-    // MARK: - IMU Decoding
-
-    // Gyroscope: bytes 17-22 (CONFIRMED - see SenseHIDProtocol)
-    var gyroOffsetX: Int = SenseHIDProtocol.Offset.gyroXLow
-    var gyroOffsetY: Int = SenseHIDProtocol.Offset.gyroYLow
-    var gyroOffsetZ: Int = SenseHIDProtocol.Offset.gyroZLow
-
-    // Accelerometer: bytes 23-28 (CONFIRMED, ~4096/g - see SenseHIDProtocol)
-    var accelOffsetX: Int = SenseHIDProtocol.Offset.accelXLow
-    var accelOffsetY: Int = SenseHIDProtocol.Offset.accelYLow
-    var accelOffsetZ: Int = SenseHIDProtocol.Offset.accelZLow
 
     /// Track how many devices we've seen
     private(set) var devicesScanned: Int = 0
@@ -558,48 +548,38 @@ class SenseController {
 
         let timestamp = CACurrentMediaTime()
 
-        // Extract gyro/accel only if callbacks are present
-        let needsGyro = onGyroData != nil || onIMUData != nil || onReportData != nil
-        var gyroX: Int16 = 0
-        var gyroY: Int16 = 0
-        var gyroZ: Int16 = 0
-        var accelX: Int16 = 0
-        var accelY: Int16 = 0
-        var accelZ: Int16 = 0
+        // Snapshot report bytes so decoding and consumers never observe a live
+        // IOHID callback buffer.
+        let maxLength = min(SenseHIDProtocol.reportLength, length)
+        var bytes = [UInt8](repeating: 0, count: maxLength)
+        for i in 0..<maxLength { bytes[i] = report[i] }
 
-        if needsGyro {
-            func readInt16LE(_ offset: Int) -> Int16 {
-                guard offset + 1 < length else { return 0 }
-                return Int16(bitPattern: UInt16(report[offset]) | (UInt16(report[offset + 1]) << 8))
-            }
-
-            gyroX = readInt16LE(gyroOffsetX)
-            gyroY = readInt16LE(gyroOffsetY)
-            gyroZ = readInt16LE(gyroOffsetZ)
-
-            // Extract accelerometer data
-            accelX = readInt16LE(accelOffsetX)
-            accelY = readInt16LE(accelOffsetY)
-            accelZ = readInt16LE(accelOffsetZ)
+        guard let decoded = try? SenseInputReportDecoder.decode(bytes) else {
+            log("Discarded malformed Sense input report (length=\(maxLength))")
+            return
         }
+        let motion = decoded.motion
 
         // Call the gyro callback (on the HID thread for low latency) using device timestamp if available
         let effectiveTimestamp = stateLock.withLock { state in
             state.activeControllers[controllerID]?.lastDeviceTimestamp ?? timestamp
         }
         if let onGyroData {
-            onGyroData(gyroX, gyroY, gyroZ, effectiveTimestamp)
+            onGyroData(motion.gyroX, motion.gyroY, motion.gyroZ, effectiveTimestamp)
         }
 
         // Call the combined IMU callback for sensor fusion
         if let onIMUData {
-            onIMUData(gyroX, gyroY, gyroZ, accelX, accelY, accelZ, effectiveTimestamp)
+            onIMUData(
+                motion.gyroX,
+                motion.gyroY,
+                motion.gyroZ,
+                motion.accelX,
+                motion.accelY,
+                motion.accelZ,
+                effectiveTimestamp
+            )
         }
-
-        // Snapshot report bytes so consumers never observe a live IOHID callback buffer.
-        let maxLength = min(SenseHIDProtocol.reportLength, length)
-        var bytes = [UInt8](repeating: 0, count: maxLength)
-        for i in 0..<maxLength { bytes[i] = report[i] }
 
         if let onReportData {
             onReportData(
@@ -607,13 +587,15 @@ class SenseController {
                     controllerID: controllerID,
                     bytes: bytes,
                     length: maxLength,
-                    gyroX: gyroX,
-                    gyroY: gyroY,
-                    gyroZ: gyroZ,
-                    accelX: accelX,
-                    accelY: accelY,
-                    accelZ: accelZ,
-                    timestamp: effectiveTimestamp
+                    gyroX: motion.gyroX,
+                    gyroY: motion.gyroY,
+                    gyroZ: motion.gyroZ,
+                    accelX: motion.accelX,
+                    accelY: motion.accelY,
+                    accelZ: motion.accelZ,
+                    timestamp: effectiveTimestamp,
+                    receivedTimestamp: timestamp,
+                    motionSamples: [motion]
                 )
             )
         }

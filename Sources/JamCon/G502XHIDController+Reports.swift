@@ -23,6 +23,8 @@ extension G502XHIDController {
         let isStandardMouse = buffer.usagePage == 0x0001 && buffer.usage == 0x0002
         guard debugInterfaceEnabled || isVendor || isStandardMouse else { return }
 
+        recordReportActivity(timestamp: timestamp)
+
         // Update this interface's stored bytes + per-byte change tracking
         buffer.update(from: report, length: length, at: now)
         let copyLength = buffer.lastLength
@@ -203,9 +205,19 @@ extension G502XHIDController {
             for i in 0..<min(2, unified.count, stableButtonBytes.count) {
                 unified[i] |= stableButtonBytes[i]
             }
-            onReportData?(InputReport(bytes: unified, length: unified.count, timestamp: timestamp))
+            onReportData?(InputReport(
+                bytes: unified,
+                length: unified.count,
+                timestamp: timestamp,
+                receivedTimestamp: timestamp
+            ))
         } else {
-            onReportData?(InputReport(bytes: stableButtonBytes, length: stableButtonBytes.count, timestamp: timestamp))
+            onReportData?(InputReport(
+                bytes: stableButtonBytes,
+                length: stableButtonBytes.count,
+                timestamp: timestamp,
+                receivedTimestamp: timestamp
+            ))
         }
     }
 }

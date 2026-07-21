@@ -160,60 +160,9 @@ class RadialMenuState: ObservableObject {
     ///   - dx: Horizontal delta (positive = right)
     ///   - dy: Vertical delta (positive = down in screen coordinates)
     func updateFromDelta(dx: CGFloat, dy: CGFloat) {
-        // Accumulate movement with sensitivity
         accumulatedDelta.x += dx * movementSensitivity
         accumulatedDelta.y += dy * movementSensitivity
-
-        // Calculate magnitude (distance from center)
-        let magnitude = sqrt(accumulatedDelta.x * accumulatedDelta.x + accumulatedDelta.y * accumulatedDelta.y)
-
-        // Calculate angle for segment selection
-        // In screen coords: Y+ is down, so atan2(y, x) gives angle where down is positive
-        // We use this directly since our segment layout matches screen coordinates
-        let angle = atan2(accumulatedDelta.y, accumulatedDelta.x)
-
-        // Clamp ghost cursor to max radius
-        let clampedMagnitude = min(magnitude, maxGhostRadius)
-        let newGhostPosition = CGPoint(
-            x: cos(angle) * clampedMagnitude,
-            y: sin(angle) * clampedMagnitude  // Y+ is down in screen coords, matches SwiftUI
-        )
-
-        ghostPosition = newGhostPosition
-
-        // Clamp accumulatedDelta to prevent "getting stuck" outside
-        // This ensures a small reverse movement brings you back into selection range
-        if magnitude > maxGhostRadius {
-            let scale = maxGhostRadius / magnitude
-            accumulatedDelta.x *= scale
-            accumulatedDelta.y *= scale
-        }
-
-        // Determine which ring is selected based on clamped magnitude
-        let outerRingEnabled = activeConfiguration.outerRingEnabled && outerRingSliceCount > 0
-
-        if clampedMagnitude < selectionThreshold {
-            // Inside inner deadzone - no selection
-            selectedRing = .none
-            highlightedIndex = nil
-            outerRingHighlightedIndex = nil
-        } else if !outerRingEnabled || clampedMagnitude < outerRingInnerRadius {
-            // In inner ring zone (or outer ring disabled)
-            selectedRing = .inner
-            highlightedIndex = sliceCount > 0
-                ? angleToSegmentIndex(angle, sliceCount: sliceCount, rotationDegrees: activeConfiguration.innerRingRotation)
-                : nil
-            outerRingHighlightedIndex = nil
-        } else {
-            // In outer ring zone
-            selectedRing = .outer
-            highlightedIndex = nil
-            outerRingHighlightedIndex = angleToSegmentIndex(
-                angle,
-                sliceCount: outerRingSliceCount,
-                rotationDegrees: activeConfiguration.outerRingRotation
-            )
-        }
+        applyResolvedOffset(accumulatedDelta)
     }
 
     /// Set position directly from absolute offset (for mouse input)
@@ -222,54 +171,7 @@ class RadialMenuState: ObservableObject {
     ///   - dx: Horizontal offset from center (positive = right)
     ///   - dy: Vertical offset from center (positive = down in screen coordinates)
     func setAbsolutePosition(dx: CGFloat, dy: CGFloat) {
-        // Set position directly (not accumulated)
-        accumulatedDelta.x = dx * movementSensitivity
-        accumulatedDelta.y = dy * movementSensitivity
-
-        // Calculate magnitude (distance from center)
-        let magnitude = sqrt(accumulatedDelta.x * accumulatedDelta.x + accumulatedDelta.y * accumulatedDelta.y)
-
-        // Calculate angle for segment selection
-        let angle = atan2(accumulatedDelta.y, accumulatedDelta.x)
-
-        // Clamp ghost cursor to max radius
-        let clampedMagnitude = min(magnitude, maxGhostRadius)
-        let newGhostPosition = CGPoint(
-            x: cos(angle) * clampedMagnitude,
-            y: sin(angle) * clampedMagnitude
-        )
-
-        ghostPosition = newGhostPosition
-
-        // Clamp accumulatedDelta to prevent "getting stuck" outside
-        if magnitude > maxGhostRadius {
-            let scale = maxGhostRadius / magnitude
-            accumulatedDelta.x *= scale
-            accumulatedDelta.y *= scale
-        }
-
-        // Determine which ring is selected based on clamped magnitude
-        let outerRingEnabled = activeConfiguration.outerRingEnabled && outerRingSliceCount > 0
-
-        if clampedMagnitude < selectionThreshold {
-            selectedRing = .none
-            highlightedIndex = nil
-            outerRingHighlightedIndex = nil
-        } else if !outerRingEnabled || clampedMagnitude < outerRingInnerRadius {
-            selectedRing = .inner
-            highlightedIndex = sliceCount > 0
-                ? angleToSegmentIndex(angle, sliceCount: sliceCount, rotationDegrees: activeConfiguration.innerRingRotation)
-                : nil
-            outerRingHighlightedIndex = nil
-        } else {
-            selectedRing = .outer
-            highlightedIndex = nil
-            outerRingHighlightedIndex = angleToSegmentIndex(
-                angle,
-                sliceCount: outerRingSliceCount,
-                rotationDegrees: activeConfiguration.outerRingRotation
-            )
-        }
+        applyResolvedOffset(CGPoint(x: dx * movementSensitivity, y: dy * movementSensitivity))
     }
 
     /// Get the currently highlighted inner ring item
@@ -302,36 +204,25 @@ class RadialMenuState: ObservableObject {
 
     // MARK: - Private Helpers
 
-    /// Convert angle to segment index
-    /// - Parameters:
-    ///   - angle: Angle in radians (0 = right, positive = clockwise in screen coords)
-    ///   - sliceCount: Number of slices in the ring
-    ///   - rotationDegrees: Ring-specific rotation in degrees
-    /// - Returns: Segment index (0 = top, then clockwise)
-    private func angleToSegmentIndex(_ angle: Double, sliceCount: Int, rotationDegrees: Double) -> Int {
-        guard sliceCount > 0 else { return 0 }
+    private func applyResolvedOffset(_ offset: CGPoint) {
+        let result = RadialMenuGeometry.resolve(offset: offset, configuration: activeConfiguration)
+        accumulatedDelta = result.clampedOffset
+        ghostPosition = result.clampedOffset
 
-        // Items are arranged: 0 = top, 1 = right, 2 = bottom, 3 = left (for 4 items)
-        // Input angle (screen coords): 0 = right, pi/2 = down, pi = left, -pi/2 = up
-
-        // Convert rotation offset from degrees to radians (negative for clockwise)
-        let rotationRadians = -rotationDegrees * Double.pi / 180.0
-
-        // Visual slices start at -π/2 (top) and go clockwise
-        // Add π/2 to convert from atan2 coords (0=right) to slice coords (0=top)
-        // Subtract rotationRadians to account for user's rotation setting
-        var normalizedAngle = angle + Double.pi / 2 - rotationRadians
-
-        // Ensure angle is in [0, 2*pi)
-        let twoPi = Double.pi * 2.0
-        normalizedAngle = fmod(normalizedAngle, twoPi)
-        if normalizedAngle < 0 { normalizedAngle += twoPi }
-
-        // Calculate which slice this falls into
-        let sliceAngleSize = (2 * Double.pi) / Double(sliceCount)
-        let index = Int(normalizedAngle / sliceAngleSize)
-
-        return min(index, sliceCount - 1)
+        switch result.selection {
+        case .inner(let index):
+            selectedRing = .inner
+            highlightedIndex = index
+            outerRingHighlightedIndex = nil
+        case .outer(let index):
+            selectedRing = .outer
+            highlightedIndex = nil
+            outerRingHighlightedIndex = index
+        case nil:
+            selectedRing = .none
+            highlightedIndex = nil
+            outerRingHighlightedIndex = nil
+        }
     }
 
     /// Add a point to the trail
