@@ -50,16 +50,6 @@ final class SettingsStore: @unchecked Sendable {
         /// only for that controller kind.
         var debugRecordingTargetKind: ControllerKind?
 
-        var joyConTimerFallbackEnabled: Bool {
-            get { gyroSettings[.joyCon]?.joyConTimerFallbackEnabled ?? true }
-            set { gyroSettings[.joyCon]?.joyConTimerFallbackEnabled = newValue }
-        }
-
-        var joyConTimerHybridEnabled: Bool {
-            get { gyroSettings[.joyCon]?.joyConTimerHybridEnabled ?? false }
-            set { gyroSettings[.joyCon]?.joyConTimerHybridEnabled = newValue }
-        }
-
         var joyConUseAveragedGyroSamples: Bool {
             get { gyroSettings[.joyCon]?.joyConUseAveragedGyroSamples ?? false }
             set { gyroSettings[.joyCon]?.joyConUseAveragedGyroSamples = newValue }
@@ -176,19 +166,10 @@ final class SettingsStore: @unchecked Sendable {
                     state.save(for: kind)
                 }
 
-                // Migrate Joy-Con timing from legacy keys
-                if let v = defaults.object(forKey: "joycon.timerFallbackEnabled") as? Bool {
-                    var joyConState = GyroSettingsState.load(for: .joyCon)
-                    joyConState.joyConTimerFallbackEnabled = v
-                    joyConState.save(for: .joyCon)
-                    defaults.removeObject(forKey: "joycon.timerFallbackEnabled")
-                }
-                if let v = defaults.object(forKey: "joycon.timerHybridEnabled") as? Bool {
-                    var joyConState = GyroSettingsState.load(for: .joyCon)
-                    joyConState.joyConTimerHybridEnabled = v
-                    joyConState.save(for: .joyCon)
-                    defaults.removeObject(forKey: "joycon.timerHybridEnabled")
-                }
+                // Remove obsolete Joy-Con timing preferences. Raw report
+                // processing now always uses the directly measured receipt time.
+                defaults.removeObject(forKey: "joycon.timerFallbackEnabled")
+                defaults.removeObject(forKey: "joycon.timerHybridEnabled")
 
                 // Migrate button mappings to per-profile
                 let legacySense = SenseButtonMappingProfile.load()

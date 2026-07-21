@@ -21,21 +21,26 @@ final class GyroProcessor: @unchecked Sendable {
     private var biasIndex: Int = 0
     private var biasSum: (x: Double, y: Double, z: Double) = (0, 0, 0)
     private let maxBiasSamples = 64
+    private var biasEstablished = false
 
     // MARK: - Filtering
 
     private let yawFilter = OneEuroFilter()
     private let pitchFilter = OneEuroFilter()
     private var lastTimestamp: TimeInterval?
+    private var lastFilterEnabled: Bool?
 
     // MARK: - Adaptive Smoothing State
 
     private var lastSpeed: Double = 0
     private var lastSpeedEMA: Double = 0
     private var lastJerkEMA: Double = 0
+    private let speedSmoothingTimeConstant: TimeInterval = 0.030
+    private let jerkSmoothingTimeConstant: TimeInterval = 0.050
 
     /// Current smoothed speed (°/s) for UI visualization
     private(set) var currentSpeed: Double = 0
+    private(set) var lastAdaptiveBeta: Double?
 
     // Sample rate auto-tune
     private var observedDtEMA: Double = 0
@@ -58,6 +63,7 @@ final class GyroProcessor: @unchecked Sendable {
         let lastNeutralUpdate: TimeInterval?
     }
     private(set) var lastDebugState: DebugState?
+    private(set) var lastResponseSample: GyroResponseSample?
 
     init() {
         biasBuffer = Array(repeating: (0, 0, 0), count: maxBiasSamples)
@@ -86,40 +92,62 @@ final class GyroProcessor: @unchecked Sendable {
         let y = Double(rawY)
         let z = Double(rawZ)
 
-        // 2. Calculate dt with clamping to reduce jitter impact
-        var expectedRate = max(1.0, settings.expectedSampleRate)
-
-        if settings.autoTuneSampleRate {
-            let observedDt = max(0.001, timestamp - (lastTimestamp ?? timestamp))
-            if observedDtEMA == 0 {
-                observedDtEMA = observedDt
-            } else {
-                observedDtEMA = observedAlpha * observedDt + (1 - observedAlpha) * observedDtEMA
+        // 2. Calculate dt. Nominal-rate learning accepts only intervals close
+        // to the configured cadence, so a dropped Bluetooth report cannot
+        // masquerade as a slower physical IMU.
+        let configuredRate = max(1.0, settings.expectedSampleRate)
+        let configuredDt = 1.0 / configuredRate
+        let timestampIsMonotonic = timestamp.isFinite
+            && (lastTimestamp == nil || timestamp > (lastTimestamp ?? timestamp))
+        let rawDt: TimeInterval? = {
+            guard let lastTimestamp,
+                  lastTimestamp.isFinite,
+                  timestampIsMonotonic else {
+                return nil
             }
-            let observedRate = 1.0 / max(0.001, observedDtEMA)
-            let clampedRate = min(100.0, max(40.0, observedRate))
-            expectedRate = clampedRate
+            return timestamp - lastTimestamp
+        }()
+
+        if let rawDt,
+           rawDt >= configuredDt * 0.5,
+           rawDt <= configuredDt * 1.5 {
+            if observedDtEMA == 0 {
+                observedDtEMA = rawDt
+            } else {
+                observedDtEMA = observedAlpha * rawDt + (1 - observedAlpha) * observedDtEMA
+            }
+        }
+
+        var expectedRate = configuredRate
+        if settings.autoTuneSampleRate, observedDtEMA > 0 {
+            let observedRate = 1.0 / observedDtEMA
+            expectedRate = min(configuredRate * 1.25, max(configuredRate * 0.75, observedRate))
         }
 
         let expectedDt = 1.0 / expectedRate
-        let maxDt = expectedDt * 4.0  // tolerate brief stalls but cap spikes
+        // Never extrapolate one current gyro sample across a long transport
+        // outage. That produces a cursor jump after the connection recovers.
+        let maxDt = expectedDt * 2.0
         let dt: Double
-        if let last = lastTimestamp {
-            let rawDt = timestamp - last
+        if let rawDt {
             dt = min(max(0.001, rawDt), maxDt)
-            // If we clamped heavily, reset filters to avoid smearing after a stall
             if rawDt > maxDt {
                 yawFilter.reset()
                 pitchFilter.reset()
             }
         } else {
-            dt = 1.0 / 60.0
+            dt = expectedDt
         }
-        lastTimestamp = timestamp
+        // A duplicate, invalid, or regressing timestamp gets nominal dt for
+        // this sample but must not poison the next valid interval.
+        if timestampIsMonotonic {
+            lastTimestamp = timestamp
+        }
 
         // 3. Update bias estimation when stationary
+        let previousNeutralUpdate = lastNeutralUpdate
         updateBias(x: x, y: y, z: z, threshold: settings.biasMotionThreshold)
-        if settings.autoNeutralEnabled {
+        if settings.autoNeutralEnabled, timestampIsMonotonic {
             updateAutoNeutral(
                 rawX: x,
                 rawY: y,
@@ -148,31 +176,43 @@ final class GyroProcessor: @unchecked Sendable {
         var filteredYaw = yaw
         var filteredPitch = pitch
 
+        if lastFilterEnabled != settings.filterEnabled {
+            yawFilter.reset()
+            pitchFilter.reset()
+            lastSpeed = 0
+            lastJerkEMA = 0
+            lastFilterEnabled = settings.filterEnabled
+        }
+
         if settings.filterEnabled {
             // Update filter parameters
             let speedSquared = yaw * yaw + pitch * pitch
             let speed = sqrt(speedSquared)
             let adaptiveBeta = computeAdaptiveBeta(
                 speed: speed,
-                yaw: yaw,
-                pitch: pitch,
                 baseBeta: settings.beta,
                 dt: dt,
                 mode: settings.adaptiveSmoothingMode
             )
+            lastAdaptiveBeta = adaptiveBeta
 
             yawFilter.minCutoff = settings.minCutoff
             yawFilter.beta = adaptiveBeta
+            yawFilter.fallbackRate = expectedRate
             pitchFilter.minCutoff = settings.minCutoff
             pitchFilter.beta = adaptiveBeta
+            pitchFilter.fallbackRate = expectedRate
 
             filteredYaw = yawFilter.filter(value: yaw, timestamp: timestamp)
             filteredPitch = pitchFilter.filter(value: pitch, timestamp: timestamp)
+        } else {
+            lastAdaptiveBeta = nil
         }
 
         // 8. Calculate speed for acceleration curve
+        let rawSpeed = sqrt(yaw * yaw + pitch * pitch)
         let filteredSpeed = sqrt(filteredYaw * filteredYaw + filteredPitch * filteredPitch)
-        let smoothedSpeed = smoothSpeed(filteredSpeed)
+        let smoothedSpeed = smoothSpeed(filteredSpeed, dt: dt)
         currentSpeed = smoothedSpeed  // Store for UI visualization
 
         // 9. Apply acceleration curve (parametric formula)
@@ -187,14 +227,30 @@ final class GyroProcessor: @unchecked Sendable {
         let scale = settings.sensitivity * 0.1
         let dx = CGFloat(filteredYaw * dt * scale * accelGain)
         let dy = CGFloat(filteredPitch * dt * scale * accelGain)
+        let cursorDeltaMagnitude = sqrt(Double(dx * dx + dy * dy))
+        let computedCursorSpeed = cursorDeltaMagnitude / max(dt, 0.001)
+
+        lastResponseSample = GyroResponseSample(
+            deltaTime: dt,
+            rawSpeed: rawSpeed,
+            filteredSpeed: filteredSpeed,
+            accelerationSpeed: smoothedSpeed,
+            accelerationGain: accelGain,
+            computedCursorSpeed: computedCursorSpeed,
+            biasX: biasX * settings.gyroScale,
+            biasY: biasY * settings.gyroScale,
+            biasZ: biasZ * settings.gyroScale,
+            filterEnabled: settings.filterEnabled,
+            didAutoNeutralUpdate: lastNeutralUpdate != previousNeutralUpdate
+        )
 
         // Capture debug snapshot
-        let observedRate = observedDtEMA > 0 ? (1.0 / observedDtEMA) : expectedRate
+        let observedRate = observedDtEMA > 0 ? (1.0 / observedDtEMA) : configuredRate
         lastDebugState = DebugState(
             biasX: biasX * settings.gyroScale,
             biasY: biasY * settings.gyroScale,
             biasZ: biasZ * settings.gyroScale,
-            calibrated: biasCount >= maxBiasSamples / 2,
+            calibrated: biasEstablished,
             observedSampleRate: observedRate,
             lastNeutralUpdate: lastNeutralUpdate
         )
@@ -205,6 +261,7 @@ final class GyroProcessor: @unchecked Sendable {
     // MARK: - Bias Estimation
 
     private func updateBias(x: Double, y: Double, z: Double, threshold: Double) {
+        guard !biasEstablished else { return }
         let magnitudeSquared = x * x + y * y + z * z
         if magnitudeSquared < threshold * threshold {
             let old = biasBuffer[biasIndex]
@@ -227,6 +284,7 @@ final class GyroProcessor: @unchecked Sendable {
                 biasX = biasSum.x / count
                 biasY = biasSum.y / count
                 biasZ = biasSum.z / count
+                biasEstablished = true
             }
         } else {
             // Clear buffer when motion exceeds threshold
@@ -243,7 +301,9 @@ final class GyroProcessor: @unchecked Sendable {
         gyroScale: Double,
         timestamp: TimeInterval
     ) {
-        // Use variance-based stillness detection so a constant bias doesn't block calibration
+        // Low variance alone is insufficient: a deliberate constant-speed
+        // rotation also has low variance. Once a bias is established, require
+        // the candidate neutral to remain very close to it.
         let degX = rawX * gyroScale
         let degY = rawY * gyroScale
         let degZ = rawZ * gyroScale
@@ -251,14 +311,22 @@ final class GyroProcessor: @unchecked Sendable {
         let minDuration: TimeInterval = 0.6
         let minSamples: Int = 20
         let cooldown: TimeInterval = 2.0
-        let motionBreak: Double = 80.0  // deg/s instantaneous motion that cancels accumulation
+        let maximumStartupBias = 8.0
+        let maximumEstablishedResidual = 3.0
 
-        // If there's a sudden spike of motion, abandon accumulation
-        if abs(degX) > motionBreak || abs(degY) > motionBreak || abs(degZ) > motionBreak {
-            neutralStart = nil
-            neutralAccumulator = (0, 0, 0)
-            neutralSumSquares = (0, 0, 0)
-            neutralCount = 0
+        let absoluteMagnitude = sqrt(degX * degX + degY * degY + degZ * degZ)
+        let residualX = (rawX - biasX) * gyroScale
+        let residualY = (rawY - biasY) * gyroScale
+        let residualZ = (rawZ - biasZ) * gyroScale
+        let residualMagnitude = sqrt(
+            residualX * residualX + residualY * residualY + residualZ * residualZ
+        )
+        let clearlyMoving = biasEstablished
+            ? residualMagnitude > maximumEstablishedResidual
+            : absoluteMagnitude > maximumStartupBias
+
+        if clearlyMoving {
+            resetNeutralAccumulator()
             return
         }
 
@@ -288,17 +356,29 @@ final class GyroProcessor: @unchecked Sendable {
             let varX = max(0, neutralSumSquares.x * inv - avgX * avgX)
             let varY = max(0, neutralSumSquares.y * inv - avgY * avgY)
             let varZ = max(0, neutralSumSquares.z * inv - avgZ * avgZ)
-            let stdThreshold: Double = 0.6  // deg/s
+            let stdThreshold: Double = 0.35  // deg/s
             let stillnessPass =
                 sqrt(varX) * gyroScale < stdThreshold &&
                 sqrt(varY) * gyroScale < stdThreshold &&
                 sqrt(varZ) * gyroScale < stdThreshold
+            let candidateMagnitude = sqrt(
+                avgX * avgX + avgY * avgY + avgZ * avgZ
+            ) * gyroScale
+            let candidateShift = sqrt(
+                (avgX - biasX) * (avgX - biasX)
+                    + (avgY - biasY) * (avgY - biasY)
+                    + (avgZ - biasZ) * (avgZ - biasZ)
+            ) * gyroScale
+            let plausibleNeutral = biasEstablished
+                ? candidateShift <= 0.2
+                : candidateMagnitude <= maximumStartupBias
 
-            if stillnessPass {
+            if stillnessPass && plausibleNeutral {
                 // Force bias to the observed quiet average
                 biasX = avgX
                 biasY = avgY
                 biasZ = avgZ
+                biasEstablished = true
                 for i in 0..<maxBiasSamples {
                     biasBuffer[i] = (avgX, avgY, avgZ)
                 }
@@ -307,11 +387,15 @@ final class GyroProcessor: @unchecked Sendable {
                 biasSum = (avgX * Double(maxBiasSamples), avgY * Double(maxBiasSamples), avgZ * Double(maxBiasSamples))
                 lastNeutralUpdate = timestamp
             }
-            neutralStart = nil
-            neutralAccumulator = (0, 0, 0)
-            neutralSumSquares = (0, 0, 0)
-            neutralCount = 0
+            resetNeutralAccumulator()
         }
+    }
+
+    private func resetNeutralAccumulator() {
+        neutralStart = nil
+        neutralAccumulator = (0, 0, 0)
+        neutralSumSquares = (0, 0, 0)
+        neutralCount = 0
     }
 
     // MARK: - Adaptive Smoothing
@@ -319,41 +403,48 @@ final class GyroProcessor: @unchecked Sendable {
     /// Compute adaptive beta based on motion characteristics
     private func computeAdaptiveBeta(
         speed: Double,
-        yaw: Double,
-        pitch: Double,
         baseBeta: Double,
         dt: Double,
         mode: AdaptiveSmoothingMode
     ) -> Double {
+        let clampedBaseBeta = min(2.0, max(0, baseBeta))
+        let previousSpeed = lastSpeed
+        lastSpeed = speed
+
         switch mode {
         case .off:
-            return baseBeta
+            return clampedBaseBeta
 
         case .speed:
             let speedTerm = min(1.0, speed / 150.0)
             let boost = speedTerm * 0.2
-            return min(1.0, baseBeta + boost)
+            return min(2.0, clampedBaseBeta + boost)
 
         case .speedAndJerk:
-            let jerk = abs(speed - lastSpeed) / max(dt, 0.001)
-            lastSpeed = speed
+            let jerk = abs(speed - previousSpeed) / max(dt, 0.001)
 
-            // Smooth jerk with EMA
-            let jerkAlpha = 0.25
+            let jerkAlpha = Self.emaAlpha(dt: dt, timeConstant: jerkSmoothingTimeConstant)
             lastJerkEMA = jerkAlpha * jerk + (1 - jerkAlpha) * lastJerkEMA
 
             let speedTerm = min(1.0, speed / 150.0)
             let jerkTerm = min(1.0, lastJerkEMA / 200.0)
             let boost = max(speedTerm, jerkTerm) * 0.2
-            return min(1.0, baseBeta + boost)
+            return min(2.0, clampedBaseBeta + boost)
         }
     }
 
-    /// Smooth speed with EMA for stable acceleration curve selection
-    private func smoothSpeed(_ instantaneous: Double) -> Double {
-        let alpha = 0.15
+    /// Smooth speed with a time-based EMA so acceleration response does not
+    /// become slower merely because transport callback frequency dropped.
+    private func smoothSpeed(_ instantaneous: Double, dt: TimeInterval) -> Double {
+        let alpha = Self.emaAlpha(dt: dt, timeConstant: speedSmoothingTimeConstant)
         lastSpeedEMA = alpha * instantaneous + (1 - alpha) * lastSpeedEMA
         return lastSpeedEMA
+    }
+
+    private static func emaAlpha(dt: TimeInterval, timeConstant: TimeInterval) -> Double {
+        let safeDt = max(0.001, dt)
+        let safeTimeConstant = max(0.001, timeConstant)
+        return 1 - exp(-safeDt / safeTimeConstant)
     }
 
     // MARK: - Acceleration Curve
@@ -396,16 +487,25 @@ final class GyroProcessor: @unchecked Sendable {
         biasCount = 0
         biasIndex = 0
         biasSum = (0, 0, 0)
+        biasEstablished = false
         lastTimestamp = nil
         yawFilter.reset()
         pitchFilter.reset()
+        lastFilterEnabled = nil
         lastSpeed = 0
         lastSpeedEMA = 0
         lastJerkEMA = 0
+        currentSpeed = 0
+        lastAdaptiveBeta = nil
+        observedDtEMA = 0
+        resetNeutralAccumulator()
+        lastNeutralUpdate = nil
+        lastDebugState = nil
+        lastResponseSample = nil
     }
 
     /// Whether bias calibration is complete
     var isCalibrated: Bool {
-        biasCount >= maxBiasSamples / 2
+        biasEstablished
     }
 }

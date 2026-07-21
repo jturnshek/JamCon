@@ -2,7 +2,6 @@ import Foundation
 import IOKit
 import IOKit.hid
 import QuartzCore
-import MachO
 import os.lock
 
 private enum JoyCon {
@@ -64,6 +63,8 @@ final class JoyConHIDController {
         let accelZ: Int16
         let timestamp: TimeInterval
         let receivedTimestamp: TimeInterval
+        let inputTimestamp: TimeInterval?
+        let timestampSource: InputTimestampSource
         let motionSamples: [IMUSample]
 
         var averagedGyro: (x: Int16, y: Int16, z: Int16) {
@@ -80,16 +81,6 @@ final class JoyConHIDController {
     var onConnectionChange: ((_ connected: Bool, _ name: String?, _ controllerID: String?) -> Void)?
     var onControllersChanged: (() -> Void)?
     var onDebugMessage: ((_ message: String) -> Void)?
-
-    struct RuntimeConfigState {
-        /// Whether to use packet timer fallback when device timestamps are unavailable.
-        var useTimerFallback: Bool = true
-
-        /// Whether to prefer a hybrid timer path (controller timer with device timestamp as anchor).
-        var useTimerHybrid: Bool = false
-    }
-
-    let runtimeConfig = LockedRuntimeConfig(initialState: RuntimeConfigState())
 
     // MARK: - State
 
@@ -122,12 +113,8 @@ final class JoyConHIDController {
         let reportBufferLength: Int
 
         var outputPacketCounter: UInt8 = 0
-
-        // Device timestamp support (used if available from IOHIDValue)
-        var lastDeviceTimestamp: TimeInterval?
-        var lastDeviceTicks: UInt64?
-        var lastTimerByte: UInt8?
-        var lastTimerTimestamp: TimeInterval?
+        var packetTimingTracker = JoyConPacketTimingTracker()
+        var transportAggregator = JoyConTransportAggregator()
 
         init(controller: DiscoveredJoyCon, owner: JoyConHIDController) {
             self.controller = controller
@@ -177,12 +164,6 @@ final class JoyConHIDController {
             return active.controller.name
         }
     }
-    private let timebase: mach_timebase_info_data_t = {
-        var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
-        mach_timebase_info(&tb)
-        return tb
-    }()
-
     // MARK: - Init / lifecycle
 
     init() {}
@@ -223,13 +204,6 @@ final class JoyConHIDController {
         startHIDThreadIfNeeded()
     }
 
-    func setTimingMode(useTimerFallback: Bool, useTimerHybrid: Bool) {
-        runtimeConfig.update { config in
-            config.useTimerFallback = useTimerFallback
-            config.useTimerHybrid = useTimerHybrid
-        }
-    }
-
     func stop() {
         // Signal the HID thread to exit its run loop
         hidThread?.cancel()
@@ -241,7 +215,6 @@ final class JoyConHIDController {
             }
             for active in activeControllersSnapshot {
                 IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
                 IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
 
@@ -267,7 +240,6 @@ final class JoyConHIDController {
             }
             for active in activeControllersSnapshot {
                 IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
                 IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
 
@@ -501,17 +473,6 @@ final class JoyConHIDController {
             context
         )
 
-        // Register value callback to capture device timestamps (if provided by stack)
-        IOHIDDeviceRegisterInputValueCallback(
-            device,
-            { context, _, _, value in
-                guard let context else { return }
-                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
-                callbackContext.owner?.handleInputValue(controllerID: callbackContext.controllerID, value)
-            },
-            context
-        )
-
         // Enable IMU + set input mode
         sendSubcommand(.enableIMU, data: [0x01], to: active)
         sendSubcommand(.setInputMode, data: [UInt8(JoyCon.InputMode.standardFull.rawValue)], to: active)
@@ -536,8 +497,11 @@ final class JoyConHIDController {
         guard let active else { return }
 
         IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-        IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
         IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        if let summary = active.transportAggregator.flush(at: now) {
+            JamLog.info(.health, "device=joyCon:\(id) transport \(summary.logMessage)")
+        }
 
         let displayName = "\(active.controller.name) (\(active.controller.side))"
         onConnectionChange?(false, displayName, active.controller.id)
@@ -546,29 +510,51 @@ final class JoyConHIDController {
     // MARK: - Input reports
 
     #if DEBUG
-    private static var debugLogCounter = 0
+    private var didLogInputReportSample = false
     #endif
 
     private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
         let receivedTimestamp = CACurrentMediaTime()
-        let timestamp = computeTimestamp(controllerID: controllerID, report: report, length: length)
 
         let maxLength = min(length, JoyConHIDProtocol.reportLength)
-        var bytes = [UInt8](repeating: 0, count: maxLength)
-        for i in 0..<maxLength { bytes[i] = report[i] }
+        let bytes = Array(UnsafeBufferPointer(start: report, count: maxLength))
+
+        let timerByte = bytes.indices.contains(JoyConHIDProtocol.Offset.timer)
+            ? bytes[JoyConHIDProtocol.Offset.timer]
+            : nil
+        let timingResult: (JoyConPacketTimingObservation, JoyConTransportSummary?)? = stateLock.withLock { state in
+            guard let active = state.activeControllers[controllerID] else { return nil }
+            let observation = active.packetTimingTracker.observe(
+                timerByte: timerByte,
+                bytes: bytes,
+                receivedTimestamp: receivedTimestamp
+            )
+            let summary = active.transportAggregator.record(observation, at: receivedTimestamp)
+            return (observation, summary)
+        }
+        guard let (timing, transportSummary) = timingResult else { return }
+        if let transportSummary {
+            JamLog.info(.health, "device=joyCon:\(controllerID) transport \(transportSummary.logMessage)")
+        }
+        guard timing.accepted else { return }
 
         #if DEBUG
-        // Debug: log first few reports to see structure
-        Self.debugLogCounter += 1
-        if Self.debugLogCounter <= 5 {
+        // One bounded startup sample is enough to identify the report shape.
+        if !didLogInputReportSample {
+            didLogInputReportSample = true
             let hexBytes = bytes.prefix(50).map { String(format: "%02X", $0) }.joined(separator: " ")
-            JamLog.debug(.joyCon, "Report[\(Self.debugLogCounter)] len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)")
+            JamLog.debug(.joyCon, "Input report sample len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)")
         }
         #endif
 
         guard let decoded = try? JoyConInputReportDecoder.decode(bytes) else {
-            log("Discarded malformed Joy-Con input report (length=\(maxLength))")
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "malformed.input",
+                interval: 2,
+                "Discarded malformed Joy-Con input report (length=\(maxLength))"
+            )
             return
         }
         let motion = decoded.latest
@@ -583,102 +569,12 @@ final class JoyConHIDController {
             accelX: motion.accelX,
             accelY: motion.accelY,
             accelZ: motion.accelZ,
-            timestamp: timestamp,
+            timestamp: timing.processingTimestamp,
             receivedTimestamp: receivedTimestamp,
+            inputTimestamp: nil,
+            timestampSource: timing.timestampSource,
             motionSamples: decoded.motionSamples
         ))
-    }
-
-    /// Compute a stable timestamp using device time if available; otherwise fall back to packet timer (byte 1) before host time.
-    private func computeTimestamp(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int) -> TimeInterval {
-        let hostNow = CACurrentMediaTime()
-        let runtime = runtimeConfig.snapshot()
-
-        // Timer byte (packet counter)
-        let timerByteIndex = JoyConHIDProtocol.Offset.timer
-        let timerAvailable = timerByteIndex < length
-        let timerByte = timerAvailable ? UInt8(report[timerByteIndex]) : nil
-        let tickSeconds: TimeInterval = 0.001
-
-        return stateLock.withLock { state in
-            guard let active = state.activeControllers[controllerID] else { return hostNow }
-
-            if runtime.useTimerHybrid, let timer = timerByte {
-                // Hybrid: prefer controller timer; device timestamp seeds anchor if present
-                let anchor = active.lastTimerTimestamp ?? active.lastDeviceTimestamp ?? hostNow
-                if let lastByte = active.lastTimerByte {
-                    let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
-                    if deltaTicks > 0 && deltaTicks < 200 {
-                        let ts = anchor + TimeInterval(deltaTicks) * tickSeconds
-                        active.lastTimerByte = timer
-                        active.lastTimerTimestamp = ts
-                        return ts
-                    }
-                }
-                // Seed timer timeline
-                active.lastTimerByte = timer
-                active.lastTimerTimestamp = anchor
-                return anchor
-            }
-
-            if let deviceTs = active.lastDeviceTimestamp {
-                // Reset timer fallback state when device timestamps are active
-                active.lastTimerByte = nil
-                active.lastTimerTimestamp = nil
-                return deviceTs
-            }
-
-            guard runtime.useTimerFallback, let timer = timerByte else {
-                active.lastTimerByte = nil
-                active.lastTimerTimestamp = nil
-                return hostNow
-            }
-
-            // Fallback: only use timer when device timestamp is absent
-            if let lastByte = active.lastTimerByte, let lastTs = active.lastTimerTimestamp {
-                let deltaTicks = UInt8(bitPattern: Int8(timer &- lastByte))
-                if deltaTicks > 0 && deltaTicks < 200 {
-                    let ts = lastTs + TimeInterval(deltaTicks) * tickSeconds
-                    active.lastTimerByte = timer
-                    active.lastTimerTimestamp = ts
-                    return ts
-                }
-            }
-
-            active.lastTimerByte = timer
-            active.lastTimerTimestamp = hostNow
-            return hostNow
-        }
-    }
-
-    /// Capture device-provided timestamps (if available) to improve dt stability.
-    private func handleInputValue(controllerID: String, _ value: IOHIDValue) {
-        let element = IOHIDValueGetElement(value)
-        let reportID = IOHIDElementGetReportID(element)
-
-        guard reportID == JoyConHIDProtocol.inputReportID else { return }
-
-        let ts = IOHIDValueGetTimeStamp(value)
-        stateLock.withLock { state in
-            guard let active = state.activeControllers[controllerID] else { return }
-            // Avoid duplicate timestamps; fall back to host time if they repeat
-            if let lastTicks = active.lastDeviceTicks, lastTicks == ts {
-                active.lastDeviceTimestamp = nil
-                return
-            }
-
-            active.lastDeviceTicks = ts
-            active.lastDeviceTimestamp = ticksToSeconds(ts)
-            // Reset timer fallback state when real device timestamps arrive
-            active.lastTimerByte = nil
-            active.lastTimerTimestamp = nil
-        }
-    }
-
-    /// Convert mach ticks to seconds using cached timebase.
-    private func ticksToSeconds(_ ticks: UInt64) -> TimeInterval {
-        let nanos = (Double(ticks) * Double(timebase.numer)) / Double(timebase.denom)
-        return nanos / 1_000_000_000.0
     }
 
     // MARK: - Subcommands

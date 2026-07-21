@@ -25,12 +25,16 @@ struct InputPerformanceMetricsView: View {
                         columnHeader("P95")
                         columnHeader("Max")
                     }
-                    metricRow("Input age", timing.inputAge)
+                    if let inputAge = timing.inputAge {
+                        metricRow("Input age", inputAge)
+                    } else {
+                        unavailableMetricRow("Input age")
+                    }
                     metricRow("Queue", timing.queueDelay)
                     metricRow("Processing", timing.processing)
                 }
 
-                Text("Input age is controller report timestamp → engine completion. Queue and processing isolate JamCon overhead. Window: \(timing.sampleCount) samples.")
+                Text("Input age is shown only when a timestamp is attached to the same physical report; it is unavailable for the current raw HID callbacks. Queue and processing isolate JamCon overhead. Clock: \(timestampSources(timing.timestampSourceCounts)). Window: \(timing.sampleCount) samples.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             } else {
@@ -58,6 +62,26 @@ struct InputPerformanceMetricsView: View {
             value(summary.p95)
             value(summary.maximum)
         }
+    }
+
+    private func unavailableMetricRow(_ title: String) -> some View {
+        GridRow {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .gridColumnAlignment(.leading)
+            Text("Unavailable")
+                .font(.caption.monospacedDigit())
+                .foregroundColor(.secondary)
+                .gridCellColumns(4)
+        }
+    }
+
+    private func timestampSources(_ counts: [InputTimestampSource: Int]) -> String {
+        InputTimestampSource.allCases.compactMap { source in
+            guard let count = counts[source], count > 0 else { return nil }
+            return "\(source.rawValue) \(count)"
+        }.joined(separator: ", ")
     }
 
     private func value(_ milliseconds: Double) -> some View {

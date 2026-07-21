@@ -29,6 +29,7 @@ struct MouseControlTab: View {
 
                             // Collapsible sections
                             FilteringSection(appState: appState)
+                            SamplingAndCalibrationSection(appState: appState)
                             AccelerationSection(appState: appState)
 
                             // Reset button
@@ -193,40 +194,6 @@ private struct FilteringSection: View {
                         DescriptionText(text: adaptiveModeDescription)
                     }
 
-                    Divider()
-
-                    // Joy-Con timing fallback (only shown for Joy-Con)
-	                    if appState.configurationProfile.kind == .joyCon {
-	                        VStack(alignment: .leading, spacing: 8) {
-	                            Toggle("Use Joy-Con packet timer fallback", isOn: $appState.joyConTimerFallbackEnabled)
-	                                .font(.subheadline)
-	                            DescriptionText(text: "When the system doesn't provide device timestamps for Joy-Con reports, use the controller's packet timer to smooth out dt. Turn this off if you prefer pure host timing.")
-	                        }
-	
-	                        VStack(alignment: .leading, spacing: 8) {
-	                            Toggle("Force Joy-Con timer hybrid", isOn: $appState.joyConTimerHybridEnabled)
-	                                .font(.subheadline)
-	                            DescriptionText(text: "Prefer the controller's packet timer even when device timestamps are present (device time seeds the timeline). Useful if the HID stack's timestamps are jittery.")
-	                        }
-
-	                        VStack(alignment: .leading, spacing: 8) {
-	                            Toggle("Average Joy-Con gyro samples", isOn: $appState.joyConUseAveragedGyroSamples)
-	                                .font(.subheadline)
-	                            DescriptionText(text: "Joy-Con reports include 3 gyro samples per packet. When enabled, JamCon averages them before processing (still at the packet rate). When off, JamCon uses only the newest sample.")
-	                        }
-	                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Auto-tune sample rate", isOn: $appState.autoTuneSampleRate)
-                            .font(.subheadline)
-                        DescriptionText(text: "Adjust expected IMU rate based on observed timing to keep filtering and stall detection aligned when the effective rate drifts.")
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Auto-calibrate when very still", isOn: $appState.autoNeutralEnabled)
-                            .font(.subheadline)
-                        DescriptionText(text: "When the controller is motionless for a moment, refresh the gyro neutral automatically to prevent slow drift.")
-                    }
                 }
             }
             .padding(.vertical, 8)
@@ -252,6 +219,59 @@ private struct FilteringSection: View {
         case .speedAndJerk:
             return "Beta increases based on both velocity AND acceleration (jerk). This mode responds to sudden direction changes, not just speed. Best for fast-paced use where you make quick, sharp movements."
         }
+    }
+}
+
+// MARK: - Sampling and Calibration
+
+private struct SamplingAndCalibrationSection: View {
+    @ObservedObject var appState: AppState
+    @State private var isExpanded = true
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            VStack(alignment: .leading, spacing: 16) {
+                if appState.configurationProfile.kind == .joyCon {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(
+                            "Average Joy-Con gyro samples",
+                            isOn: $appState.joyConUseAveragedGyroSamples
+                        )
+                        .font(.subheadline)
+                        DescriptionText(
+                            text: "Joy-Con reports contain three gyro samples. Leave this off for the freshest sample and lowest latency; enable it only when extra smoothing is worth the added averaging."
+                        )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Auto-tune nominal sample rate", isOn: $appState.autoTuneSampleRate)
+                        .font(.subheadline)
+                    DescriptionText(
+                        text: "Learns small differences in the device’s normal report cadence. Dropped reports and Bluetooth stalls are ignored, so connection problems cannot redefine the nominal sample rate."
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Auto-calibrate when very still", isOn: $appState.autoNeutralEnabled)
+                        .font(.subheadline)
+                    DescriptionText(
+                        text: "Refreshes gyro neutral only after low-variance motion remains close to the established bias. Deliberate constant-speed movement is rejected."
+                    )
+                }
+            }
+            .padding(.vertical, 8)
+        } label: {
+            HStack {
+                Image(systemName: "metronome")
+                    .foregroundColor(.blue)
+                Text("Sampling & Calibration")
+                    .font(.subheadline.weight(.medium))
+            }
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.05))
+        .cornerRadius(8)
     }
 }
 

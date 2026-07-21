@@ -112,10 +112,15 @@ extension AppState {
     // MARK: - Accessibility
 
     func checkAccessibilityPermission() {
-        hasAccessibilityPermission = AXIsProcessTrusted()
+        let trusted = AXIsProcessTrusted()
+        if trusted != hasAccessibilityPermission {
+            JamLog.info(.app, "Accessibility permission changed: \(trusted ? "granted" : "missing")")
+        }
+        hasAccessibilityPermission = trusted
     }
 
     func openAccessibilitySettings() {
+        JamLog.info(.app, "Accessibility permission requested by user")
         let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options = [promptKey: true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
@@ -166,8 +171,6 @@ extension AppState {
         autoNeutralEnabled = defaults.autoNeutralEnabled
 
         if configurationProfile.kind == .joyCon {
-            joyConTimerFallbackEnabled = defaults.joyConTimerFallbackEnabled
-            joyConTimerHybridEnabled = defaults.joyConTimerHybridEnabled
             joyConUseAveragedGyroSamples = defaults.joyConUseAveragedGyroSamples
         }
     }

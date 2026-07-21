@@ -82,6 +82,9 @@ enum CrashReporter {
             let content = try String(contentsOf: crashLogPath, encoding: .utf8)
             // Delete the crash log after reading
             try FileManager.default.removeItem(at: crashLogPath)
+            guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
             return content
         } catch {
             return nil

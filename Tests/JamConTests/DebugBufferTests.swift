@@ -24,14 +24,27 @@ final class DebugBufferTests: XCTestCase {
 
     func testPipelineTimingUsesMonotonicBoundaries() {
         let timing = DebugBuffer.PipelineTiming(
-            reportTimestamp: 10.000,
+            inputTimestamp: 10.000,
+            timestampSource: .hostReceipt,
             receivedTimestamp: 10.001,
             engineStartTimestamp: 10.003,
             engineEndTimestamp: 10.007
         )
 
-        XCTAssertEqual(timing.inputAgeMilliseconds, 7, accuracy: 0.000_1)
+        XCTAssertEqual(try XCTUnwrap(timing.inputAgeMilliseconds), 7, accuracy: 0.000_1)
         XCTAssertEqual(timing.queueDelayMilliseconds, 2, accuracy: 0.000_1)
         XCTAssertEqual(timing.processingMilliseconds, 4, accuracy: 0.000_1)
+    }
+
+    func testPipelineTimingLeavesUnknownInputAgeUnavailable() {
+        let timing = DebugBuffer.PipelineTiming(
+            inputTimestamp: nil,
+            timestampSource: .hostReceipt,
+            receivedTimestamp: 10.001,
+            engineStartTimestamp: 10.003,
+            engineEndTimestamp: 10.007
+        )
+
+        XCTAssertNil(timing.inputAgeMilliseconds)
     }
 }

@@ -20,7 +20,7 @@ final class OneEuroFilter: @unchecked Sendable {
     var minCutoff: Double = 1.5
 
     /// Speed coefficient (higher = less smoothing when moving fast)
-    /// Range: 0.0 - 1.0, Default: 0.35
+    /// Range: 0.0 - 2.0, Default: 0.35
     var beta: Double = 0.35
 
     /// Cutoff frequency for derivative smoothing (fixed, rarely needs tuning)
@@ -31,7 +31,8 @@ final class OneEuroFilter: @unchecked Sendable {
 
     // MARK: - State
 
-    private var previousValue: Double?
+    private var previousRawValue: Double?
+    private var previousFilteredValue: Double?
     private var previousDerivative: Double = 0
     private var previousTime: TimeInterval?
     private static let twoPi: Double = 2.0 * Double.pi
@@ -41,8 +42,10 @@ final class OneEuroFilter: @unchecked Sendable {
     /// Compute smoothing factor alpha for a given cutoff frequency and time delta
     /// α = 1 / (1 + τ/dt) where τ = 1/(2πf)
     private func alpha(cutoff: Double, dt: Double) -> Double {
-        let tau = 1.0 / (Self.twoPi * cutoff)
-        return 1.0 / (1.0 + tau / dt)
+        let safeCutoff = max(0.001, cutoff)
+        let safeDt = max(0.000_001, dt)
+        let tau = 1.0 / (Self.twoPi * safeCutoff)
+        return 1.0 / (1.0 + tau / safeDt)
     }
 
     /// Filter a value with adaptive smoothing
@@ -52,16 +55,19 @@ final class OneEuroFilter: @unchecked Sendable {
     /// - Returns: Filtered value with reduced jitter and minimal lag
     func filter(value: Double, timestamp: TimeInterval) -> Double {
         // Compute time delta
+        let fallbackDt = 1.0 / max(1.0, fallbackRate)
+        let hasMonotonicTimestamp = timestamp.isFinite
+            && (previousTime == nil || timestamp > (previousTime ?? timestamp))
         let dt: Double
-        if let prevTime = previousTime {
-            dt = max(1.0 / fallbackRate, timestamp - prevTime)
+        if let prevTime = previousTime, hasMonotonicTimestamp {
+            dt = timestamp - prevTime
         } else {
-            dt = 1.0 / fallbackRate
+            dt = fallbackDt
         }
 
         // Compute derivative (rate of change)
         let rawDerivative: Double
-        if let prev = previousValue {
+        if let prev = previousRawValue {
             rawDerivative = (value - prev) / dt
         } else {
             rawDerivative = 0
@@ -76,11 +82,15 @@ final class OneEuroFilter: @unchecked Sendable {
 
         // Apply low-pass filter with adaptive cutoff
         let alphaV = alpha(cutoff: cutoff, dt: dt)
-        let filteredValue = alphaV * value + (1 - alphaV) * (previousValue ?? value)
+        let filteredValue = alphaV * value
+            + (1 - alphaV) * (previousFilteredValue ?? value)
 
         // Update state
-        previousTime = timestamp
-        previousValue = filteredValue
+        if hasMonotonicTimestamp {
+            previousTime = timestamp
+        }
+        previousRawValue = value
+        previousFilteredValue = filteredValue
         previousDerivative = derivative
 
         return filteredValue
@@ -88,7 +98,8 @@ final class OneEuroFilter: @unchecked Sendable {
 
     /// Reset filter state (call when input source changes or after a pause)
     func reset() {
-        previousValue = nil
+        previousRawValue = nil
+        previousFilteredValue = nil
         previousDerivative = 0
         previousTime = nil
     }

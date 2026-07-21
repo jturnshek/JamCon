@@ -58,17 +58,27 @@ final class DebugBuffer: @unchecked Sendable {
 
     /// Monotonic timing captured at the input pipeline boundaries.
     struct PipelineTiming {
-        let inputAgeMilliseconds: Double
+        let inputAgeMilliseconds: Double?
+        let timestampSource: InputTimestampSource
         let queueDelayMilliseconds: Double
         let processingMilliseconds: Double
 
         init(
-            reportTimestamp: TimeInterval,
+            inputTimestamp: TimeInterval?,
+            timestampSource: InputTimestampSource,
             receivedTimestamp: TimeInterval,
             engineStartTimestamp: TimeInterval,
             engineEndTimestamp: TimeInterval
         ) {
-            inputAgeMilliseconds = Self.milliseconds(engineEndTimestamp - reportTimestamp)
+            if let inputTimestamp {
+                let age = engineEndTimestamp - inputTimestamp
+                inputAgeMilliseconds = inputTimestamp.isFinite && age.isFinite && age >= 0 && age <= 10
+                    ? age * 1_000
+                    : nil
+            } else {
+                inputAgeMilliseconds = nil
+            }
+            self.timestampSource = timestampSource
             queueDelayMilliseconds = Self.milliseconds(engineStartTimestamp - receivedTimestamp)
             processingMilliseconds = Self.milliseconds(engineEndTimestamp - engineStartTimestamp)
         }
@@ -88,7 +98,8 @@ final class DebugBuffer: @unchecked Sendable {
 
     struct PipelineTimingSummary {
         let sampleCount: Int
-        let inputAge: MetricSummary
+        let inputAge: MetricSummary?
+        let timestampSourceCounts: [InputTimestampSource: Int]
         let queueDelay: MetricSummary
         let processing: MetricSummary
     }
@@ -311,9 +322,16 @@ final class DebugBuffer: @unchecked Sendable {
 
         var result = snapshot.0
         if let latest = snapshot.2 {
+            let inputAges = snapshot.1.compactMap(\.inputAgeMilliseconds)
+            let sourceCounts = snapshot.1.reduce(into: [InputTimestampSource: Int]()) { counts, timing in
+                counts[timing.timestampSource, default: 0] += 1
+            }
             result.timing = PipelineTimingSummary(
                 sampleCount: snapshot.1.count,
-                inputAge: Self.summarize(snapshot.1.map(\.inputAgeMilliseconds), latest: latest.inputAgeMilliseconds),
+                inputAge: inputAges.isEmpty
+                    ? nil
+                    : Self.summarize(inputAges, latest: latest.inputAgeMilliseconds ?? inputAges[inputAges.count - 1]),
+                timestampSourceCounts: sourceCounts,
                 queueDelay: Self.summarize(snapshot.1.map(\.queueDelayMilliseconds), latest: latest.queueDelayMilliseconds),
                 processing: Self.summarize(snapshot.1.map(\.processingMilliseconds), latest: latest.processingMilliseconds)
             )

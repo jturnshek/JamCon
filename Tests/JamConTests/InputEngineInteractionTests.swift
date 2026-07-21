@@ -178,6 +178,8 @@ private final class SenseEngineHarness {
             accelZ: motion.accelZ,
             timestamp: timestamp,
             receivedTimestamp: timestamp,
+            inputTimestamp: nil,
+            timestampSource: .hostReceipt,
             motionSamples: [motion]
         )
 

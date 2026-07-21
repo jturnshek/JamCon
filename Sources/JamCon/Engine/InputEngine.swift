@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import QuartzCore
 import os
 
 /// The real-time input processing engine
@@ -241,6 +242,8 @@ final class InputEngine {
     // MARK: - Running State
 
     var isRunning: Bool = false
+    var inputHealthAggregator = InputHealthAggregator()
+    var gyroResponseAggregator = GyroResponseAggregator()
 
     // MARK: - Initialization
 
@@ -276,23 +279,28 @@ final class InputEngine {
     func start() {
         let shouldStart = engineQueueSync {
             guard !isRunning else { return false }
+            inputHealthAggregator.reset()
+            gyroResponseAggregator.reset()
             isRunning = true
             return true
         }
         guard shouldStart else { return }
 
-        syncControllerRuntimeConfig(from: settings.snapshot())
+        JamLog.info(.engine, "Input engine starting")
         setupCallbacks()
 
         senseController.start()
         joyConController.start()
         g502xController.start()
+        JamLog.info(.engine, "Input engine started")
     }
 
     func stop() {
         let shouldStop = engineQueueSync {
             guard isRunning else { return false }
             isRunning = false
+            flushInputHealth(at: CACurrentMediaTime())
+            flushGyroResponseHealth(at: CACurrentMediaTime())
 
             if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
                 let owner = radialMenuOwner
@@ -329,12 +337,16 @@ final class InputEngine {
         senseController.stop()
         joyConController.stop()
         g502xController.stop()
+        JamLog.info(.engine, "Input engine stopped; synthetic outputs released")
     }
 
     /// Apply the global output toggle synchronously so a key or mouse button can
     /// never remain down while subsequent physical release reports are ignored.
     func setInputEnabled(_ enabled: Bool) {
-        guard !enabled else { return }
+        guard !enabled else {
+            JamLog.info(.engine, "Input enabled")
+            return
+        }
 
         engineQueueSync {
             if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
@@ -359,15 +371,54 @@ final class InputEngine {
             actionExecutor.releaseAll()
             mouseController.forceShowCursor()
         }
+        JamLog.info(.engine, "Input disabled; synthetic outputs released")
     }
 
-    /// Push hot controller-local settings into thread-safe runtime config objects.
-    /// These settings are intentionally last-writer-wins and may take effect between packets.
-    func syncControllerRuntimeConfig(from snapshot: SettingsStore.InputSettings) {
-        joyConController.setTimingMode(
-            useTimerFallback: snapshot.joyConTimerFallbackEnabled,
-            useTimerHybrid: snapshot.joyConTimerHybridEnabled
-        )
+    func recordInputHealth(
+        device: ManagedDeviceKey,
+        inputTimestamp: TimeInterval?,
+        timestampSource: InputTimestampSource,
+        receivedTimestamp: TimeInterval,
+        engineStartTimestamp: TimeInterval,
+        engineEndTimestamp: TimeInterval
+    ) {
+        assertOnEngineQueue()
+        guard let summary = inputHealthAggregator.record(
+            device: device,
+            inputTimestamp: inputTimestamp,
+            timestampSource: timestampSource,
+            receivedTimestamp: receivedTimestamp,
+            engineStartTimestamp: engineStartTimestamp,
+            engineEndTimestamp: engineEndTimestamp
+        ) else { return }
+        JamLog.info(.health, summary.logMessage)
+    }
+
+    private func flushInputHealth(at timestamp: TimeInterval) {
+        for summary in inputHealthAggregator.flush(at: timestamp) {
+            JamLog.info(.health, summary.logMessage)
+        }
+    }
+
+    func recordGyroResponseHealth(
+        device: ManagedDeviceKey,
+        timestamp: TimeInterval,
+        sample: GyroResponseSample?
+    ) {
+        assertOnEngineQueue()
+        guard let sample,
+              let summary = gyroResponseAggregator.record(
+                  device: device,
+                  timestamp: timestamp,
+                  sample: sample
+              ) else { return }
+        JamLog.info(.health, summary.logMessage)
+    }
+
+    private func flushGyroResponseHealth(at timestamp: TimeInterval) {
+        for summary in gyroResponseAggregator.flush(at: timestamp) {
+            JamLog.info(.health, summary.logMessage)
+        }
     }
 
     // MARK: - Controller Selection

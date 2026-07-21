@@ -11,6 +11,7 @@ enum JamLog {
         case sense = "Sense"
         case joyCon = "JoyCon"
         case g502x = "G502X"
+        case health = "Health"
     }
 
     private static let subsystem: String = Bundle.main.bundleIdentifier ?? "com.jamcon.app"
@@ -21,6 +22,24 @@ enum JamLog {
     private static let senseLogger = Logger(subsystem: subsystem, category: Category.sense.rawValue)
     private static let joyConLogger = Logger(subsystem: subsystem, category: Category.joyCon.rawValue)
     private static let g502xLogger = Logger(subsystem: subsystem, category: Category.g502x.rawValue)
+    private static let healthLogger = Logger(subsystem: subsystem, category: Category.health.rawValue)
+
+    private static let fileLogDirectoryURL: URL = {
+        let libraryURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return libraryURL.appendingPathComponent("Logs/JamCon", isDirectory: true)
+    }()
+
+    private static let fileLog: BoundedFileLog? = {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return nil
+        }
+        return BoundedFileLog(directoryURL: fileLogDirectoryURL)
+    }()
+
+    static var fileLogURL: URL {
+        fileLogDirectoryURL.appendingPathComponent("JamCon.log", isDirectory: false)
+    }
 
     private struct MirrorState {
         var debugBuffer: DebugBuffer?
@@ -84,17 +103,39 @@ enum JamLog {
         case .sense: return senseLogger
         case .joyCon: return joyConLogger
         case .g502x: return g502xLogger
+        case .health: return healthLogger
         }
     }
 
     private static func log(_ category: Category, type: OSLogType, _ message: String) {
         logger(for: category).log(level: type, "\(message, privacy: .public)")
+        fileLog?.enqueue(
+            BoundedFileLog.Entry(
+                timestamp: Date(),
+                level: levelName(for: type),
+                category: category.rawValue,
+                message: message
+            )
+        )
 
         let mirror: (DebugBuffer?, Bool) = mirrorLock.withLock { state in
             (state.debugBuffer, state.enabled)
         }
         guard mirror.1, let buffer = mirror.0 else { return }
         buffer.log("[\(category.rawValue)] \(message)")
+    }
+
+    static func flushFileLog() {
+        fileLog?.flush()
+    }
+
+    private static func levelName(for type: OSLogType) -> String {
+        switch type {
+        case .debug: return "DEBUG"
+        case .info: return "INFO"
+        case .error, .fault: return "ERROR"
+        default: return "NOTICE"
+        }
     }
 
     private static func shouldLog(throttleKey: String, interval: TimeInterval) -> Bool {
@@ -111,4 +152,3 @@ enum JamLog {
         }
     }
 }
-

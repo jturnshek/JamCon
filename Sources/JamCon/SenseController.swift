@@ -2,7 +2,6 @@ import Foundation
 import IOKit
 import IOKit.hid
 import QuartzCore
-import MachO
 import os.lock
 
 /// Represents a discovered Sense controller (internal use only - contains IOHIDDevice)
@@ -66,8 +65,6 @@ class SenseController {
         let callbackContext: CallbackContext
         let reportBuffer: UnsafeMutablePointer<UInt8>
         let reportBufferLength: Int
-        var lastDeviceTimestamp: TimeInterval?
-        var lastDeviceTicks: UInt64?
 
         init(controller: DiscoveredController, owner: SenseController) {
             self.controller = controller
@@ -135,6 +132,8 @@ class SenseController {
         let accelZ: Int16
         let timestamp: TimeInterval
         let receivedTimestamp: TimeInterval
+        let inputTimestamp: TimeInterval?
+        let timestampSource: InputTimestampSource
         let motionSamples: [IMUSample]
     }
 
@@ -149,23 +148,6 @@ class SenseController {
 
     /// Callback for debug/status messages
     var onDebugMessage: ((_ message: String) -> Void)?
-
-    // MARK: - Timestamped Value Handling
-
-    /// Report ID for IMU input reports (vendor-defined usage)
-    private static let imuReportID: UInt32 = SenseHIDProtocol.inputReportID
-    /// Timebase for converting mach absolute ticks to seconds (device timestamps)
-    private let timebase: mach_timebase_info_data_t = {
-        var tb = mach_timebase_info_data_t(numer: 0, denom: 0)
-        mach_timebase_info(&tb)
-        return tb
-    }()
-
-    /// Convert mach absolute ticks to seconds using system timebase
-    private func ticksToSeconds(_ ticks: UInt64) -> TimeInterval {
-        let nanos = (Double(ticks) * Double(timebase.numer)) / Double(timebase.denom)
-        return nanos / 1_000_000_000.0
-    }
 
     /// Track how many devices we've seen
     private(set) var devicesScanned: Int = 0
@@ -263,9 +245,21 @@ class SenseController {
             return
         }
 
-        // Match ALL HID devices (we'll filter in the callback)
-        log("Matching all HID devices...")
-        IOHIDManagerSetDeviceMatching(manager, nil)
+        // Match only the two supported Sony Sense product IDs. Opening an
+        // all-device IOHID manager is unsupported on current macOS releases
+        // and also needlessly observes unrelated keyboards and pointing devices.
+        let matchDictionaries: [[String: Any]] = [
+            [
+                kIOHIDVendorIDKey as String: Self.sonyVendorID,
+                kIOHIDProductIDKey as String: Self.senseLeftProductID,
+            ],
+            [
+                kIOHIDVendorIDKey as String: Self.sonyVendorID,
+                kIOHIDProductIDKey as String: Self.senseRightProductID,
+            ],
+        ]
+        log("Matching supported Sony Sense devices...")
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matchDictionaries as CFArray)
 
         // Set up device callbacks
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -288,7 +282,7 @@ class SenseController {
         // Open the manager (individual devices will be seized in handleDeviceConnected)
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if result != kIOReturnSuccess {
-            log("Failed to open HID manager: \(result)")
+            JamLog.error(.sense, "Failed to open HID manager: \(result)")
         } else {
             log("HID manager started, scanning...")
         }
@@ -305,7 +299,6 @@ class SenseController {
             }
             for active in activeControllersSnapshot {
                 IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
                 IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
             if let manager = hidManager {
@@ -329,7 +322,6 @@ class SenseController {
             }
             for active in activeControllersSnapshot {
                 IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
                 IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
             }
 
@@ -423,17 +415,6 @@ class SenseController {
             context
         )
 
-        // Register value callback to get device timestamps for IMU reports
-        IOHIDDeviceRegisterInputValueCallback(
-            device,
-            { context, _, _, value in
-                guard let context else { return }
-                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
-                callbackContext.owner?.handleInputValue(controllerID: callbackContext.controllerID, value)
-            },
-            context
-        )
-
         let displayName = "\(controller.name) (\(controller.side))"
         log("Activated: \(displayName)")
         onConnectionChange?(true, displayName, controller.id)
@@ -452,7 +433,6 @@ class SenseController {
         guard let active else { return }
 
         IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-        IOHIDDeviceRegisterInputValueCallback(active.controller.device, nil, nil)
         let displayName = "\(active.controller.name) (\(active.controller.side))"
         onConnectionChange?(false, displayName, active.controller.id)
     }
@@ -543,8 +523,16 @@ class SenseController {
 
     private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
         // Only process main input reports
-        guard reportID == SenseHIDProtocol.inputReportID,
-              length >= SenseHIDProtocol.minimumReportLength else { return }
+        guard reportID == SenseHIDProtocol.inputReportID else { return }
+        guard length >= SenseHIDProtocol.minimumReportLength else {
+            JamLog.errorThrottled(
+                .sense,
+                key: "malformed.input",
+                interval: 2,
+                "Discarded malformed Sense input report (length=\(length))"
+            )
+            return
+        }
 
         let timestamp = CACurrentMediaTime()
 
@@ -555,15 +543,20 @@ class SenseController {
         for i in 0..<maxLength { bytes[i] = report[i] }
 
         guard let decoded = try? SenseInputReportDecoder.decode(bytes) else {
-            log("Discarded malformed Sense input report (length=\(maxLength))")
+            JamLog.errorThrottled(
+                .sense,
+                key: "malformed.decode",
+                interval: 2,
+                "Discarded undecodable Sense input report (length=\(maxLength))"
+            )
             return
         }
         let motion = decoded.motion
 
-        // Call the gyro callback (on the HID thread for low latency) using device timestamp if available
-        let effectiveTimestamp = stateLock.withLock { state in
-            state.activeControllers[controllerID]?.lastDeviceTimestamp ?? timestamp
-        }
+        // Raw report callbacks do not include an associated kernel timestamp.
+        // Use the timestamp captured at callback entry rather than a cached value
+        // from a separately ordered IOHIDValue callback.
+        let effectiveTimestamp = timestamp
         if let onGyroData {
             onGyroData(motion.gyroX, motion.gyroY, motion.gyroZ, effectiveTimestamp)
         }
@@ -595,31 +588,11 @@ class SenseController {
                     accelZ: motion.accelZ,
                     timestamp: effectiveTimestamp,
                     receivedTimestamp: timestamp,
+                    inputTimestamp: nil,
+                    timestampSource: .hostReceipt,
                     motionSamples: [motion]
                 )
             )
-        }
-    }
-
-    /// Handle input values to capture device timestamps for IMU reports
-    private func handleInputValue(controllerID: String, _ value: IOHIDValue) {
-        let element = IOHIDValueGetElement(value)
-        let reportID = IOHIDElementGetReportID(element)
-
-        // We only care about the main IMU report (0x31). Values for other report IDs are ignored.
-        guard reportID == Self.imuReportID else { return }
-
-        // Convert kernel tick to seconds
-        let ts = IOHIDValueGetTimeStamp(value)
-        stateLock.withLock { state in
-            guard let active = state.activeControllers[controllerID] else { return }
-            // Avoid duplicate timestamps; fall back to host if they repeat
-            if let lastTicks = active.lastDeviceTicks, lastTicks == ts {
-                active.lastDeviceTimestamp = nil
-                return
-            }
-            active.lastDeviceTicks = ts
-            active.lastDeviceTimestamp = ticksToSeconds(ts)
         }
     }
 

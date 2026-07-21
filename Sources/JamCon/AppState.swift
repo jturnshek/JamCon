@@ -272,18 +272,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published var joyConTimerFallbackEnabled: Bool = true {
-        didSet {
-            saveGyroSettings()
-        }
-    }
-
-    @Published var joyConTimerHybridEnabled: Bool = false {
-        didSet {
-            saveGyroSettings()
-        }
-    }
-
     @Published var joyConUseAveragedGyroSamples: Bool = false {
         didSet {
             saveGyroSettings()
@@ -321,6 +309,7 @@ final class AppState: ObservableObject {
     // MARK: - Debounced Persistence
 
     private var gyroSettingsSaveTasks: [ControllerKind: Task<Void, Never>] = [:]
+    private var lastLoggedGyroSettings: [ControllerKind: GyroSettingsState] = [:]
 
     private var joystickSettingsSaveTask: Task<Void, Never>?
 
@@ -389,6 +378,14 @@ final class AppState: ObservableObject {
         self.settingsStore = SettingsStore()
         self.debugBuffer = DebugBuffer()
         JamLog.setMirror(debugBuffer)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        let accessibility = AXIsProcessTrusted() ? "granted" : "missing"
+        JamLog.info(
+            .app,
+            "Session started version=\(version) build=\(build) accessibility=\(accessibility) "
+                + "log=\(JamLog.fileLogURL.path)"
+        )
         self.engine = InputEngine(settings: settingsStore, debugBuffer: debugBuffer)
 
         _managedDeviceKeys = Published(initialValue: Self.loadManagedDeviceKeys())
@@ -398,7 +395,6 @@ final class AppState: ObservableObject {
 
         // Load settings from store into published properties
         loadSettingsFromStore()
-        syncEngineRuntimeConfig()
 
         // Setup engine callbacks for UI updates
         setupEngineCallbacks()
@@ -496,15 +492,18 @@ final class AppState: ObservableObject {
         engine.stop()
         stopLogPolling()
         stopDebugPolling()
+        JamLog.flushFileLog()
     }
 
     func prepareForSystemSleep() {
+        JamLog.info(.app, "System sleep preparation")
         restartEngineAfterWake = engineDidStart
         stopEngine()
     }
 
     func resumeAfterSystemWake() {
         guard restartEngineAfterWake else { return }
+        JamLog.info(.app, "System wake; restarting input engine")
         restartEngineAfterWake = false
         startEngine()
     }
@@ -525,10 +524,6 @@ final class AppState: ObservableObject {
 
         // Load settings for the restored configuration target.
         reloadSettingsForConfigurationProfile()
-    }
-
-    private func syncEngineRuntimeConfig() {
-        engine.syncControllerRuntimeConfig(from: settingsStore.snapshot())
     }
 
     private func saveGyroSettings() {
@@ -555,14 +550,11 @@ final class AppState: ObservableObject {
 
         // Joy-Con specific
         if kind == .joyCon {
-            state.joyConTimerFallbackEnabled = joyConTimerFallbackEnabled
-            state.joyConTimerHybridEnabled = joyConTimerHybridEnabled
             state.joyConUseAveragedGyroSamples = joyConUseAveragedGyroSamples
         }
 
         let updatedState = state
         settingsStore.update { $0.gyroSettings[kind] = updatedState }
-        syncEngineRuntimeConfig()
         scheduleGyroSettingsPersistence(kind: kind, state: updatedState)
     }
 
@@ -574,7 +566,25 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: Self.persistenceDebounceNanoseconds)
             guard !Task.isCancelled else { return }
             state.save(for: kind)
+            guard self.lastLoggedGyroSettings[kind] != state else { return }
+            self.lastLoggedGyroSettings[kind] = state
+            JamLog.info(.ui, Self.gyroSettingsLogMessage(kind: kind, state: state))
         }
+    }
+
+    private static func gyroSettingsLogMessage(kind: ControllerKind, state: GyroSettingsState) -> String {
+        "Gyro settings updated kind=\(kind.rawValue) "
+            + "filter=\(state.filterEnabled ? "on" : "off") "
+            + "minCutoff=\(String(format: "%.2f", state.minCutoff))Hz "
+            + "beta=\(String(format: "%.2f", state.beta)) "
+            + "adaptive=\(state.adaptiveSmoothingMode.rawValue) "
+            + "averagedSamples=\(state.joyConUseAveragedGyroSamples ? "on" : "off") "
+            + "autoTune=\(state.autoTuneSampleRate ? "on" : "off") "
+            + "autoNeutral=\(state.autoNeutralEnabled ? "on" : "off") "
+            + "sensitivity=\(String(format: "%.1f", state.sensitivity)) "
+            + "ramp=\(String(format: "%.1f", state.effectiveRampSpeed))deg/s "
+            + "exponent=\(String(format: "%.2f", state.effectiveCurveExponent)) "
+            + "cap=\(String(format: "%.1f", state.effectiveSensitivityCap))x"
     }
 
     private func scheduleJoystickSettingsPersistence(enabled: Bool, speed: Double, acceleration: Double) {
@@ -635,8 +645,6 @@ final class AppState: ObservableObject {
         settingsStore.update { s in
             s.gyroSettings[kind] = gyroState
         }
-        syncEngineRuntimeConfig()
-
         withApplyingLoadedSettings {
             sensitivity = gyroState.sensitivity
             gyroScale = gyroState.gyroScale
@@ -658,8 +666,6 @@ final class AppState: ObservableObject {
 
             // Joy-Con specific
             if kind == .joyCon {
-                joyConTimerFallbackEnabled = gyroState.joyConTimerFallbackEnabled
-                joyConTimerHybridEnabled = gyroState.joyConTimerHybridEnabled
                 joyConUseAveragedGyroSamples = gyroState.joyConUseAveragedGyroSamples
             }
 

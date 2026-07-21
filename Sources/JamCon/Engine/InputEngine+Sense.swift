@@ -11,6 +11,7 @@ extension InputEngine {
         assertOnEngineQueue()
         guard isRunning else { return }
         let engineStartTimestamp = CACurrentMediaTime()
+        let healthDevice = ManagedDeviceKey(kind: .sense, id: report.controllerID)
         let signpostID = Self.inputPerformanceLog.signpostsEnabled
             ? OSSignpostID(log: Self.inputPerformanceLog)
             : nil
@@ -18,6 +19,15 @@ extension InputEngine {
             os_signpost(.begin, log: Self.inputPerformanceLog, name: "Sense Input", signpostID: signpostID)
         }
         defer {
+            let engineEndTimestamp = CACurrentMediaTime()
+            recordInputHealth(
+                device: healthDevice,
+                inputTimestamp: report.inputTimestamp,
+                timestampSource: report.timestampSource,
+                receivedTimestamp: report.receivedTimestamp,
+                engineStartTimestamp: engineStartTimestamp,
+                engineEndTimestamp: engineEndTimestamp
+            )
             if let signpostID {
                 os_signpost(.end, log: Self.inputPerformanceLog, name: "Sense Input", signpostID: signpostID)
             }
@@ -81,6 +91,11 @@ extension InputEngine {
             timestamp: report.timestamp,
             settings: gyroSettings
         ) {
+            recordGyroResponseHealth(
+                device: owner,
+                timestamp: report.timestamp,
+                sample: device.gyroProcessor.lastResponseSample
+            )
             routeGyroMovement(
                 owner: owner,
                 dx: dx,
@@ -118,7 +133,8 @@ extension InputEngine {
                 controllerKind: .sense,
                 gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState),
                 pipelineTiming: DebugBuffer.PipelineTiming(
-                    reportTimestamp: report.timestamp,
+                    inputTimestamp: report.inputTimestamp,
+                    timestampSource: report.timestampSource,
                     receivedTimestamp: report.receivedTimestamp,
                     engineStartTimestamp: engineStartTimestamp,
                     engineEndTimestamp: engineEndTimestamp

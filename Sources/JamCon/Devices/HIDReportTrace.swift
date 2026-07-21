@@ -49,14 +49,21 @@ final class HIDReportTraceRecorder: @unchecked Sendable {
     private struct State {
         var firstTimestamp: TimeInterval?
         var records: [HIDReportTraceRecord] = []
+        var writeIndex = 0
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State())
+    private let capacity: Int
+
+    init(capacity: Int = 20_000) {
+        self.capacity = max(1, capacity)
+    }
 
     func start() {
         lock.withLock { state in
             state.firstTimestamp = nil
             state.records.removeAll(keepingCapacity: true)
+            state.writeIndex = 0
         }
     }
 
@@ -68,23 +75,38 @@ final class HIDReportTraceRecorder: @unchecked Sendable {
         timestamp: TimeInterval
     ) {
         lock.withLock { state in
-            let firstTimestamp = state.firstTimestamp ?? timestamp
+            let normalizedTimestamp = timestamp.isFinite ? timestamp : (state.firstTimestamp ?? 0)
+            let firstTimestamp = state.firstTimestamp ?? normalizedTimestamp
             state.firstTimestamp = firstTimestamp
-            let elapsed = max(0, timestamp - firstTimestamp)
-            state.records.append(
-                HIDReportTraceRecord(
-                    offsetNanoseconds: UInt64((elapsed * 1_000_000_000).rounded()),
-                    device: device,
-                    reportID: reportID,
-                    stage: stage,
-                    bytes: bytes
-                )
+            let elapsed = max(0, normalizedTimestamp - firstTimestamp)
+            let nanoseconds = (elapsed * 1_000_000_000).rounded()
+            let offsetNanoseconds = nanoseconds >= Double(UInt64.max)
+                ? UInt64.max
+                : UInt64(nanoseconds)
+            let record = HIDReportTraceRecord(
+                offsetNanoseconds: offsetNanoseconds,
+                device: device,
+                reportID: reportID,
+                stage: stage,
+                bytes: bytes
             )
+
+            if state.records.count < capacity {
+                state.records.append(record)
+            } else {
+                state.records[state.writeIndex] = record
+            }
+            state.writeIndex = (state.writeIndex + 1) % capacity
         }
     }
 
     func snapshot(createdAt: Date = Date()) -> HIDReportTrace {
-        let records = lock.withLock { $0.records }
+        let records = lock.withLock { state -> [HIDReportTraceRecord] in
+            guard state.records.count == capacity, state.writeIndex != 0 else {
+                return state.records
+            }
+            return Array(state.records[state.writeIndex...]) + Array(state.records[..<state.writeIndex])
+        }
         return HIDReportTrace(createdAt: createdAt, records: records)
     }
 

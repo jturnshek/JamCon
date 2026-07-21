@@ -79,11 +79,7 @@ struct GyroSettingsState: Equatable {
     /// Whether to refresh bias when the controller is very still
     var autoNeutralEnabled: Bool = true
 
-    // MARK: Joy-Con Specific Timing
-    /// When device timestamps aren't available, use packet timer to smooth dt
-    var joyConTimerFallbackEnabled: Bool = true
-    /// Prefer packet timer even when device timestamps are present
-    var joyConTimerHybridEnabled: Bool = false
+    // MARK: Joy-Con Specific Sampling
     /// Use an average of all IMU gyro samples (3 per packet) instead of only the newest sample.
     /// Processing still happens at the packet (report) cadence.
     var joyConUseAveragedGyroSamples: Bool = false
@@ -326,8 +322,6 @@ extension GyroSettingsState {
 
         // Joy-Con specific
         if kind == .joyCon {
-            defaults.set(joyConTimerFallbackEnabled, forKey: "\(prefix).timerFallbackEnabled")
-            defaults.set(joyConTimerHybridEnabled, forKey: "\(prefix).timerHybridEnabled")
             defaults.set(joyConUseAveragedGyroSamples, forKey: "\(prefix).useAveragedGyroSamples")
         }
     }
@@ -401,12 +395,6 @@ extension GyroSettingsState {
 
         // Joy-Con specific
         if kind == .joyCon {
-            if let v = defaults.object(forKey: "\(prefix).timerFallbackEnabled") as? Bool {
-                state.joyConTimerFallbackEnabled = v
-            }
-            if let v = defaults.object(forKey: "\(prefix).timerHybridEnabled") as? Bool {
-                state.joyConTimerHybridEnabled = v
-            }
             if let v = defaults.object(forKey: "\(prefix).useAveragedGyroSamples") as? Bool {
                 state.joyConUseAveragedGyroSamples = v
             }

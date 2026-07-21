@@ -38,6 +38,19 @@ final class HIDReportTraceTests: XCTestCase {
         XCTAssertEqual(trace.records.map(\.offsetNanoseconds), [0, 25_000_000])
     }
 
+    func testRecorderKeepsMostRecentRecordsAtCapacity() {
+        let recorder = HIDReportTraceRecorder(capacity: 2)
+        let device = ManagedDeviceKey(kind: .joyCon, id: "right")
+        recorder.record(device: device, reportID: 0x30, bytes: [1], timestamp: 100)
+        recorder.record(device: device, reportID: 0x30, bytes: [2], timestamp: 101)
+        recorder.record(device: device, reportID: 0x30, bytes: [3], timestamp: 102)
+
+        let trace = recorder.snapshot(createdAt: Date(timeIntervalSince1970: 0))
+
+        XCTAssertEqual(trace.records.map(\.bytes), [[2], [3]])
+        XCTAssertEqual(trace.records.map(\.offsetNanoseconds), [1_000_000_000, 2_000_000_000])
+    }
+
     func testReplayIsStableAndCanDrivePureDecoder() throws {
         var senseBytes = [UInt8](repeating: 0, count: SenseHIDProtocol.reportLength)
         write(321, to: &senseBytes, at: SenseHIDProtocol.Offset.gyroXLow)

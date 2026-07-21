@@ -29,10 +29,10 @@ extension G502XHIDController {
         buffer.update(from: report, length: length, at: now)
         let copyLength = buffer.lastLength
 
-        // Log first 5 reports from each interface for debugging
+        // Log one startup sample per interface to identify its report shape.
         buffer.reportCount += 1
         #if DEBUG
-        if buffer.reportCount <= 5 {
+        if buffer.reportCount == 1 {
             let bytesHex = (0..<min(8, copyLength)).map { String(format: "%02X", buffer.bytes[$0]) }.joined(separator: " ")
             JamLog.debug(.g502x, "Report #\(buffer.reportCount) id=0x\(String(format: "%02X", reportID)) from UsagePage=0x\(String(format: "%04X", buffer.usagePage)) Usage=0x\(String(format: "%04X", buffer.usage)): [\(bytesHex)...]")
         }
@@ -209,14 +209,18 @@ extension G502XHIDController {
                 bytes: unified,
                 length: unified.count,
                 timestamp: timestamp,
-                receivedTimestamp: timestamp
+                receivedTimestamp: timestamp,
+                inputTimestamp: nil,
+                timestampSource: .hostReceipt
             ))
         } else {
             onReportData?(InputReport(
                 bytes: stableButtonBytes,
                 length: stableButtonBytes.count,
                 timestamp: timestamp,
-                receivedTimestamp: timestamp
+                receivedTimestamp: timestamp,
+                inputTimestamp: nil,
+                timestampSource: .hostReceipt
             ))
         }
     }

@@ -11,6 +11,7 @@ extension InputEngine {
         assertOnEngineQueue()
         guard isRunning else { return }
         let engineStartTimestamp = CACurrentMediaTime()
+        let healthDevice = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
         let signpostID = Self.inputPerformanceLog.signpostsEnabled
             ? OSSignpostID(log: Self.inputPerformanceLog)
             : nil
@@ -18,6 +19,15 @@ extension InputEngine {
             os_signpost(.begin, log: Self.inputPerformanceLog, name: "Mouse Input", signpostID: signpostID)
         }
         defer {
+            let engineEndTimestamp = CACurrentMediaTime()
+            recordInputHealth(
+                device: healthDevice,
+                inputTimestamp: report.inputTimestamp,
+                timestampSource: report.timestampSource,
+                receivedTimestamp: report.receivedTimestamp,
+                engineStartTimestamp: engineStartTimestamp,
+                engineEndTimestamp: engineEndTimestamp
+            )
             if let signpostID {
                 os_signpost(.end, log: Self.inputPerformanceLog, name: "Mouse Input", signpostID: signpostID)
             }
@@ -65,7 +75,8 @@ extension InputEngine {
                 buttonStates: g502xPreviousButtonStates,
                 controllerKind: .mouse,
                 pipelineTiming: DebugBuffer.PipelineTiming(
-                    reportTimestamp: report.timestamp,
+                    inputTimestamp: report.inputTimestamp,
+                    timestampSource: report.timestampSource,
                     receivedTimestamp: report.receivedTimestamp,
                     engineStartTimestamp: engineStartTimestamp,
                     engineEndTimestamp: engineEndTimestamp

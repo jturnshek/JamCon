@@ -226,6 +226,8 @@ class G502XHIDController {
         let length: Int
         let timestamp: TimeInterval
         let receivedTimestamp: TimeInterval
+        let inputTimestamp: TimeInterval?
+        let timestampSource: InputTimestampSource
     }
 
     /// Callback for full report data (merged from all interfaces)
