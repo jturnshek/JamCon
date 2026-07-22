@@ -1,6 +1,6 @@
 import Foundation
 import SwiftUI
-import ApplicationServices
+@preconcurrency import ApplicationServices
 import UniformTypeIdentifiers
 
 extension AppState {

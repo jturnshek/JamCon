@@ -33,6 +33,7 @@
 		3AB975A63B80209AB6D81E21 /* G502XHIDProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0803AC8304304E241B80B23E /* G502XHIDProtocol.swift */; };
 		3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */; };
 		3C5E42B3ED04667C6725E7A5 /* DisplayCoordinateConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BFE51BD8CE1CC782085335D /* DisplayCoordinateConverter.swift */; };
+		3D2E6E49DE565B8AFA0F359D /* HIDTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A310EB9CF0E90478A7FB0A1 /* HIDTransport.swift */; };
 		412BBEC8E88003D16190F825 /* G502XHIDController+Reports.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AFD8C718C55AD53C57B6BEC /* G502XHIDController+Reports.swift */; };
 		41A0E61F9DF8EF52A9D39003 /* InputEngineInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77E469C11B836491B6C362B1 /* InputEngineInteractionTests.swift */; };
 		4475504EEBF580D5BD4786A1 /* SenseHIDTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF355D1D6393E268A33A06E6 /* SenseHIDTransport.swift */; };
@@ -58,6 +59,7 @@
 		86BA12748D25DDB801E8AB08 /* RadialMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CB6A6B785EDBD5EF3E21549 /* RadialMenu.swift */; };
 		873DA01BD3693033C66A5F6D /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996B36A459FBA46E6F2F8703 /* CrashReporter.swift */; };
 		884F425447A8F986FAD7724F /* RadialMenuTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52BE750046AA88415C1C5FBE /* RadialMenuTab.swift */; };
+		88B16046D86EB4ADE6404A38 /* JoyConControllerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80405D6C6CE1920D28E97548 /* JoyConControllerLifecycleTests.swift */; };
 		899AC5107836E3C1A7BC3003 /* RadialMenuGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */; };
 		8A2833A40972CF2AC7D65E46 /* NoControllerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73BAA9918F9630E693743617 /* NoControllerView.swift */; };
 		8ACAEF38B79C6B0F3D003BEA /* DebugTelemetryState.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7FBC94B8E84CB4EB3E29CC /* DebugTelemetryState.swift */; };
@@ -75,10 +77,13 @@
 		A05A676723A9839A4CE2F507 /* GyroRemapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ADB33724DF23ECDCF9D3614 /* GyroRemapper.swift */; };
 		A8558A4C94D421A263E51DA6 /* SenseControllerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76E9C743A7C6C9E173E18424 /* SenseControllerLifecycleTests.swift */; };
 		A87895AD408D961B2A139806 /* DisplayGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1EBFA7EB4458AD580B08F8 /* DisplayGeometry.swift */; };
+		B08A3EF909C125D2D81A74BA /* JoyConHIDTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60954E5206089185630432A2 /* JoyConHIDTransport.swift */; };
+		B553733A209B3ED454337D8D /* G502XHIDTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA45413ED4D46CA4BBEF967 /* G502XHIDTransport.swift */; };
 		B729D32B59D3A4A7824E2D6B /* HIDReportTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B8A8557121620318EDB2E3 /* HIDReportTrace.swift */; };
 		B7E54485EDBB225ACE05508F /* LogTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1E00949E4E77614E6481C7 /* LogTab.swift */; };
 		BA2AF22A9DDCD0D611944E6D /* MouseControlTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D86130ACCBD5000097D7F3 /* MouseControlTab.swift */; };
 		BB0E36E2133A8D40663F6B5D /* AppState+Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B051780DE7C520E9A2B9F9 /* AppState+Diagnostics.swift */; };
+		BC7E25D8BF7251E7D1425318 /* G502XControllerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8636DF9BFF584570CAF72C9E /* G502XControllerLifecycleTests.swift */; };
 		BCA4AAFFC1F9FB3FE1367633 /* DebugBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63F03DEFB5C92AF3CC98131 /* DebugBuffer.swift */; };
 		BDB189BA2A1AEDA1257653D5 /* JamConApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8103F11341851C9371929B73 /* JamConApp.swift */; };
 		BE38FECB6C5468C335D221F1 /* DebugVisualizationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31741A0A20F44588424ECC4 /* DebugVisualizationViews.swift */; };
@@ -129,6 +134,7 @@
 		3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDButtonMappingTests.swift; sourceTree = "<group>"; };
 		3440D8DC0A14534B74EE6CF0 /* JoyConPacketTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConPacketTimingTests.swift; sourceTree = "<group>"; };
 		38B8A8557121620318EDB2E3 /* HIDReportTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDReportTrace.swift; sourceTree = "<group>"; };
+		3A310EB9CF0E90478A7FB0A1 /* HIDTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HIDTransport.swift; sourceTree = "<group>"; };
 		3D95DAA009CC55FD9E9F6CAA /* InputHealthAggregatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHealthAggregatorTests.swift; sourceTree = "<group>"; };
 		3E3C96DF01C9561153E345E7 /* SensorValidationViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorValidationViews.swift; sourceTree = "<group>"; };
 		3FD489691A9B75A41664C23C /* TabHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabHeader.swift; sourceTree = "<group>"; };
@@ -141,6 +147,7 @@
 		4CF4E6221314FE64E89F2DEE /* StickTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickTab.swift; sourceTree = "<group>"; };
 		52BE750046AA88415C1C5FBE /* RadialMenuTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuTab.swift; sourceTree = "<group>"; };
 		58FF0A1F801CE4D9E912ED95 /* InputEngine+Sense.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+Sense.swift"; sourceTree = "<group>"; };
+		60954E5206089185630432A2 /* JoyConHIDTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConHIDTransport.swift; sourceTree = "<group>"; };
 		62203646E95111A4D67E46C9 /* JoyConHIDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConHIDController.swift; sourceTree = "<group>"; };
 		67C6DF8687263295A3E6B6A9 /* BoundedFileLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedFileLog.swift; sourceTree = "<group>"; };
 		6CB21011BC2F9F33F7C2294B /* InputEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputEngine.swift; sourceTree = "<group>"; };
@@ -160,9 +167,11 @@
 		7B96FFA389E094CA95FB7BC1 /* G502XHIDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDController.swift; sourceTree = "<group>"; };
 		7BAC7147754B5A83BC9F5575 /* InputHealthAggregator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputHealthAggregator.swift; sourceTree = "<group>"; };
 		7F72C4E072890499DF25A189 /* HoldScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldScheduler.swift; sourceTree = "<group>"; };
+		80405D6C6CE1920D28E97548 /* JoyConControllerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConControllerLifecycleTests.swift; sourceTree = "<group>"; };
 		8103F11341851C9371929B73 /* JamConApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JamConApp.swift; sourceTree = "<group>"; };
 		840723E20C2E27D73D6411F5 /* DebugTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugTab.swift; sourceTree = "<group>"; };
 		851F116E776C63D6BA568CA1 /* G502XHIDController+HIDPP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "G502XHIDController+HIDPP.swift"; sourceTree = "<group>"; };
+		8636DF9BFF584570CAF72C9E /* G502XControllerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XControllerLifecycleTests.swift; sourceTree = "<group>"; };
 		8A018018F04F12A98D20A52F /* JamCon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = JamCon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuView.swift; sourceTree = "<group>"; };
 		907B9987D330865EBD84F1F1 /* SenseDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseDebugView.swift; sourceTree = "<group>"; };
@@ -204,6 +213,7 @@
 		F341B99D7A1904D272CDCA87 /* InputEngine+JoyCon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+JoyCon.swift"; sourceTree = "<group>"; };
 		F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuGeometryTests.swift; sourceTree = "<group>"; };
 		FC8E5EED89D72B0833CAAAA9 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		FFA45413ED4D46CA4BBEF967 /* G502XHIDTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = G502XHIDTransport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -316,12 +326,14 @@
 				EE781EF7BE4AF41AEB486CCF /* BoundedFileLogTests.swift */,
 				A1688D339B155F8A9A2BD7CD /* DebugBufferTests.swift */,
 				E6D5B8D6A9957940732C9374 /* DisplayGeometryTests.swift */,
+				8636DF9BFF584570CAF72C9E /* G502XControllerLifecycleTests.swift */,
 				C136BA82CCD276619FD1D2B0 /* GyroProcessorTests.swift */,
 				3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */,
 				46DA83FE39F535BAD09608C8 /* HIDReportDecoderTests.swift */,
 				D980C43478DE65C61974E481 /* HIDReportTraceTests.swift */,
 				77E469C11B836491B6C362B1 /* InputEngineInteractionTests.swift */,
 				3D95DAA009CC55FD9E9F6CAA /* InputHealthAggregatorTests.swift */,
+				80405D6C6CE1920D28E97548 /* JoyConControllerLifecycleTests.swift */,
 				3440D8DC0A14534B74EE6CF0 /* JoyConPacketTimingTests.swift */,
 				F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */,
 				76E9C743A7C6C9E173E18424 /* SenseControllerLifecycleTests.swift */,
@@ -353,9 +365,12 @@
 		9B60A90191743AB3E9B21EC6 /* Devices */ = {
 			isa = PBXGroup;
 			children = (
+				FFA45413ED4D46CA4BBEF967 /* G502XHIDTransport.swift */,
 				09CDE9F45FF5A7A3E0DC1068 /* HIDReportDecoders.swift */,
 				38B8A8557121620318EDB2E3 /* HIDReportTrace.swift */,
+				3A310EB9CF0E90478A7FB0A1 /* HIDTransport.swift */,
 				BF37AE0554B29D58A2668102 /* InputReportTiming.swift */,
+				60954E5206089185630432A2 /* JoyConHIDTransport.swift */,
 				09AA15AFB2477628A7FB876C /* JoyConPacketTiming.swift */,
 				BF355D1D6393E268A33A06E6 /* SenseHIDTransport.swift */,
 			);
@@ -495,12 +510,14 @@
 				536A369FAA8BC30744997294 /* BoundedFileLogTests.swift in Sources */,
 				0E1D29559B082FF05E53AA53 /* DebugBufferTests.swift in Sources */,
 				82A376E4ACB3139981A1B1EA /* DisplayGeometryTests.swift in Sources */,
+				BC7E25D8BF7251E7D1425318 /* G502XControllerLifecycleTests.swift in Sources */,
 				1E6CE7E3F8D6800F08943001 /* GyroProcessorTests.swift in Sources */,
 				F1E7A2513151EA698E18E197 /* HIDButtonMappingTests.swift in Sources */,
 				CFE5A5635D7EB52BF4164B8F /* HIDReportDecoderTests.swift in Sources */,
 				29A48D0A2155B85E42A2C511 /* HIDReportTraceTests.swift in Sources */,
 				41A0E61F9DF8EF52A9D39003 /* InputEngineInteractionTests.swift in Sources */,
 				6C50007365B00571644FE291 /* InputHealthAggregatorTests.swift in Sources */,
+				88B16046D86EB4ADE6404A38 /* JoyConControllerLifecycleTests.swift in Sources */,
 				0E5DC92990ED3FC7EC2F5D67 /* JoyConPacketTimingTests.swift in Sources */,
 				899AC5107836E3C1A7BC3003 /* RadialMenuGeometryTests.swift in Sources */,
 				A8558A4C94D421A263E51DA6 /* SenseControllerLifecycleTests.swift in Sources */,
@@ -538,11 +555,13 @@
 				98D3071A599CAE97FF65CE42 /* G502XHIDController+Selection.swift in Sources */,
 				3B7C842444F972FF23452E24 /* G502XHIDController.swift in Sources */,
 				3AB975A63B80209AB6D81E21 /* G502XHIDProtocol.swift in Sources */,
+				B553733A209B3ED454337D8D /* G502XHIDTransport.swift in Sources */,
 				D9FB2079CB78D61D11310DE6 /* GyroProcessor.swift in Sources */,
 				A05A676723A9839A4CE2F507 /* GyroRemapper.swift in Sources */,
 				9D1C03EBEB33010AC215B545 /* GyroSettings.swift in Sources */,
 				1CB3FF8011DE5FBD05478CF9 /* HIDReportDecoders.swift in Sources */,
 				B729D32B59D3A4A7824E2D6B /* HIDReportTrace.swift in Sources */,
+				3D2E6E49DE565B8AFA0F359D /* HIDTransport.swift in Sources */,
 				BF7B046A45F55E1032FC31CD /* HoldScheduler.swift in Sources */,
 				CA1FE7FE21192BF679CCFBEE /* InputEngine+G502X.swift in Sources */,
 				2EB7D8846AA024AC050AAD96 /* InputEngine+Gyro.swift in Sources */,
@@ -561,6 +580,7 @@
 				E7436A6CDCF84C0AD2888755 /* JoyConDebugViews.swift in Sources */,
 				3330AD6551ED17D23AA41508 /* JoyConHIDController.swift in Sources */,
 				76A5FC9931444E2485230F84 /* JoyConHIDProtocol.swift in Sources */,
+				B08A3EF909C125D2D81A74BA /* JoyConHIDTransport.swift in Sources */,
 				0078EF7C970E2DDD3851838A /* JoyConPacketTiming.swift in Sources */,
 				9FA0EA8597A5CD03A939E151 /* KeyCaptureManager.swift in Sources */,
 				06F28899D85823943181C103 /* LockedRuntimeConfig.swift in Sources */,
@@ -710,7 +730,7 @@
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
-				SWIFT_VERSION = 5.9;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -791,7 +811,7 @@
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 5.9;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};

@@ -2,8 +2,10 @@ import Foundation
 import Darwin
 
 // Keep signal-handler state in globals so the handler doesn't need to touch Swift/ObjC runtime state.
-private var crashLogFD: Int32 = -1
-private var crashLogDidWrite: sig_atomic_t = 0
+// `nonisolated(unsafe)` is intentional: a POSIX signal handler cannot acquire
+// Swift locks or enter an actor. Both values are primitive signal-safe state.
+nonisolated(unsafe) private var crashLogFD: Int32 = -1
+nonisolated(unsafe) private var crashLogDidWrite: sig_atomic_t = 0
 
 @inline(__always)
 private func writeStatic(_ fd: Int32, _ s: StaticString) {

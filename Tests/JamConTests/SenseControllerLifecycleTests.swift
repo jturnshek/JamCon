@@ -116,7 +116,7 @@ final class SenseControllerLifecycleTests: XCTestCase {
             registryEntryID: 99
         )
 
-        XCTAssertEqual(SenseDeviceIdentity.identifier(for: deviceProperties), "88:03:4C:18:C4:E5")
+        XCTAssertEqual(HIDDeviceIdentity.identifier(for: deviceProperties), "88:03:4C:18:C4:E5")
     }
 
     func testDeviceIdentityUsesPhysicalIDBeforeTransientLocation() {
@@ -128,7 +128,7 @@ final class SenseControllerLifecycleTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            SenseDeviceIdentity.identifier(for: deviceProperties),
+            HIDDeviceIdentity.identifier(for: deviceProperties),
             "physical-Bluetooth:controller-1"
         )
     }
@@ -138,8 +138,8 @@ final class SenseControllerLifecycleTests: XCTestCase {
         let second = properties(serial: nil, locationID: 0, registryEntryID: 202)
 
         XCTAssertNotEqual(
-            SenseDeviceIdentity.identifier(for: first),
-            SenseDeviceIdentity.identifier(for: second)
+            HIDDeviceIdentity.identifier(for: first),
+            HIDDeviceIdentity.identifier(for: second)
         )
     }
 
@@ -148,8 +148,8 @@ final class SenseControllerLifecycleTests: XCTestCase {
         physicalID: String? = nil,
         locationID: Int = 12,
         registryEntryID: UInt64 = 34
-    ) -> SenseHIDDeviceProperties {
-        SenseHIDDeviceProperties(
+    ) -> HIDDeviceProperties {
+        HIDDeviceProperties(
             vendorID: SenseHIDProtocol.sonyVendorID,
             productID: SenseHIDProtocol.rightProductID,
             name: "PlayStation VR2 Sense Controller (R)",
@@ -161,7 +161,7 @@ final class SenseControllerLifecycleTests: XCTestCase {
     }
 }
 
-private final class FakeSenseHIDDevice: SenseHIDDeviceHandle, @unchecked Sendable, Hashable {
+private final class FakeSenseHIDDevice: HIDDeviceHandle, @unchecked Sendable, Hashable {
     let label: String
 
     init(label: String) {
@@ -181,7 +181,7 @@ private final class FakeSenseHIDDevice: SenseHIDDeviceHandle, @unchecked Sendabl
     }
 }
 
-private final class FakeSenseHIDInputRegistration: SenseHIDInputRegistration, @unchecked Sendable {
+private final class FakeSenseHIDInputRegistration: HIDInputRegistration, @unchecked Sendable {
     let deviceLabel: String
 
     init(deviceLabel: String) {
@@ -199,15 +199,15 @@ private final class FakeSenseHIDTransport: SenseHIDTransport, @unchecked Sendabl
 
     private let lock = NSLock()
     private var events: [Event] = []
-    private var startResults: [Result<Void, SenseHIDTransportError>]
+    private var startResults: [Result<Void, HIDTransportError>]
     private var runLoop: CFRunLoop?
-    private var connectedHandler: (@Sendable (any SenseHIDDeviceHandle) -> Void)?
-    private var disconnectedHandler: (@Sendable (any SenseHIDDeviceHandle) -> Void)?
-    private let devices: [(device: FakeSenseHIDDevice, properties: SenseHIDDeviceProperties)]
+    private var connectedHandler: (@Sendable (any HIDDeviceHandle) -> Void)?
+    private var disconnectedHandler: (@Sendable (any HIDDeviceHandle) -> Void)?
+    private let devices: [(device: FakeSenseHIDDevice, properties: HIDDeviceProperties)]
 
     init(
-        devices: [FakeSenseHIDDevice: SenseHIDDeviceProperties],
-        startResults: [Result<Void, SenseHIDTransportError>] = [.success(())]
+        devices: [FakeSenseHIDDevice: HIDDeviceProperties],
+        startResults: [Result<Void, HIDTransportError>] = [.success(())]
     ) {
         self.devices = devices.map { (device: $0.key, properties: $0.value) }
         self.startResults = startResults
@@ -215,9 +215,9 @@ private final class FakeSenseHIDTransport: SenseHIDTransport, @unchecked Sendabl
 
     func startDiscovery(
         on runLoop: CFRunLoop,
-        deviceConnected: @escaping @Sendable (any SenseHIDDeviceHandle) -> Void,
-        deviceDisconnected: @escaping @Sendable (any SenseHIDDeviceHandle) -> Void
-    ) -> Result<Void, SenseHIDTransportError> {
+        deviceConnected: @escaping @Sendable (any HIDDeviceHandle) -> Void,
+        deviceDisconnected: @escaping @Sendable (any HIDDeviceHandle) -> Void
+    ) -> Result<Void, HIDTransportError> {
         lock.lock()
         events.append(.start)
         self.runLoop = runLoop
@@ -244,19 +244,19 @@ private final class FakeSenseHIDTransport: SenseHIDTransport, @unchecked Sendabl
         lock.unlock()
     }
 
-    func properties(for device: any SenseHIDDeviceHandle) -> SenseHIDDeviceProperties? {
+    func properties(for device: any HIDDeviceHandle) -> HIDDeviceProperties? {
         guard let device = device as? FakeSenseHIDDevice else { return nil }
         return devices.first(where: { $0.device === device })?.properties
     }
 
     func openInput(
-        for device: any SenseHIDDeviceHandle,
+        for device: any HIDDeviceHandle,
         on _: CFRunLoop,
         reportLength _: Int,
-        handler _: @escaping SenseHIDReportHandler
-    ) -> Result<any SenseHIDInputRegistration, SenseHIDTransportError> {
+        handler _: @escaping HIDReportHandler
+    ) -> Result<any HIDInputRegistration, HIDTransportError> {
         guard let device = device as? FakeSenseHIDDevice else {
-            return .failure(.unexpectedDeviceHandle)
+            return .failure(.unexpectedHandle)
         }
         lock.lock()
         events.append(.open(device.label))
@@ -265,10 +265,10 @@ private final class FakeSenseHIDTransport: SenseHIDTransport, @unchecked Sendabl
     }
 
     func closeInput(
-        _ registration: any SenseHIDInputRegistration
-    ) -> Result<Void, SenseHIDTransportError> {
+        _ registration: any HIDInputRegistration
+    ) -> Result<Void, HIDTransportError> {
         guard let registration = registration as? FakeSenseHIDInputRegistration else {
-            return .failure(.unexpectedDeviceHandle)
+            return .failure(.unexpectedHandle)
         }
         lock.lock()
         events.append(.close(registration.deviceLabel))

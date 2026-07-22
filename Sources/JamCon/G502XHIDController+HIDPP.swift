@@ -1,15 +1,11 @@
 import Foundation
-import IOKit
-import IOKit.hid
-import QuartzCore
-import os.lock
 
 extension G502XHIDController {
 
     // MARK: - HID++ setup
 
     func teardownHIDPPButtonReporting() {
-        let (device, spyIdx, spyActive, onboardIdx, restoreMode, devNumber): (IOHIDDevice?, UInt8?, Bool, UInt8?, UInt8?, UInt8) = hidppLock.withLock {
+        let (device, spyIdx, spyActive, onboardIdx, restoreMode, devNumber): ((any HIDDeviceHandle)?, UInt8?, Bool, UInt8?, UInt8?, UInt8) = hidppLock.withLock {
             return (
                 hidppDevice,
                 mouseButtonSpyFeatureIndex,
@@ -39,8 +35,11 @@ extension G502XHIDController {
     /// which produces profile-change events instead of a button down/up. BetterMouse-style behavior is:
     /// 1) Switch OnboardProfiles to Host mode (disable on-board mode)
     /// 2) Start MouseButtonSpy (HID++ 0x8110) which reports a 16-bit pressed-bitfield
-    func setupHIDPPDivertedButtons() {
-        let (device, initialDevNumber) = hidppLock.withLock { (hidppDevice, hidppDeviceNumber) }
+    func setupHIDPPDivertedButtons(expectedGeneration: UInt64) {
+        let (device, initialDevNumber) = hidppLock.withLock { () -> ((any HIDDeviceHandle)?, UInt8) in
+            guard hidppGeneration == expectedGeneration else { return (nil, hidppDeviceNumber) }
+            return (hidppDevice, hidppDeviceNumber)
+        }
         guard let device else { return }
 
         var devNumbersToTry: [UInt8] = []
@@ -59,6 +58,8 @@ extension G502XHIDController {
                 break
             }
         }
+
+        guard isHIDPPSessionActive(generation: expectedGeneration, device: device) else { return }
 
         if let devNumberUsed {
             hidppLock.withLock {
@@ -93,6 +94,7 @@ extension G502XHIDController {
                         onboardProfilesRestoreMode = mode
                     }
                     _ = performHIDPPRequest(featureIndex: onboardIdx, function: 0x10, params: [0x02], on: device)
+                    guard isHIDPPSessionActive(generation: expectedGeneration, device: device) else { return }
                     log("HID++: OnboardProfiles mode \(mode) -> Host (2)")
                 } else {
                     log("HID++: OnboardProfiles already Host mode")
@@ -111,8 +113,10 @@ extension G502XHIDController {
                 }
                 return 0
             }()
+            guard isHIDPPSessionActive(generation: expectedGeneration, device: device) else { return }
             hidppLock.withLock { mouseButtonSpyButtonCount = buttonCount }
             _ = performHIDPPRequest(featureIndex: spyIdx, function: 0x10, params: [], on: device)
+            guard isHIDPPSessionActive(generation: expectedGeneration, device: device) else { return }
             hidppLock.withLock { mouseButtonSpyActive = true }
             log("HID++: MouseButtonSpy started (buttons=\(buttonCount))")
             return
@@ -133,6 +137,8 @@ extension G502XHIDController {
         guard let reprogIndex, let reprogDevNumber else {
             return
         }
+
+        guard isHIDPPSessionActive(generation: expectedGeneration, device: device) else { return }
 
         hidppLock.withLock {
             hidppDeviceNumber = reprogDevNumber
@@ -167,9 +173,11 @@ extension G502XHIDController {
             }
         }
 
-        knownCIDs = cids
-        if !cids.isEmpty {
-            let list = cids.map { String(format: "0x%04X", $0) }.joined(separator: ", ")
+        guard isHIDPPSessionActive(generation: expectedGeneration, device: device) else { return }
+        let cidsSnapshot = cids
+        hidppLock.withLock { knownCIDs = cidsSnapshot }
+        if !cidsSnapshot.isEmpty {
+            let list = cidsSnapshot.map { String(format: "0x%04X", $0) }.joined(separator: ", ")
             log("HID++: discovered CIDs: [\(list)]")
         }
 
@@ -182,7 +190,7 @@ extension G502XHIDController {
         let divertedFlags: UInt8 = 0x03
         let persistentFlags: UInt8 = 0x0C
 
-        for cid in cids {
+        for cid in cidsSnapshot {
             let hi = UInt8((cid >> 8) & 0xFF)
             let lo = UInt8(cid & 0xFF)
 
@@ -194,7 +202,7 @@ extension G502XHIDController {
         }
     }
 
-    private func enumerateHIDPPFeatures(deviceNumber: UInt8, on device: IOHIDDevice) -> [UInt16: UInt8]? {
+    private func enumerateHIDPPFeatures(deviceNumber: UInt8, on device: any HIDDeviceHandle) -> [UInt16: UInt8]? {
         guard let featureSetIndex = requestRootFeatureIndex(featureID: Self.hidppFeatureIDFeatureSet, deviceNumber: deviceNumber, on: device),
               featureSetIndex != 0 else {
             return nil
@@ -235,7 +243,7 @@ extension G502XHIDController {
         return mapping
     }
 
-    private func requestRootFeatureIndex(featureID: UInt16, deviceNumber: UInt8, on device: IOHIDDevice) -> UInt8? {
+    private func requestRootFeatureIndex(featureID: UInt16, deviceNumber: UInt8, on device: any HIDDeviceHandle) -> UInt8? {
         let params = [UInt8((featureID >> 8) & 0xFF), UInt8(featureID & 0xFF)]
         guard let payload = performHIDPPRequest(
             reportID: 0x10,
@@ -259,20 +267,23 @@ extension G502XHIDController {
         function: UInt8,
         params: [UInt8],
         timeout: TimeInterval = 0.5,
-        on device: IOHIDDevice
+        on device: any HIDDeviceHandle
     ) -> [UInt8]? {
         let reportIDToUse: UInt8 = reportID ?? (params.count <= 3 ? 0x10 : 0x11)
 
         let semaphore = DispatchSemaphore(value: 0)
-        let devNumber: UInt8 = hidppLock.withLock {
+        let (devNumber, requestID): (UInt8, UInt64) = hidppLock.withLock {
             let dev = deviceNumber ?? hidppDeviceNumber
+            hidppRequestSequence &+= 1
+            let requestID = hidppRequestSequence
             pendingHIDPPRequest = PendingHIDPPRequest(
+                requestID: requestID,
                 featureIndex: featureIndex,
                 functionHighNibble: function & 0xF0,
                 semaphore: semaphore,
                 response: nil
             )
-            return dev
+            return (dev, requestID)
         }
 
         sendHIDPPRequest(reportID: reportIDToUse, deviceNumber: devNumber, featureIndex: featureIndex, function: function, params: params, on: device)
@@ -280,6 +291,7 @@ extension G502XHIDController {
         _ = semaphore.wait(timeout: .now() + timeout)
 
         let response: [UInt8]? = hidppLock.withLock {
+            guard pendingHIDPPRequest?.requestID == requestID else { return nil }
             let resp = pendingHIDPPRequest?.response
             pendingHIDPPRequest = nil
             return resp
@@ -291,7 +303,7 @@ extension G502XHIDController {
         return payload
     }
 
-    private func sendHIDPPNoReply(featureIndex: UInt8, function: UInt8, params: [UInt8], on device: IOHIDDevice) {
+    private func sendHIDPPNoReply(featureIndex: UInt8, function: UInt8, params: [UInt8], on device: any HIDDeviceHandle) {
         let reportID: UInt8 = params.count <= 3 ? 0x10 : 0x11
         let devNumber = hidppLock.withLock { hidppDeviceNumber }
         sendHIDPPRequest(reportID: reportID, deviceNumber: devNumber, featureIndex: featureIndex, function: function, params: params, on: device)
@@ -303,7 +315,7 @@ extension G502XHIDController {
         featureIndex: UInt8,
         function: UInt8,
         params: [UInt8],
-        on device: IOHIDDevice
+        on device: any HIDDeviceHandle
     ) {
         let totalLength = reportID == 0x10 ? 7 : 20
         var report = [UInt8](repeating: 0, count: totalLength)
@@ -315,27 +327,32 @@ extension G502XHIDController {
             report[4 + i] = b
         }
 
-        // HID++ over USB is typically carried on Feature reports (0x10/0x11).
-        // Some receivers accept Output reports; try Feature first, then fallback.
-        let featureResult = report.withUnsafeMutableBytes { ptr -> IOReturn in
-            guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return kIOReturnError }
-            return IOHIDDeviceSetReport(device, kIOHIDReportTypeFeature, CFIndex(reportID), base, CFIndex(ptr.count))
-        }
-
-        if featureResult != kIOReturnSuccess {
-            let outputResult = report.withUnsafeMutableBytes { ptr -> IOReturn in
-                guard let base = ptr.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return kIOReturnError }
-                return IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(reportID), base, CFIndex(ptr.count))
-            }
-
-            if outputResult != kIOReturnSuccess {
-                log("HID++ write failed id=0x\(String(format: "%02X", reportID)) feat=0x\(String(format: "%02X", featureIndex)) fn=0x\(String(format: "%02X", function)) featureErr=\(featureResult) outputErr=\(outputResult)")
+        let featureResult = transport.sendReport(
+            report,
+            reportID: reportID,
+            type: .feature,
+            to: device
+        )
+        if case let .failure(featureError) = featureResult {
+            let outputResult = transport.sendReport(
+                report,
+                reportID: reportID,
+                type: .output,
+                to: device
+            )
+            if case let .failure(outputError) = outputResult {
+                log(
+                    "HID++ write failed id=0x\(String(format: "%02X", reportID)) "
+                        + "feat=0x\(String(format: "%02X", featureIndex)) "
+                        + "fn=0x\(String(format: "%02X", function)) "
+                        + "featureErr=\(featureError) outputErr=\(outputError)"
+                )
             }
         }
     }
 
     func logicalButton(forCID cid: UInt16) -> G502XLogicalButton? {
-        if let mapped = cidToLogicalButton[cid] { return mapped }
+        if let mapped = hidppLock.withLock({ cidToLogicalButton[cid] }) { return mapped }
 
         // Seed some common CIDs (from Logitech HID++ control list) on demand.
         // These IDs are stable across many mice.
@@ -349,19 +366,32 @@ extension G502XHIDController {
             0x005D: .scrollTiltRight,
         ]
         if let seed = seeded[cid] {
-            cidToLogicalButton[cid] = seed
+            hidppLock.withLock { cidToLogicalButton[cid] = seed }
             return seed
         }
 
         // Assign remaining unknown CIDs in a deterministic order to discoverable buttons.
         let candidates: [G502XLogicalButton] = [.g9, .dpiUp, .dpiDown, .dpiShift, .scrollTiltLeft, .scrollTiltRight]
-        if let next = candidates.first(where: { !cidToLogicalButton.values.contains($0) }) {
-            cidToLogicalButton[cid] = next
+        let next = hidppLock.withLock {
+            let next = candidates.first(where: { !cidToLogicalButton.values.contains($0) })
+            if let next { cidToLogicalButton[cid] = next }
+            return next
+        }
+        if let next {
             log("HID++: mapped CID 0x\(String(format: "%04X", cid)) -> \(next.displayName)")
             return next
         }
 
         return nil
     }
-}
 
+    private func isHIDPPSessionActive(
+        generation: UInt64,
+        device: any HIDDeviceHandle
+    ) -> Bool {
+        hidppLock.withLock {
+            hidppGeneration == generation
+                && hidppDevice?.transportIdentifier == device.transportIdentifier
+        }
+    }
+}

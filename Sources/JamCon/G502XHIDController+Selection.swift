@@ -1,216 +1,262 @@
 import Foundation
-import IOKit
-import IOKit.hid
 import QuartzCore
-import os.lock
 
 extension G502XHIDController {
-
-    // MARK: - Mouse Selection
-
-    /// Select a mouse by ID
     func selectMouse(id: String) {
+        stateLock.withLock { $0.selectedMouseID = id }
         performHIDOperation { [weak self] in
             guard let self else { return }
             guard let mouse = self.stateLock.withLock({ state in
                 state.discoveredMice.first(where: { $0.id == id })
             }) else {
-                self.log("Mouse \(id) not found")
+                // The desired selection is retained and will activate on discovery.
                 return
             }
-
-            // Deactivate current mouse if different
-            if let currentID = self.selectedMouseID, currentID != id {
-                self.deactivateCurrentMouse()
-            }
-
-            // Activate the new mouse (all interfaces)
             self.activateMouse(mouse)
         }
     }
 
-    /// Deselect the current mouse (stop receiving input)
     func deselectMouse() {
+        stateLock.withLock { $0.selectedMouseID = nil }
         performHIDOperation { [weak self] in
-            guard let self else { return }
-            self.stateLock.withLock { state in
-                state.selectedMouseID = nil
-                state.preferredMouseID = nil
-            }
-            self.deactivateCurrentMouse()
+            self?.deactivateActiveMouse(publishConnectionChange: true)
         }
-	    }
+    }
 
-    /// Attempt to recover from stalled input by reinitializing the active mouse.
     func recoverFromStall(expectedMouseID: String, reason: String) {
-        start()
+        guard start() else { return }
         performHIDOperation { [weak self] in
             guard let self else { return }
-            guard let selected = self.selectedMouseID, selected == expectedMouseID else { return }
-            guard let mouse = self.stateLock.withLock({ state in
-                state.discoveredMice.first(where: { $0.id == expectedMouseID })
-            }) else {
-                self.log("G502X stall recovery skipped: mouse not discovered (\(expectedMouseID))")
+            guard self.selectedMouseID == expectedMouseID,
+                  let mouse = self.stateLock.withLock({ state in
+                      state.discoveredMice.first(where: { $0.id == expectedMouseID })
+                  }) else {
                 return
             }
-            self.log("G502X stall recovery: \(reason) — reinitializing interfaces for \(mouse.name)")
-            self.deactivateCurrentMouse()
+            self.log("G502X stall recovery: \(reason) — reinitializing \(mouse.name)")
+            self.deactivateActiveMouse(publishConnectionChange: true)
             self.activateMouse(mouse)
         }
     }
 
-	    func activateMouse(_ mouse: DiscoveredG502X) {
-	        assert(Thread.current == hidThread, "G502XHIDController.activateMouse must run on the HID thread")
-	        log("Activating mouse with \(mouse.interfaces.count) interface(s)...")
-
-        // Log ALL interfaces first so we can see what's available
-        log("=== Available interfaces ===")
-        for (index, device) in mouse.interfaces.enumerated() {
-            let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
-            let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
-            let maxInputReportSize = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0
-            let reportDescriptor = IOHIDDeviceGetProperty(device, kIOHIDReportDescriptorKey as CFString)
-            let reportDescSize = (reportDescriptor as? Data)?.count ?? 0
-            log("  [\(index)] UsagePage=0x\(String(format: "%04X", usagePage)) Usage=0x\(String(format: "%04X", usage)) MaxReportSize=\(maxInputReportSize) DescSize=\(reportDescSize)")
+    func activateSelectedMouseIfNeeded() {
+        assertOnHIDThread()
+        let mouse: DiscoveredG502X? = stateLock.withLock { state in
+            guard let selectedID = state.selectedMouseID else { return nil }
+            return state.discoveredMice.first(where: { $0.id == selectedID })
         }
-        log("=== End interfaces ===")
+        if let mouse {
+            activateMouse(mouse)
+        }
+    }
 
-        // Open all input-report interfaces for this physical mouse so the debug UI can show per-interface bytes.
-        // Unified button reports are still derived only from vendor + standard mouse interfaces.
-        for device in mouse.interfaces {
-            let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
-            let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
+    func activateMouse(_ requestedMouse: DiscoveredG502X) {
+        assertOnHIDThread()
+        guard let mouse = stateLock.withLock({ state -> DiscoveredG502X? in
+            guard state.selectedMouseID == requestedMouse.id else { return nil }
+            return state.discoveredMice.first(where: { $0.id == requestedMouse.id })
+        }) else {
+            return
+        }
 
-            // Check if we should open this interface
-            guard shouldOpenInterface(device: device) else {
-                log("  Skipping interface: UsagePage=0x\(String(format: "%04X", usagePage)) Usage=0x\(String(format: "%04X", usage))")
-                continue
-            }
+        let currentActiveID = stateLock.withLock { $0.activeMouseID }
+        if let currentActiveID, currentActiveID != mouse.id {
+            deactivateActiveMouse(publishConnectionChange: true)
+        }
 
-            let deviceID = ObjectIdentifier(device)
+        log("Activating \(mouse.name) with \(mouse.interfaces.count) interface(s)")
+        for (index, interface) in mouse.interfaces.enumerated() {
+            let properties = interface.properties
+            log(
+                "  [\(index)] UsagePage=0x\(String(format: "%04X", properties.usagePage)) "
+                    + "Usage=0x\(String(format: "%04X", properties.usage)) "
+                    + "MaxReportSize=\(properties.maximumInputReportSize) "
+                    + "DescSize=\(properties.reportDescriptorSize)"
+            )
+            activateInterface(interface, for: mouse.id)
+        }
 
-            // Open the device in non-exclusive mode (allows system to also receive events)
-            let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            if result != kIOReturnSuccess && result != -536870201 { // Already open is OK
-                log("Failed to open interface: \(result)")
-                continue
-            }
+        let activeCount = activeInterfaces.count
+        guard activeCount > 0 else {
+            log("No usable interfaces could be opened for \(mouse.name)")
+            return
+        }
 
-            // Create report buffer wrapper for this interface (size based on max input report size)
-            let maxInputReportSize = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0
-            let bufferSize = max(64, maxInputReportSize)
-            let buffer = InterfaceBuffer(size: bufferSize, maxReportSize: maxInputReportSize, deviceID: deviceID, usagePage: usagePage, usage: usage)
-            interfaceBuffers[deviceID] = buffer
+        let shouldPublish = stateLock.withLock { state in
+            guard state.selectedMouseID == mouse.id else { return false }
+            let changed = !state.isConnected || state.activeMouseID != mouse.id
+            state.activeMouseID = mouse.id
+            state.isConnected = true
+            state.mouseName = mouse.name
+            return changed
+        }
+        updateCachedInterfaceInfo()
+        scheduleHIDPPSetupIfNeeded()
 
-            // Register input report callback
-            let context = Unmanaged.passUnretained(self).toOpaque()
-            buffer.bytes.withUnsafeMutableBufferPointer { bufferPtr in
-                guard let baseAddr = bufferPtr.baseAddress else { return }
-                self.bufferPointerToDeviceID[baseAddr] = deviceID
+        if shouldPublish {
+            onConnectionChange?(true, mouse.name, mouse.id)
+            log("Activated: \(mouse.name) with \(activeCount) interface(s)")
+        }
+    }
 
-                IOHIDDeviceRegisterInputReportCallback(
-                    device,
-                    baseAddr,
-                    bufferPtr.count,
-                    { context, result, sender, type, reportID, report, length in
-                        guard let ctx = context else { return }
-                        let controller = Unmanaged<G502XHIDController>.fromOpaque(ctx).takeUnretainedValue()
-                        controller.handleInputReport(report: report, length: length, reportID: reportID)
-                    },
-                    context
+    @discardableResult
+    func activateInterface(_ interface: G502XInterface, for mouseID: String) -> Bool {
+        assertOnHIDThread()
+        let identifier = interface.device.transportIdentifier
+        guard activeInterfaces[identifier] == nil else { return true }
+
+        let stillSelected = stateLock.withLock { state in
+            state.selectedMouseID == mouseID
+                && state.discoveredMice.first(where: { $0.id == mouseID })?.interfaces.contains(interface) == true
+        }
+        guard stillSelected else { return false }
+
+        let properties = interface.properties
+        guard properties.maximumInputReportSize > 0 else {
+            log(
+                "Skipping interface UsagePage=0x\(String(format: "%04X", properties.usagePage)) "
+                    + "Usage=0x\(String(format: "%04X", properties.usage)): no input reports"
+            )
+            return false
+        }
+        guard let runLoop = CFRunLoopGetCurrent() else { return false }
+
+        let buffer = InterfaceBuffer(
+            size: max(64, properties.maximumInputReportSize),
+            maxReportSize: properties.maximumInputReportSize,
+            usagePage: properties.usagePage,
+            usage: properties.usage
+        )
+        let result = transport.openInput(
+            for: interface.device,
+            on: runLoop,
+            reportLength: max(64, properties.maximumInputReportSize),
+            handler: { [weak self] reportID, report, length in
+                self?.handleInputReport(
+                    interfaceID: identifier,
+                    report: report,
+                    length: length,
+                    reportID: reportID
                 )
             }
+        )
+        guard case let .success(registration) = result else {
+            if case let .failure(error) = result {
+                JamLog.error(.g502x, "Failed to open Logitech interface: \(error)")
+            }
+            return false
+        }
 
-            activeInterfaces.append(device)
-            deviceToMouseID[deviceID] = mouse.id
+        let active = ActiveInterface(interface: interface, registration: registration, buffer: buffer)
+        let remainsSelected = stateLock.withLock { state in
+            state.selectedMouseID == mouseID
+                && state.discoveredMice.first(where: { $0.id == mouseID })?.interfaces.contains(interface) == true
+        }
+        guard remainsSelected, activeInterfaces[identifier] == nil else {
+            _ = transport.closeInput(registration)
+            return false
+        }
+        activeInterfaces[identifier] = active
 
-            log("  Opened interface: UsagePage=0x\(String(format: "%04X", usagePage)) Usage=0x\(String(format: "%04X", usage))")
-
-            // Capture the vendor HID++ interface for button reporting/config.
-            if usagePage >= 0xFF00 {
-                hidppLock.withLock {
-                    if hidppDevice == nil { hidppDevice = device }
+        if properties.usagePage >= 0xFF00 {
+            hidppLock.withLock {
+                if hidppDevice == nil {
+                    hidppDevice = interface.device
+                    hidppGeneration &+= 1
+                    hidppSetupInFlight = false
                 }
             }
         }
+        log(
+            "Opened interface UsagePage=0x\(String(format: "%04X", properties.usagePage)) "
+                + "Usage=0x\(String(format: "%04X", properties.usage))"
+        )
+        return true
+    }
 
-        stateLock.withLock { state in
-            state.selectedMouseID = mouse.id
-            state.mouseName = mouse.name
-            state.isConnected = !activeInterfaces.isEmpty
+    func deactivateActiveMouse(publishConnectionChange: Bool) {
+        assertOnHIDThread()
+        let connection = stateLock.withLock { state in
+            (state.isConnected, state.mouseName, state.activeMouseID)
         }
 
-        // Update cached interface info for debug UI
-        updateCachedInterfaceInfo()
-
-        log("Activated: \(mouseName ?? "Unknown") with \(activeInterfaces.count) interface(s)")
-
-        // Best-effort enable HID++ button reporting so extra buttons produce down/up events.
-        let hasHIDPPDevice = hidppLock.withLock { hidppDevice != nil }
-        if hasHIDPPDevice {
-            hidppQueue.async { [weak self] in
-                self?.setupHIDPPDivertedButtons()
-            }
+        teardownHIDPPButtonReporting()
+        for active in Array(activeInterfaces.values) {
+            closeActiveInterface(active)
         }
+        activeInterfaces.removeAll(keepingCapacity: true)
+        resetHIDPPState()
+        stableButtonBytes = [0, 0]
+        lastStandardMouseReport.removeAll(keepingCapacity: true)
+        lastInterfaceInfoUpdate = 0
+        resetReportStats()
 
-	        // Capture values before dispatching
-	        let (name, mouseID) = stateLock.withLock { state in
-	            (state.mouseName, state.selectedMouseID)
-	        }
-	        onConnectionChange?(true, name, mouseID)
-	    }
-
-	    private func deactivateCurrentMouse() {
-	        assert(Thread.current == hidThread, "G502XHIDController.deactivateCurrentMouse must run on the HID thread")
-	        teardownHIDPPButtonReporting()
-
-        for device in activeInterfaces {
-            let deviceID = ObjectIdentifier(device)
-            if let buffer = interfaceBuffers[deviceID] {
-                buffer.bytes.withUnsafeMutableBufferPointer { bufferPtr in
-                    if let baseAddr = bufferPtr.baseAddress {
-                        bufferPointerToDeviceID.removeValue(forKey: baseAddr)
-                        IOHIDDeviceRegisterInputReportCallback(device, baseAddr, bufferPtr.count, nil, nil)
-                    }
-                }
-            }
-            IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
+        stateLock.withLock {
+            $0.activeMouseID = nil
+            $0.isConnected = false
+            $0.mouseName = nil
         }
-        activeInterfaces.removeAll()
-        interfaceBuffers.removeAll()
-        bufferPointerToDeviceID.removeAll()
-        deviceToMouseID.removeAll()
+        interfaceInfoLock.lock()
+        cachedInterfaceInfo.removeAll(keepingCapacity: true)
+        interfaceInfoLock.unlock()
 
-        let (name, mouseID) = stateLock.withLock { state in
-            state.isConnected = false
-            let name = state.mouseName
-            let mouseID = state.selectedMouseID
-            state.mouseName = nil
-            return (name, mouseID)
+        if publishConnectionChange, connection.0 {
+            onConnectionChange?(false, connection.1, connection.2)
         }
+    }
 
-        // Reset HID++ state
+    func closeActiveInterface(_ active: ActiveInterface) {
+        assertOnHIDThread()
+        if case let .failure(error) = transport.closeInput(active.registration) {
+            JamLog.errorThrottled(
+                .g502x,
+                key: "interface.close.\(active.interface.device.transportIdentifier)",
+                interval: 2,
+                "Failed to close Logitech interface: \(error)"
+            )
+        }
+        let now = CACurrentMediaTime()
+        retiredInterfaces.append(RetiredInterface(interface: active, retiredAt: now))
+        retiredInterfaces.removeAll { now - $0.retiredAt > Self.deactivationRetentionSeconds }
+    }
+
+    func resetHIDPPState() {
         hidppLock.withLock {
+            hidppGeneration &+= 1
+            hidppSetupInFlight = false
             hidppDevice = nil
             hidppDeviceNumber = 0x01
             reprogControlsFeatureIndex = nil
-            featureIndexByFeatureID.removeAll()
+            featureIndexByFeatureID.removeAll(keepingCapacity: true)
             onboardProfilesFeatureIndex = nil
             mouseButtonSpyFeatureIndex = nil
             mouseButtonSpyButtonCount = 0
             lastMouseButtonSpyBits = 0
             mouseButtonSpyActive = false
             onboardProfilesRestoreMode = nil
+            pendingHIDPPRequest?.semaphore.signal()
             pendingHIDPPRequest = nil
-
-            knownCIDs.removeAll()
-            pressedCIDs.removeAll()
-            cidToLogicalButton.removeAll()
+            knownCIDs.removeAll(keepingCapacity: true)
+            cidToLogicalButton.removeAll(keepingCapacity: true)
         }
-        stableButtonBytes = [0, 0]
-        lastStandardMouseReport.removeAll()
-        resetReportStats()
+        pressedCIDs.removeAll(keepingCapacity: true)
+    }
 
-	        onConnectionChange?(false, name, mouseID)
-	    }
+    func scheduleHIDPPSetupIfNeeded() {
+        let generation: UInt64? = hidppLock.withLock {
+            guard hidppDevice != nil, !hidppSetupInFlight else { return nil }
+            hidppSetupInFlight = true
+            return hidppGeneration
+        }
+        guard let generation else { return }
+        hidppQueue.async { [weak self] in
+            guard let self else { return }
+            self.setupHIDPPDivertedButtons(expectedGeneration: generation)
+            self.hidppLock.withLock {
+                if self.hidppGeneration == generation {
+                    self.hidppSetupInFlight = false
+                }
+            }
+        }
+    }
 }

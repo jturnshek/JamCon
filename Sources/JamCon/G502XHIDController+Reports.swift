@@ -1,20 +1,21 @@
 import Foundation
-import IOKit
-import IOKit.hid
 import QuartzCore
-import os.lock
 
 extension G502XHIDController {
 
     // MARK: - Input Report Processing
 
-    func handleInputReport(report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
+    func handleInputReport(
+        interfaceID: ObjectIdentifier,
+        report: UnsafeMutablePointer<UInt8>,
+        length: Int,
+        reportID: UInt32
+    ) {
+        assertOnHIDThread()
         let now = Date()
         let timestamp = CACurrentMediaTime()
 
-        // Look up which interface sent this report using the buffer pointer
-        guard let deviceID = bufferPointerToDeviceID[report],
-              let buffer = interfaceBuffers[deviceID] else {
+        guard let buffer = activeInterfaces[interfaceID]?.buffer else {
             return
         }
 

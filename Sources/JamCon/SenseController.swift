@@ -7,7 +7,7 @@ struct DiscoveredController: Identifiable, Equatable, Sendable {
     let id: String  // Unique identifier
     let name: String
     let productID: Int
-    let device: any SenseHIDDeviceHandle
+    let device: any HIDDeviceHandle
 
     var isLeft: Bool { productID == 0x0E45 }
     var isRight: Bool { productID == 0x0E46 }
@@ -58,9 +58,9 @@ final class SenseController: @unchecked Sendable {
 
     private final class ActiveController: Sendable {
         let controller: DiscoveredController
-        let registration: any SenseHIDInputRegistration
+        let registration: any HIDInputRegistration
 
-        init(controller: DiscoveredController, registration: any SenseHIDInputRegistration) {
+        init(controller: DiscoveredController, registration: any HIDInputRegistration) {
             self.controller = controller
             self.registration = registration
         }
@@ -275,7 +275,7 @@ final class SenseController: @unchecked Sendable {
         lifecycleCondition.unlock()
     }
 
-    private func configureHIDManager(on runLoop: CFRunLoop) -> Result<Void, SenseHIDTransportError> {
+    private func configureHIDManager(on runLoop: CFRunLoop) -> Result<Void, HIDTransportError> {
         log("Creating HID manager...")
         log("Matching supported Sony Sense devices...")
         let result = transport.startDiscovery(
@@ -496,7 +496,7 @@ final class SenseController: @unchecked Sendable {
 
     // MARK: - Device Callbacks
 
-    private func handleDeviceConnected(_ device: any SenseHIDDeviceHandle) {
+    private func handleDeviceConnected(_ device: any HIDDeviceHandle) {
         assertOnHIDThread()
 
         guard let properties = transport.properties(for: device) else {
@@ -518,7 +518,7 @@ final class SenseController: @unchecked Sendable {
             return
         }
 
-        let uniqueID = SenseDeviceIdentity.identifier(for: properties)
+        let uniqueID = HIDDeviceIdentity.identifier(for: properties)
 
         // Check if already discovered
         let alreadyDiscovered = stateLock.withLock { state in
@@ -548,7 +548,7 @@ final class SenseController: @unchecked Sendable {
         }
     }
 
-    private func handleDeviceDisconnected(_ device: any SenseHIDDeviceHandle) {
+    private func handleDeviceDisconnected(_ device: any HIDDeviceHandle) {
         assertOnHIDThread()
 
         // Find and remove the disconnected controller

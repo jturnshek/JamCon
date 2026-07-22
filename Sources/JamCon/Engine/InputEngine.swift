@@ -6,7 +6,9 @@ import os
 /// The real-time input processing engine
 /// This is WORLD 1 - has NO knowledge of SwiftUI, @Published, or ObservableObject
 /// Processes HID input and drives mouse/keyboard output
-final class InputEngine {
+/// Mutable processing state is confined to `engineQueue`. The controller
+/// backends and settings/debug dependencies provide their own synchronization.
+final class InputEngine: @unchecked Sendable {
 
     static let inputPerformanceLog = OSLog(
         subsystem: Bundle.main.bundleIdentifier ?? "com.jamcon.app",
@@ -40,7 +42,7 @@ final class InputEngine {
         return engineQueue.sync(execute: work)
     }
 
-    private func engineQueueAsync(_ work: @escaping () -> Void) {
+    private func engineQueueAsync(_ work: @escaping @Sendable () -> Void) {
         engineQueue.async(execute: work)
     }
 

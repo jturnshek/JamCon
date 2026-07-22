@@ -1,5 +1,5 @@
 import Foundation
-import CoreGraphics
+@preconcurrency import CoreGraphics
 import QuartzCore
 
 struct PixelScrollAccumulator {
@@ -24,13 +24,16 @@ struct PixelScrollAccumulator {
     }
 }
 
-/// Mouse controller using CGEvent with proper drag support
-class MouseController {
+/// Mouse controller using CGEvent with proper drag support. Movement, scrolling,
+/// and button state are owned by InputEngine's serial queue; cursor visibility
+/// bookkeeping is dispatched to the main queue.
+final class MouseController: @unchecked Sendable {
 
     // MARK: - Properties
 
-    /// Shared event source for mouse events - uses private state to avoid inheriting system modifier flags
-    private static let eventSource: CGEventSource? = CGEventSource(stateID: .privateState)
+    /// Per-engine private state avoids inherited modifier flags and eliminates
+    /// cross-instance sharing of Core Graphics' non-Sendable event source.
+    private let eventSource: CGEventSource? = CGEventSource(stateID: .privateState)
 
     /// Track mouse buttons currently held so releasing one does not cancel another.
     private var heldMouseButtons: Set<MouseButton> = []
@@ -56,9 +59,6 @@ class MouseController {
         self.cachedDisplayBounds = MouseController.activeDisplayBounds()
         self.cachedPosition = MouseController.currentCursorPosition()
         self.lastResyncTime = CACurrentMediaTime()
-    }
-
-    deinit {
     }
 
     /// Move the mouse by a relative amount, clamped to screen bounds
@@ -95,7 +95,7 @@ class MouseController {
         }
 
         guard let event = CGEvent(
-            mouseEventSource: Self.eventSource,
+            mouseEventSource: eventSource,
             mouseType: mouseType,
             mouseCursorPosition: point,
             mouseButton: mouseButton
@@ -124,7 +124,7 @@ class MouseController {
         guard scroll.x != 0 || scroll.y != 0 else { return }
 
         guard let event = CGEvent(
-            scrollWheelEvent2Source: Self.eventSource,
+            scrollWheelEvent2Source: eventSource,
             units: .pixel,
             wheelCount: 2,
             wheel1: scroll.y,  // Vertical scroll
@@ -162,7 +162,7 @@ class MouseController {
         }
 
         guard let event = CGEvent(
-            mouseEventSource: Self.eventSource,
+            mouseEventSource: eventSource,
             mouseType: eventType,
             mouseCursorPosition: point,
             mouseButton: cgButton
@@ -224,7 +224,7 @@ class MouseController {
         }
 
         guard let event = CGEvent(
-            mouseEventSource: Self.eventSource,
+            mouseEventSource: eventSource,
             mouseType: eventType,
             mouseCursorPosition: point,
             mouseButton: cgButton

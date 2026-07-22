@@ -2,6 +2,25 @@
 
 Observations captured from Joy-Con controllers on macOS (Bluetooth), report ID 0x30 (~49 bytes).
 
+## Transport Lifecycle
+
+- Discovery uses an independent-device `IOHIDManager`; enumeration alone does not open or schedule a controller.
+- A Joy-Con is seized and scheduled only after the user marks its stable device identity as managed.
+- Queued activation revalidates both the managed selection and the exact discovered transport handle before and after opening, so removal or replacement cannot activate a stale device.
+- Startup failure returns the backend to a stopped state and can be retried. Stop unregisters callbacks, unschedules devices, closes each active registration once, and retains the user's managed selections for the next start.
+- Raw IOKit objects and report buffers stay inside `IOKitJoyConHIDTransport`; the controller and tests use opaque shared HID handles.
+
+## Initialization
+
+After a managed device is opened, JamCon sends output report `0x01` subcommands in this order:
+
+1. `0x40 0x01` — enable IMU
+2. `0x03 0x30` — select standard full input mode
+3. `0x48 0x01` — enable vibration
+4. `0x30 0x01` — set player light 1
+
+The four reports use packet counters 0 through 3 and a neutral rumble payload.
+
 ## Report Structure
 
 - Report length: 49 bytes

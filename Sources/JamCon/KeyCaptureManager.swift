@@ -1,5 +1,29 @@
 import AppKit
-import CoreGraphics
+@preconcurrency import CoreFoundation
+@preconcurrency import CoreGraphics
+
+/// Owns the non-Sendable Core Foundation handles independently of the
+/// MainActor model. Its deinitializer can safely perform C-level cleanup
+/// without reaching back into actor-isolated state.
+private final class KeyCaptureEventTapResources: @unchecked Sendable {
+    var eventTap: CFMachPort?
+    var runLoopSource: CFRunLoopSource?
+
+    func remove() {
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+        }
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        eventTap = nil
+        runLoopSource = nil
+    }
+
+    deinit {
+        remove()
+    }
+}
 
 /// State for key capture
 enum KeyCaptureState: Equatable {
@@ -10,12 +34,11 @@ enum KeyCaptureState: Equatable {
 /// Manages keyboard event capture for button mapping configuration
 /// Uses CGEventTap to intercept system shortcuts like Cmd+Space
 @MainActor
-class KeyCaptureManager: ObservableObject {
+final class KeyCaptureManager: ObservableObject {
     @Published var captureState: KeyCaptureState = .idle
     @Published var currentModifiers: CGEventFlags = []
 
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private let eventTapResources = KeyCaptureEventTapResources()
 
     /// Callback when a key combo is captured (button, combo, isHold)
     var onCapture: ((LogicalButton, KeyCombo, Bool) -> Void)?
@@ -86,10 +109,10 @@ class KeyCaptureManager: ObservableObject {
             return
         }
 
-        eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        eventTapResources.eventTap = tap
+        eventTapResources.runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
 
-        if let source = runLoopSource {
+        if let source = eventTapResources.runLoopSource {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         }
 
@@ -97,20 +120,13 @@ class KeyCaptureManager: ObservableObject {
     }
 
     private func removeEventTap() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-        }
-        eventTap = nil
-        runLoopSource = nil
+        eventTapResources.remove()
     }
 
     private func handleCGEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         // Handle tap disabled (system may disable if callback takes too long)
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap = eventTap {
+            if let tap = eventTapResources.eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             return Unmanaged.passUnretained(event)
@@ -148,14 +164,5 @@ class KeyCaptureManager: ObservableObject {
 
         // For flagsChanged, just update display (don't complete capture)
         return nil  // Consume modifier-only events during capture
-    }
-
-    deinit {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-        }
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-        }
     }
 }

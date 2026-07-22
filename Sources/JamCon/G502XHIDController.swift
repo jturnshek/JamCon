@@ -1,18 +1,23 @@
 import Foundation
-import IOKit
-import IOKit.hid
 import QuartzCore
 import os.lock
 
-/// Represents a discovered G502X mouse (internal use only)
-/// A single physical mouse may have multiple HID interfaces
-struct DiscoveredG502X: Identifiable, Equatable {
-    let id: String  // Unique identifier for the physical mouse
+struct G502XInterface: Equatable, Sendable {
+    let device: any HIDDeviceHandle
+    let properties: G502XHIDInterfaceProperties
+
+    static func == (lhs: G502XInterface, rhs: G502XInterface) -> Bool {
+        lhs.device.transportIdentifier == rhs.device.transportIdentifier
+    }
+}
+
+/// A physical mouse may expose several HID interfaces with the same stable ID.
+struct DiscoveredG502X: Identifiable, Equatable, Sendable {
+    let id: String
     let name: String
     let productID: Int
-    var interfaces: [IOHIDDevice]  // All HID interfaces for this mouse
+    var interfaces: [G502XInterface]
 
-    /// Convert to UI-safe info struct
     var info: ControllerInfo {
         ControllerInfo(id: id, name: name, productID: productID, kind: .mouse)
     }
@@ -22,22 +27,20 @@ struct DiscoveredG502X: Identifiable, Equatable {
     }
 }
 
-/// UI-safe representation of an HID interface for debug display
-struct G502XInterfaceInfo: Identifiable {
-    let id: String  // Unique ID for SwiftUI
+struct G502XInterfaceInfo: Identifiable, Sendable {
+    let id: String
     let usagePage: Int
     let usage: Int
     let maxReportSize: Int
-    let isActive: Bool  // Whether this interface is currently open
-    var reportCount: Int  // Number of reports received from this interface
-    var lastReportBytes: [UInt8]  // All bytes from last report (up to 64)
-    let reportLength: Int  // Length of last report received
-    let byteLastChanged: [Date]  // Per-byte last-changed timestamps for heatmap
+    let isActive: Bool
+    var reportCount: Int
+    var lastReportBytes: [UInt8]
+    let reportLength: Int
+    let byteLastChanged: [Date]
 
     var usagePageHex: String { String(format: "0x%04X", usagePage) }
     var usageHex: String { String(format: "0x%04X", usage) }
 
-    /// Human-readable interface type
     var interfaceType: String {
         if usagePage >= 0xFF00 {
             return "Vendor"
@@ -45,152 +48,190 @@ struct G502XInterfaceInfo: Identifiable {
             return "Mouse"
         } else if usagePage == 0x0001 && usage == 0x0006 {
             return "Keyboard"
-        } else {
-            return "Unknown"
         }
+        return "Unknown"
     }
 }
 
-/// HID controller for Logitech G502X mouse
-/// Opens all HID interfaces to receive button events from both vendor and standard interfaces.
-class G502XHIDController {
-
-    // MARK: - Constants
-
+/// Logitech multi-interface lifecycle and HID++ policy. Raw IOKit values and
+/// callback buffers are owned by the injected transport.
+final class G502XHIDController: @unchecked Sendable {
     static let logitechVendorID = G502XHIDProtocol.logitechVendorID
-    /// HID++ 2.0 uses the low nibble of the function byte as a software ID.
-    /// Solaar/BetterMouse typically use 0x02; using a non‑zero ID improves replies.
     static let hidppSoftwareID: UInt8 = 0x02
     static let hidppFeatureIDFeatureSet: UInt16 = 0x0001
     static let hidppFeatureIDOnboardProfiles: UInt16 = 0x8100
     static let hidppFeatureIDMouseButtonSpy: UInt16 = 0x8110
+    static let deactivationRetentionSeconds: TimeInterval = 30
 
-    // MARK: - Interface Buffer
+    enum LifecycleState {
+        case stopped
+        case starting(Thread)
+        case running(thread: Thread, runLoop: CFRunLoop)
+        case stopping(thread: Thread, runLoop: CFRunLoop)
+    }
 
-    /// Class wrapper for report buffers - provides stable memory address for callback identification
-    final class InterfaceBuffer {
+    final class InterfaceBuffer: @unchecked Sendable {
         private static let debugByteLimit = 64
-        var bytes: [UInt8]
+        private(set) var bytes: [UInt8]
         private var previousBytes: [UInt8]
         private(set) var byteLastChanged: [Date]
-        private(set) var lastLength: Int = 0
+        private(set) var lastLength = 0
         let maxReportSize: Int
-        let deviceID: ObjectIdentifier
         let usagePage: Int
         let usage: Int
-        var reportCount: Int = 0
+        var reportCount = 0
 
-        init(size: Int, maxReportSize: Int, deviceID: ObjectIdentifier, usagePage: Int, usage: Int) {
-            self.bytes = [UInt8](repeating: 0, count: size)
+        init(size: Int, maxReportSize: Int, usagePage: Int, usage: Int) {
+            bytes = [UInt8](repeating: 0, count: size)
             let trackedSize = min(size, Self.debugByteLimit)
-            self.previousBytes = [UInt8](repeating: 0, count: trackedSize)
-            self.byteLastChanged = Array(repeating: .distantPast, count: trackedSize)
+            previousBytes = [UInt8](repeating: 0, count: trackedSize)
+            byteLastChanged = Array(repeating: .distantPast, count: trackedSize)
             self.maxReportSize = maxReportSize
-            self.deviceID = deviceID
             self.usagePage = usagePage
             self.usage = usage
         }
 
         func update(from report: UnsafeMutablePointer<UInt8>, length: Int, at now: Date) {
-            let copyLength = min(length, bytes.count)
+            let copyLength = min(max(0, length), bytes.count)
             lastLength = copyLength
-
-            // Only track changes for the first N bytes used by the debug UI.
-            let trackedCount = min(copyLength, previousBytes.count)
-            for i in 0..<trackedCount {
-                let newByte = report[i]
-                if newByte != previousBytes[i] {
-                    byteLastChanged[i] = now
-                    previousBytes[i] = newByte
+            for index in 0..<copyLength {
+                let newByte = report[index]
+                bytes[index] = newByte
+                if index < previousBytes.count, newByte != previousBytes[index] {
+                    byteLastChanged[index] = now
+                    previousBytes[index] = newByte
                 }
             }
         }
     }
 
-    /// Check if an interface should be opened
-    func shouldOpenInterface(device: IOHIDDevice) -> Bool {
-        // For debugging, observe all interfaces that can emit input reports.
-        let maxReportSize = IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0
-        return maxReportSize > 0
+    final class ActiveInterface: @unchecked Sendable {
+        let interface: G502XInterface
+        let registration: any HIDInputRegistration
+        let buffer: InterfaceBuffer
+
+        init(
+            interface: G502XInterface,
+            registration: any HIDInputRegistration,
+            buffer: InterfaceBuffer
+        ) {
+            self.interface = interface
+            self.registration = registration
+            self.buffer = buffer
+        }
     }
 
-    // MARK: - Properties
+    struct RetiredInterface: Sendable {
+        let interface: ActiveInterface
+        let retiredAt: TimeInterval
+    }
 
-    var hidManager: IOHIDManager?
-    var activeInterfaces: [IOHIDDevice] = []  // All open interfaces
-    var interfaceBuffers: [ObjectIdentifier: InterfaceBuffer] = [:]  // Per-interface buffer wrappers
-    var bufferPointerToDeviceID: [UnsafeMutablePointer<UInt8>: ObjectIdentifier] = [:]  // Buffer ptr -> device lookup
-    var hidRunLoop: CFRunLoop?
-    var hidThread: Thread?
-    let hidRunLoopReady = DispatchSemaphore(value: 0)
+    struct PendingHIDPPRequest: @unchecked Sendable {
+        let requestID: UInt64
+        let featureIndex: UInt8
+        let functionHighNibble: UInt8
+        let semaphore: DispatchSemaphore
+        var response: [UInt8]?
+    }
 
-    // HID++ (Logitech vendor protocol) support.
+    struct ControllerState: Sendable {
+        var discoveredMice: [DiscoveredG502X] = []
+        /// Desired selection; retained through transport stop/start and disconnect.
+        var selectedMouseID: String?
+        var activeMouseID: String?
+        var isConnected = false
+        var mouseName: String?
+    }
+
+    struct RuntimeConfigState: Sendable {
+        var interfaceDebugEnabled = false
+    }
+
+    struct ReportState: Sendable {
+        var lastReportTime: TimeInterval = 0
+        var reportCount: UInt64 = 0
+    }
+
+    let lifecycleCondition = NSCondition()
+    var lifecycleState: LifecycleState = .stopped
+    let transport: any G502XHIDTransport
+
+    let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
+    let runtimeConfig = LockedRuntimeConfig(initialState: RuntimeConfigState())
+    private let reportStateLock = OSAllocatedUnfairLock(initialState: ReportState())
+
+    /// HID-thread-owned active and recently retired input registrations.
+    var activeInterfaces: [ObjectIdentifier: ActiveInterface] = [:]
+    var retiredInterfaces: [RetiredInterface] = []
+    var lastInterfaceInfoUpdate: TimeInterval = 0
+
     let hidppQueue = DispatchQueue(label: "JamCon.G502X.HIDPP", qos: .userInitiated)
     let hidppLock = OSAllocatedUnfairLock()
-    var hidppDevice: IOHIDDevice?
+    var hidppDevice: (any HIDDeviceHandle)?
     var hidppDeviceNumber: UInt8 = 0x01
     var featureIndexByFeatureID: [UInt16: UInt8] = [:]
     var onboardProfilesFeatureIndex: UInt8?
     var mouseButtonSpyFeatureIndex: UInt8?
-    var mouseButtonSpyButtonCount: Int = 0
+    var mouseButtonSpyButtonCount = 0
     var lastMouseButtonSpyBits: UInt16 = 0
-    var mouseButtonSpyActive: Bool = false
+    var mouseButtonSpyActive = false
     var onboardProfilesRestoreMode: UInt8?
-
-    // Legacy (REPROG_CONTROLS*) support (not present on G502X Lightspeed receiver, but keep for other devices).
     var reprogControlsFeatureIndex: UInt8?
     var knownCIDs: [UInt16] = []
     var pressedCIDs: Set<UInt16> = []
     var cidToLogicalButton: [UInt16: G502XLogicalButton] = [:]
     let logicalButtonMapping = G502XButtonMapping()
-    var stableButtonBytes: [UInt8] = [0, 0]  // bytes 0-1 stable button state
+    var stableButtonBytes: [UInt8] = [0, 0]
     var lastStandardMouseReport: [UInt8] = []
-
-    struct PendingHIDPPRequest {
-        let featureIndex: UInt8
-        /// Upper nibble of function byte (lower nibble is software ID).
-        let functionHighNibble: UInt8
-        let semaphore: DispatchSemaphore
-        var response: [UInt8]? = nil
-    }
     var pendingHIDPPRequest: PendingHIDPPRequest?
+    var hidppRequestSequence: UInt64 = 0
+    var hidppGeneration: UInt64 = 0
+    var hidppSetupInFlight = false
 
-    // MARK: - Thread-safe state (read from UI / other threads)
+    let interfaceInfoLock = NSLock()
+    var cachedInterfaceInfo: [G502XInterfaceInfo] = []
 
-    struct ControllerState {
-        var discoveredMice: [DiscoveredG502X] = []
-        var selectedMouseID: String?
-        var preferredMouseID: String?
-        var isConnected: Bool = false
-        var mouseName: String?
+    struct InputReport: Sendable {
+        let bytes: [UInt8]
+        let length: Int
+        let timestamp: TimeInterval
+        let receivedTimestamp: TimeInterval
+        let inputTimestamp: TimeInterval?
+        let timestampSource: InputTimestampSource
     }
 
-    struct RuntimeConfigState {
-        var interfaceDebugEnabled: Bool = false
+    // Set before start and invoked from the dedicated HID thread.
+    var onReportData: (@Sendable (_ report: InputReport) -> Void)?
+    var onConnectionChange: (@Sendable (_ connected: Bool, _ name: String?, _ mouseID: String?) -> Void)?
+    var onControllersChanged: (@Sendable () -> Void)?
+    var onDebugMessage: (@Sendable (_ message: String) -> Void)?
+
+    init(transport: any G502XHIDTransport = IOKitG502XHIDTransport()) {
+        self.transport = transport
     }
 
-    let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
-    let runtimeConfig = LockedRuntimeConfig(initialState: RuntimeConfigState())
-
-    private struct ReportState {
-        var lastReportTime: TimeInterval = 0
-        var reportCount: UInt64 = 0
+    deinit {
+        stop()
     }
 
-    private let reportStateLock = OSAllocatedUnfairLock(initialState: ReportState())
-
-    func recordReportActivity(timestamp: TimeInterval) {
-        reportStateLock.withLock { state in
-            state.lastReportTime = timestamp
-            state.reportCount &+= 1
-        }
+    func mouseInfosSnapshot() -> [ControllerInfo] {
+        stateLock.withLock { $0.discoveredMice.map(\.info) }
     }
 
-    func resetReportStats() {
-        reportStateLock.withLock { state in
-            state.lastReportTime = 0
-            state.reportCount = 0
-        }
+    var selectedMouseID: String? {
+        stateLock.withLock { $0.selectedMouseID }
+    }
+
+    var isConnected: Bool {
+        stateLock.withLock { $0.isConnected }
+    }
+
+    var mouseName: String? {
+        stateLock.withLock { $0.mouseName }
+    }
+
+    var hasReliableButtonReleaseEvents: Bool {
+        hidppLock.withLock { mouseButtonSpyActive || reprogControlsFeatureIndex != nil }
     }
 
     var lastReportTime: TimeInterval {
@@ -201,163 +242,77 @@ class G502XHIDController {
         reportStateLock.withLock { $0.reportCount }
     }
 
-    /// UI-safe snapshot of all discovered G502X mice.
-    func mouseInfosSnapshot() -> [ControllerInfo] {
-        stateLock.withLock { $0.discoveredMice.map(\.info) }
+    func recordReportActivity(timestamp: TimeInterval) {
+        reportStateLock.withLock {
+            $0.lastReportTime = timestamp
+            $0.reportCount &+= 1
+        }
     }
 
-    /// Map from device to mouse ID for quick lookup
-    var deviceToMouseID: [ObjectIdentifier: String] = [:]
-
-    /// Currently selected mouse ID (thread-safe).
-    var selectedMouseID: String? {
-        stateLock.withLock { $0.selectedMouseID }
+    func resetReportStats() {
+        reportStateLock.withLock {
+            $0.lastReportTime = 0
+            $0.reportCount = 0
+        }
     }
 
-    /// Preferred mouse ID (persisted from last user selection). (thread-safe)
-    var preferredMouseID: String? {
-        get { stateLock.withLock { $0.preferredMouseID } }
-        set { stateLock.withLock { $0.preferredMouseID = newValue } }
-    }
-
-    /// Input report structure for button data
-    struct InputReport {
-        let bytes: [UInt8]
-        let length: Int
-        let timestamp: TimeInterval
-        let receivedTimestamp: TimeInterval
-        let inputTimestamp: TimeInterval?
-        let timestampSource: InputTimestampSource
-    }
-
-    /// Callback for full report data (merged from all interfaces)
-    var onReportData: ((_ report: InputReport) -> Void)?
-
-    // MARK: - Callbacks
-    //
-    // Callback contract:
-    // All callbacks are invoked on the controller's HID thread/run loop ("JamCon.G502X.HID").
-
-    /// Callback for connection state changes
-    var onConnectionChange: ((_ connected: Bool, _ name: String?, _ mouseID: String?) -> Void)?
-
-    /// Callback when available mice list changes
-    var onControllersChanged: (() -> Void)?
-
-    /// Callback for debug/status messages
-    var onDebugMessage: ((_ message: String) -> Void)?
-
-    /// Whether a mouse is currently connected and active (thread-safe).
-    var isConnected: Bool {
-        stateLock.withLock { $0.isConnected }
-    }
-
-    /// Name of the connected mouse (thread-safe).
-    var mouseName: String? {
-        stateLock.withLock { $0.mouseName }
-    }
-
-    /// Whether we currently have a vendor-side mechanism that reliably reports button down/up.
-    /// When true, we don't need CGEventTap fallback for releases.
-    var hasReliableButtonReleaseEvents: Bool {
-        hidppLock.withLock { mouseButtonSpyActive || reprogControlsFeatureIndex != nil }
-    }
-
-    /// Thread-safe cache for interface info (updated on HID thread, read from main thread)
-    let interfaceInfoLock = NSLock()
-    var cachedInterfaceInfo: [G502XInterfaceInfo] = []
-    var lastInterfaceInfoUpdate: TimeInterval = 0
-
-    /// Get info about all discovered interfaces for the selected mouse (for debug UI)
-    /// Thread-safe: returns a cached snapshot
     func getInterfaceInfo() -> [G502XInterfaceInfo] {
         interfaceInfoLock.lock()
         defer { interfaceInfoLock.unlock() }
         return cachedInterfaceInfo
     }
 
-    /// Enable/disable the expensive per-interface debug cache updates.
-    /// When disabled, cached snapshots are cleared to free memory and avoid background work.
     func setInterfaceDebugEnabled(_ enabled: Bool) {
-        runtimeConfig.update { config in
-            config.interfaceDebugEnabled = enabled
-        }
+        runtimeConfig.update { $0.interfaceDebugEnabled = enabled }
         if !enabled {
             interfaceInfoLock.lock()
             cachedInterfaceInfo.removeAll(keepingCapacity: true)
             interfaceInfoLock.unlock()
-            lastInterfaceInfoUpdate = 0
         }
     }
 
-    /// Update the cached interface info (call from HID thread after processing reports)
     func updateCachedInterfaceInfo() {
-        let selectedMouseSnapshot: DiscoveredG502X? = stateLock.withLock { state in
+        assertOnHIDThread()
+        let selectedMouse: DiscoveredG502X? = stateLock.withLock { state in
             guard let mouseID = state.selectedMouseID else { return nil }
             return state.discoveredMice.first(where: { $0.id == mouseID })
         }
 
-        guard let mouse = selectedMouseSnapshot else {
+        guard let selectedMouse else {
             interfaceInfoLock.lock()
             cachedInterfaceInfo = []
             interfaceInfoLock.unlock()
             return
         }
 
-        let newInfo = mouse.interfaces.enumerated().map { index, device -> G502XInterfaceInfo in
-            let usagePage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int ?? 0
-            let usage = IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int ?? 0
-            let deviceID = ObjectIdentifier(device)
-            let isActive = activeInterfaces.contains(where: { ObjectIdentifier($0) == deviceID })
-            let buffer = interfaceBuffers[deviceID]
-
-            let maxReportSize = buffer?.maxReportSize
-                ?? (IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString) as? Int ?? 0)
-
+        let newInfo = selectedMouse.interfaces.enumerated().map { index, interface in
+            let identifier = interface.device.transportIdentifier
+            let active = activeInterfaces[identifier]
+            let buffer = active?.buffer
             let snapshotLimit = min(64, buffer?.bytes.count ?? 0)
-            let bytesSnapshot: [UInt8]
-            let byteLastChangedSnapshot: [Date]
-            let reportLength: Int
-            if let buffer {
-                // IMPORTANT: Deep copy so we don't share storage with the live callback buffer.
-                // Sharing would trigger copy-on-write on the next update and invalidate the
-                // pointer passed to IOHIDDeviceRegisterInputReportCallback, causing crashes.
-                reportLength = buffer.lastLength
-
-                var snapshot = Array(buffer.bytes.prefix(snapshotLimit))
-                if reportLength < snapshot.count {
-                    for i in reportLength..<snapshot.count {
-                        snapshot[i] = 0
-                    }
-                }
-                bytesSnapshot = snapshot
-
-                var changed = Array(buffer.byteLastChanged.prefix(snapshotLimit))
-                if changed.count < snapshot.count {
-                    changed += Array(repeating: .distantPast, count: snapshot.count - changed.count)
-                }
-                if reportLength < changed.count {
-                    for i in reportLength..<changed.count {
-                        changed[i] = .distantPast
-                    }
-                }
-                byteLastChangedSnapshot = changed
-            } else {
-                bytesSnapshot = []
-                byteLastChangedSnapshot = []
-                reportLength = 0
+            var bytes = Array(buffer?.bytes.prefix(snapshotLimit) ?? [])
+            var changed = Array(buffer?.byteLastChanged.prefix(snapshotLimit) ?? [])
+            let reportLength = buffer?.lastLength ?? 0
+            if reportLength < bytes.count {
+                for index in reportLength..<bytes.count { bytes[index] = 0 }
             }
-
+            if changed.count < bytes.count {
+                changed += Array(repeating: .distantPast, count: bytes.count - changed.count)
+            }
+            if reportLength < changed.count {
+                for index in reportLength..<changed.count { changed[index] = .distantPast }
+            }
+            let properties = interface.properties
             return G502XInterfaceInfo(
-                id: "\(index)-\(usagePage)-\(usage)",
-                usagePage: usagePage,
-                usage: usage,
-                maxReportSize: maxReportSize,
-                isActive: isActive,
+                id: "\(index)-\(properties.usagePage)-\(properties.usage)",
+                usagePage: properties.usagePage,
+                usage: properties.usage,
+                maxReportSize: properties.maximumInputReportSize,
+                isActive: active != nil,
                 reportCount: buffer?.reportCount ?? 0,
-                lastReportBytes: bytesSnapshot,
+                lastReportBytes: bytes,
                 reportLength: reportLength,
-                byteLastChanged: byteLastChangedSnapshot
+                byteLastChanged: changed
             )
         }
 
@@ -366,196 +321,191 @@ class G502XHIDController {
         interfaceInfoLock.unlock()
     }
 
-    // MARK: - Initialization
+    func performHIDOperation(_ work: @escaping @Sendable () -> Void) {
+        lifecycleCondition.lock()
+        let target: (thread: Thread, runLoop: CFRunLoop)?
+        if case let .running(thread, runLoop) = lifecycleState {
+            target = (thread, runLoop)
+        } else {
+            target = nil
+        }
+        lifecycleCondition.unlock()
 
-    init() {}
-
-    func dispatchToHIDThread(_ work: @escaping () -> Void) {
-        if Thread.current == hidThread {
+        guard let target else { return }
+        if Thread.current === target.thread {
             work()
             return
         }
-
-        guard let runLoop = hidRunLoop else {
-            work()
-            return
-        }
-
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
+        CFRunLoopPerformBlock(target.runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(target.runLoop)
     }
 
-    func performHIDOperation(_ work: @escaping () -> Void) {
-        if Thread.current == hidThread {
-            work()
+    func assertOnHIDThread(file: StaticString = #fileID, line: UInt = #line) {
+        lifecycleCondition.lock()
+        let thread: Thread?
+        switch lifecycleState {
+        case let .starting(candidate), let .running(candidate, _), let .stopping(candidate, _):
+            thread = candidate
+        case .stopped:
+            thread = nil
+        }
+        lifecycleCondition.unlock()
+        assert(
+            Thread.current === thread,
+            "G502XHIDController operation must run on the HID thread",
+            file: file,
+            line: line
+        )
+    }
+
+    var isHIDBackendRunning: Bool {
+        lifecycleCondition.lock()
+        defer { lifecycleCondition.unlock() }
+        if case .running = lifecycleState { return true }
+        return false
+    }
+
+    @discardableResult
+    func start() -> Bool {
+        lifecycleCondition.lock()
+        while true {
+            switch lifecycleState {
+            case .running:
+                lifecycleCondition.unlock()
+                return true
+            case .starting, .stopping:
+                lifecycleCondition.wait()
+            case .stopped:
+                let thread = Thread { [weak self] in self?.runHIDThread() }
+                thread.name = "JamCon.G502X.HID"
+                thread.qualityOfService = .userInteractive
+                lifecycleState = .starting(thread)
+                lifecycleCondition.unlock()
+                thread.start()
+
+                lifecycleCondition.lock()
+                while case .starting = lifecycleState {
+                    lifecycleCondition.wait()
+                }
+                let started = if case .running = lifecycleState { true } else { false }
+                lifecycleCondition.unlock()
+                return started
+            }
+        }
+    }
+
+    func stop() {
+        lifecycleCondition.lock()
+        while case .starting = lifecycleState {
+            lifecycleCondition.wait()
+        }
+        switch lifecycleState {
+        case .stopped:
+            lifecycleCondition.unlock()
+        case .stopping:
+            while case .stopping = lifecycleState {
+                lifecycleCondition.wait()
+            }
+            lifecycleCondition.unlock()
+        case let .running(thread, runLoop):
+            lifecycleState = .stopping(thread: thread, runLoop: runLoop)
+            thread.cancel()
+            lifecycleCondition.unlock()
+            if Thread.current === thread {
+                CFRunLoopStop(runLoop)
+                return
+            }
+            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) {
+                CFRunLoopStop(runLoop)
+            }
+            CFRunLoopWakeUp(runLoop)
+            lifecycleCondition.lock()
+            while case .stopping = lifecycleState {
+                lifecycleCondition.wait()
+            }
+            lifecycleCondition.unlock()
+        case .starting:
+            lifecycleCondition.unlock()
+        }
+    }
+
+    private func runHIDThread() {
+        let currentThread = Thread.current
+        guard let runLoop = CFRunLoopGetCurrent() else {
+            finishStartupFailure(message: "Failed to obtain G502 HID run loop")
+            return
+        }
+        lifecycleCondition.lock()
+        guard case let .starting(thread) = lifecycleState, thread === currentThread else {
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            return
+        }
+        lifecycleCondition.unlock()
+
+        let result = transport.startDiscovery(
+            on: runLoop,
+            deviceConnected: { [weak self] in self?.handleDeviceConnected($0) },
+            deviceDisconnected: { [weak self] in self?.handleDeviceDisconnected($0) }
+        )
+        guard case .success = result else {
+            cleanupHIDResources(on: runLoop)
+            if case let .failure(error) = result {
+                finishStartupFailure(message: "G502 HID backend did not start: \(error)")
+            } else {
+                finishStartupFailure(message: "G502 HID backend did not start")
+            }
             return
         }
 
-        guard let runLoop = hidRunLoop else {
-            // If the HID thread isn't running yet, don't perform IOKit operations on an arbitrary thread.
-            return
-        }
+        log("HID manager started, scanning for supported Logitech mice")
+        activateSelectedMouseIfNeeded()
 
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
+        // Do not publish a running backend until its retained selection has
+        // been reconciled; callers can rely on start() returning a ready state.
+        lifecycleCondition.lock()
+        lifecycleState = .running(thread: currentThread, runLoop: runLoop)
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
+
+        while !Thread.current.isCancelled {
+            _ = autoreleasepool { CFRunLoopRunInMode(.defaultMode, 1, false) }
+        }
+        cleanupHIDResources(on: runLoop)
+        lifecycleCondition.lock()
+        lifecycleState = .stopped
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
+    }
+
+    private func finishStartupFailure(message: String) {
+        lifecycleCondition.lock()
+        lifecycleState = .stopped
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
+        JamLog.error(.g502x, message)
+    }
+
+    private func cleanupHIDResources(on runLoop: CFRunLoop) {
+        assertOnHIDThread()
+        deactivateActiveMouse(publishConnectionChange: false)
+        transport.stopDiscovery(on: runLoop)
+        stateLock.withLock {
+            $0.discoveredMice.removeAll(keepingCapacity: true)
+            $0.activeMouseID = nil
+            $0.isConnected = false
+            $0.mouseName = nil
+        }
+        retiredInterfaces.removeAll(keepingCapacity: true)
+        lastInterfaceInfoUpdate = 0
+        interfaceInfoLock.lock()
+        cachedInterfaceInfo.removeAll(keepingCapacity: true)
+        interfaceInfoLock.unlock()
+        resetReportStats()
     }
 
     func log(_ message: String) {
         JamLog.info(.g502x, message)
     }
-
-    deinit {
-        stop()
-    }
-
-    // MARK: - Public Methods
-
-    func start() {
-        startHIDThreadIfNeeded()
-    }
-
-    func startHIDThreadIfNeeded() {
-        guard hidThread == nil else { return }
-
-        let thread = Thread { [weak self] in
-            self?.runHIDThread()
-        }
-        thread.name = "JamCon.G502X.HID"
-        thread.qualityOfService = .userInteractive
-        hidThread = thread
-        thread.start()
-
-        // Wait until the HID run loop is ready
-        hidRunLoopReady.wait()
-    }
-
-    func runHIDThread() {
-        hidRunLoop = CFRunLoopGetCurrent()
-        hidRunLoopReady.signal()
-
-        configureHIDManager(on: hidRunLoop ?? CFRunLoopGetCurrent())
-
-        // Run loop with periodic autorelease pool drain
-        while !Thread.current.isCancelled {
-            _ = autoreleasepool {
-                CFRunLoopRunInMode(.defaultMode, 1.0, false)
-            }
-        }
-
-        // Cleanup after the run loop stops
-        hidRunLoop = nil
-        hidThread = nil
-    }
-
-    func configureHIDManager(on runLoop: CFRunLoop) {
-        guard hidManager == nil else { return }
-
-        log("Creating HID manager...")
-        hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard let manager = hidManager else {
-            log("Failed to create HID manager")
-            return
-        }
-
-        // Match Logitech devices
-        let matching: [String: Any] = [
-            kIOHIDVendorIDKey as String: G502XHIDProtocol.logitechVendorID
-        ]
-        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
-
-        // Set up device callbacks
-        let context = Unmanaged.passUnretained(self).toOpaque()
-
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, result, sender, device in
-            guard let ctx = context else { return }
-            let controller = Unmanaged<G502XHIDController>.fromOpaque(ctx).takeUnretainedValue()
-            controller.handleDeviceConnected(device)
-        }, context)
-
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, result, sender, device in
-            guard let ctx = context else { return }
-            let controller = Unmanaged<G502XHIDController>.fromOpaque(ctx).takeUnretainedValue()
-            controller.handleDeviceDisconnected(device)
-        }, context)
-
-        // Schedule with run loop
-        IOHIDManagerScheduleWithRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-
-        // Open the manager
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        if result != kIOReturnSuccess {
-            log("Failed to open HID manager: \(result)")
-        } else {
-            log("HID manager started, scanning for Logitech mice...")
-        }
-    }
-
-    func stop() {
-        hidThread?.cancel()
-
-        guard let runLoop = hidRunLoop else {
-            // Fallback cleanup
-            teardownHIDPPButtonReporting()
-            for device in activeInterfaces {
-                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            }
-            activeInterfaces.removeAll()
-            if let manager = hidManager {
-                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-                hidManager = nil
-            }
-            deviceToMouseID.removeAll()
-            stateLock.withLock { state in
-                state.discoveredMice.removeAll(keepingCapacity: true)
-                state.selectedMouseID = nil
-                state.isConnected = false
-                state.mouseName = nil
-            }
-            resetReportStats()
-            return
-        }
-
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
-            guard let self else { return }
-
-            self.teardownHIDPPButtonReporting()
-
-            for device in self.activeInterfaces {
-                let deviceID = ObjectIdentifier(device)
-                // Unregister callback by passing nil callback function with the same buffer
-                if let buffer = self.interfaceBuffers[deviceID] {
-                    buffer.bytes.withUnsafeMutableBufferPointer { bufferPtr in
-                        if let baseAddr = bufferPtr.baseAddress {
-                            self.bufferPointerToDeviceID.removeValue(forKey: baseAddr)
-                            IOHIDDeviceRegisterInputReportCallback(device, baseAddr, bufferPtr.count, nil, nil)
-                        }
-                    }
-                }
-                IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            }
-            self.activeInterfaces.removeAll()
-            self.interfaceBuffers.removeAll()
-            self.bufferPointerToDeviceID.removeAll()
-
-            if let manager = self.hidManager {
-                IOHIDManagerUnscheduleFromRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-                self.hidManager = nil
-            }
-
-            self.deviceToMouseID.removeAll()
-            self.stateLock.withLock { state in
-                state.discoveredMice.removeAll(keepingCapacity: true)
-                state.selectedMouseID = nil
-                state.isConnected = false
-                state.mouseName = nil
-            }
-            self.resetReportStats()
-
-            CFRunLoopStop(runLoop)
-        }
-
-        CFRunLoopWakeUp(runLoop)
-    }
-
 }

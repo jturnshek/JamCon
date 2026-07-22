@@ -2,11 +2,17 @@ import Foundation
 @preconcurrency import IOKit
 @preconcurrency import IOKit.hid
 
-/// All methods are called on the dedicated Sense HID thread. Implementations
-/// must invoke discovery and report callbacks on that same thread.
-protocol SenseHIDTransport: HIDTransport {}
+/// Low-level Joy-Con I/O. Lifecycle policy remains in JoyConHIDController;
+/// this boundary owns all raw IOKit references and callback buffers.
+protocol JoyConHIDTransport: HIDTransport {
+    func sendOutputReport(
+        _ data: [UInt8],
+        reportID: UInt8,
+        using registration: any HIDInputRegistration
+    ) -> Result<Void, HIDTransportError>
+}
 
-final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
+final class IOKitJoyConHIDTransport: JoyConHIDTransport, @unchecked Sendable {
     private final class DeviceHandle: HIDDeviceHandle, @unchecked Sendable {
         let device: IOHIDDevice
 
@@ -47,9 +53,7 @@ final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
         }
     }
 
-    /// These values are confined to the Sense HID thread. The class is marked
-    /// unchecked Sendable solely so the thread/run-loop boundary is explicit to
-    /// Swift 6; no raw IOKit reference is exposed to another executor.
+    /// Confined to the dedicated Joy-Con HID thread.
     private var manager: IOHIDManager?
     private var connectedHandler: (@Sendable (any HIDDeviceHandle) -> Void)?
     private var disconnectedHandler: (@Sendable (any HIDDeviceHandle) -> Void)?
@@ -64,36 +68,26 @@ final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
             return .success(())
         }
 
+        // Independent-device mode keeps discovery from implicitly opening or
+        // scheduling every enumerated Joy-Con. Only managed devices are seized.
         let manager = IOHIDManagerCreate(
             kCFAllocatorDefault,
             IOOptionBits(IOHIDManagerOptions.independentDevices.rawValue)
         )
-
         self.manager = manager
         connectedHandler = deviceConnected
         disconnectedHandler = deviceDisconnected
 
-        let matchDictionaries: [[String: Any]] = [
-            [
-                kIOHIDVendorIDKey as String: SenseHIDProtocol.sonyVendorID,
-                kIOHIDProductIDKey as String: SenseHIDProtocol.leftProductID,
-            ],
-            [
-                kIOHIDVendorIDKey as String: SenseHIDProtocol.sonyVendorID,
-                kIOHIDProductIDKey as String: SenseHIDProtocol.rightProductID,
-            ],
-        ]
-        IOHIDManagerSetDeviceMatchingMultiple(manager, matchDictionaries as CFArray)
-
+        IOHIDManagerSetDeviceMatchingMultiple(manager, matchingDictionaries() as CFArray)
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             guard let context else { return }
-            let transport = Unmanaged<IOKitSenseHIDTransport>.fromOpaque(context).takeUnretainedValue()
+            let transport = Unmanaged<IOKitJoyConHIDTransport>.fromOpaque(context).takeUnretainedValue()
             transport.handleConnected(device)
         }, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
             guard let context else { return }
-            let transport = Unmanaged<IOKitSenseHIDTransport>.fromOpaque(context).takeUnretainedValue()
+            let transport = Unmanaged<IOKitJoyConHIDTransport>.fromOpaque(context).takeUnretainedValue()
             transport.handleDisconnected(device)
         }, context)
 
@@ -129,7 +123,7 @@ final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
         return HIDDeviceProperties(
             vendorID: intProperty(kIOHIDVendorIDKey, from: rawDevice),
             productID: intProperty(kIOHIDProductIDKey, from: rawDevice),
-            name: stringProperty(kIOHIDProductKey, from: rawDevice) ?? "Unknown",
+            name: stringProperty(kIOHIDProductKey, from: rawDevice) ?? "Joy-Con",
             serialNumber: stringProperty(kIOHIDSerialNumberKey, from: rawDevice),
             physicalDeviceUniqueID: stringProperty(kIOHIDPhysicalDeviceUniqueIDKey, from: rawDevice),
             locationID: intProperty(kIOHIDLocationIDKey, from: rawDevice),
@@ -202,6 +196,34 @@ final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
         return .success(())
     }
 
+    func sendOutputReport(
+        _ data: [UInt8],
+        reportID: UInt8,
+        using registration: any HIDInputRegistration
+    ) -> Result<Void, HIDTransportError> {
+        guard let registration = registration as? InputRegistration,
+              !registration.isClosed else {
+            return .failure(.unexpectedHandle)
+        }
+        guard !data.isEmpty else {
+            return .failure(.outputReportFailed(kIOReturnBadArgument))
+        }
+
+        let result = data.withUnsafeBufferPointer { buffer in
+            IOHIDDeviceSetReport(
+                registration.device,
+                kIOHIDReportTypeOutput,
+                CFIndex(reportID),
+                buffer.baseAddress!,
+                buffer.count
+            )
+        }
+        guard result == kIOReturnSuccess else {
+            return .failure(.outputReportFailed(result))
+        }
+        return .success(())
+    }
+
     private func handleConnected(_ device: IOHIDDevice) {
         let key = ObjectIdentifier(device)
         let handle: DeviceHandle
@@ -229,6 +251,36 @@ final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
         connectedHandler = nil
         disconnectedHandler = nil
         deviceHandles.removeAll(keepingCapacity: true)
+    }
+
+    private func matchingDictionaries() -> [[String: Any]] {
+        let usages: [[String: Any]] = [
+            [
+                kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
+                kIOHIDDeviceUsageKey as String: kHIDUsage_GD_Joystick,
+            ],
+            [
+                kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
+                kIOHIDDeviceUsageKey as String: kHIDUsage_GD_GamePad,
+            ],
+        ]
+
+        var dictionaries: [[String: Any]] = []
+        for usage in usages {
+            for productID in [JoyConHIDProtocol.leftProductID, JoyConHIDProtocol.rightProductID] {
+                dictionaries.append(usage.merging([
+                    kIOHIDVendorIDKey as String: JoyConHIDProtocol.nintendoVendorID,
+                    kIOHIDProductIDKey as String: productID,
+                ], uniquingKeysWith: { _, new in new }))
+            }
+        }
+        for productID in [JoyConHIDProtocol.leftProductID, JoyConHIDProtocol.rightProductID] {
+            dictionaries.append([
+                kIOHIDVendorIDKey as String: JoyConHIDProtocol.nintendoVendorID,
+                kIOHIDProductIDKey as String: productID,
+            ])
+        }
+        return dictionaries
     }
 
     private func intProperty(_ key: String, from device: IOHIDDevice) -> Int {

@@ -1,6 +1,6 @@
 import Foundation
 
-struct JoyConPacketTimingObservation: Equatable {
+struct JoyConPacketTimingObservation: Equatable, Sendable {
     let accepted: Bool
     let processingTimestamp: TimeInterval
     let timestampSource: InputTimestampSource
@@ -19,7 +19,7 @@ struct JoyConPacketTimingObservation: Equatable {
 /// ordering is not guaranteed, and in practice the cached value was frequently
 /// from the preceding packet. This tracker therefore uses only information that
 /// is present in the current report.
-struct JoyConPacketTimingTracker {
+struct JoyConPacketTimingTracker: Sendable {
     private static let duplicateHorizon: TimeInterval = 0.050
     private static let maximumValidTimerDelta = 127
 
@@ -96,7 +96,7 @@ struct JoyConPacketTimingTracker {
     }
 }
 
-struct JoyConTransportSummary: Equatable {
+struct JoyConTransportSummary: Equatable, Sendable {
     let duration: TimeInterval
     let callbackCount: Int
     let acceptedCount: Int
@@ -144,8 +144,8 @@ struct JoyConTransportSummary: Equatable {
 
 /// HID-thread-owned, constant-space transport diagnostics. It emits one summary
 /// per interval and never logs individual reports.
-struct JoyConTransportAggregator {
-    private struct Window {
+struct JoyConTransportAggregator: Sendable {
+    private struct Window: Sendable {
         let startedAt: TimeInterval
         var callbackCount = 0
         var acceptedCount = 0

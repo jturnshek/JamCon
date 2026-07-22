@@ -1,6 +1,4 @@
 import Foundation
-import IOKit
-import IOKit.hid
 import QuartzCore
 import os.lock
 
@@ -23,12 +21,12 @@ private enum Subcommand {
     }
 }
 
-/// Represents a discovered Joy-Con (internal - holds IOHIDDevice)
-struct DiscoveredJoyCon: Identifiable, Equatable {
+/// Discovered Joy-Con metadata plus an opaque transport handle.
+struct DiscoveredJoyCon: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let productID: Int
-    let device: IOHIDDevice
+    let device: any HIDDeviceHandle
 
     var side: String { productID == JoyConHIDProtocol.leftProductID ? "Left" : "Right" }
 
@@ -41,17 +39,19 @@ struct DiscoveredJoyCon: Identifiable, Equatable {
     }
 }
 
-/// Minimal Joy-Con HID driver (Bluetooth) that mirrors the Sense controller flow:
-/// - Scans for Joy-Con L/R
-/// - Seizes the device
-/// - Enables IMU + sets input mode 0x30
-/// - Streams raw input reports and decodes the newest IMU sample for convenience
-final class JoyConHIDController {
-    // MARK: - Types
-
+/// Joy-Con selection, configuration, and report decoding policy. Raw IOKit
+/// objects are confined to the injected transport and its dedicated HID thread.
+final class JoyConHIDController: @unchecked Sendable {
     private static let deactivationRetentionSeconds: TimeInterval = 30.0
 
-    struct InputReport {
+    private enum LifecycleState {
+        case stopped
+        case starting(Thread)
+        case running(thread: Thread, runLoop: CFRunLoop)
+        case stopping(thread: Thread, runLoop: CFRunLoop)
+    }
+
+    struct InputReport: Sendable {
         let controllerID: String
         let bytes: [UInt8]
         let length: Int
@@ -72,65 +72,37 @@ final class JoyConHIDController {
         }
     }
 
-    // MARK: - Callbacks
-    //
-    // Callback contract:
-    // All callbacks are invoked on the controller's HID thread/run loop ("JamCon.JoyConHID").
-
+    // Callback contract: every callback runs on "JamCon.JoyConHID".
     var onReportData: ((_ report: InputReport) -> Void)?
     var onConnectionChange: ((_ connected: Bool, _ name: String?, _ controllerID: String?) -> Void)?
     var onControllersChanged: (() -> Void)?
     var onDebugMessage: ((_ message: String) -> Void)?
 
-    // MARK: - State
+    private let lifecycleCondition = NSCondition()
+    private var lifecycleState: LifecycleState = .stopped
+    private let transport: any JoyConHIDTransport
 
-    private var hidManager: IOHIDManager?
-    private var hidRunLoop: CFRunLoop?
-    private var hidThread: Thread?
-    private let hidRunLoopReady = DispatchSemaphore(value: 0)
-
-    // MARK: - Thread-safe state (read from UI / other threads)
-
-    private final class CallbackContext {
-        weak var owner: JoyConHIDController?
-        let controllerID: String
-
-        init(owner: JoyConHIDController, controllerID: String) {
-            self.owner = owner
-            self.controllerID = controllerID
-        }
-    }
-
-    private struct RetiredController {
+    private struct RetiredController: Sendable {
         let controller: ActiveController
         let retiredAt: TimeInterval
     }
 
-    private final class ActiveController {
+    /// Mutable members are confined to the Joy-Con HID thread. The object is
+    /// retained in locked state so UI snapshots can observe connection status.
+    private final class ActiveController: @unchecked Sendable {
         let controller: DiscoveredJoyCon
-        let callbackContext: CallbackContext
-        let reportBuffer: UnsafeMutablePointer<UInt8>
-        let reportBufferLength: Int
-
+        let registration: any HIDInputRegistration
         var outputPacketCounter: UInt8 = 0
         var packetTimingTracker = JoyConPacketTimingTracker()
         var transportAggregator = JoyConTransportAggregator()
 
-        init(controller: DiscoveredJoyCon, owner: JoyConHIDController) {
+        init(controller: DiscoveredJoyCon, registration: any HIDInputRegistration) {
             self.controller = controller
-            self.callbackContext = CallbackContext(owner: owner, controllerID: controller.id)
-            self.reportBufferLength = 64
-            self.reportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: reportBufferLength)
-            self.reportBuffer.initialize(repeating: 0, count: reportBufferLength)
-        }
-
-        deinit {
-            reportBuffer.deinitialize(count: reportBufferLength)
-            reportBuffer.deallocate()
+            self.registration = registration
         }
     }
 
-    private struct ControllerState {
+    private struct ControllerState: Sendable {
         var discoveredControllers: [DiscoveredJoyCon] = []
         var managedControllerIDs: Set<String> = []
         var activeControllers: [String: ActiveController] = [:]
@@ -139,248 +111,280 @@ final class JoyConHIDController {
 
     private let stateLock = OSAllocatedUnfairLock(initialState: ControllerState())
 
-    /// UI-safe snapshot of all discovered Joy-Con controllers.
     func controllerInfosSnapshot() -> [ControllerInfo] {
         stateLock.withLock { $0.discoveredControllers.map(\.info) }
     }
 
-    /// Get the product ID for a discovered controller ID (thread-safe).
-    func productID(forControllerID id: String?) -> Int? {
-        guard let id else { return nil }
-        return stateLock.withLock { state in
-            state.discoveredControllers.first(where: { $0.id == id })?.productID
-        }
-    }
-
-    /// Whether any managed Joy-Con is currently connected and active (thread-safe).
     var isConnected: Bool {
         stateLock.withLock { !$0.activeControllers.isEmpty }
     }
 
-    /// Name of the connected Joy-Con if exactly one is active; otherwise nil. (thread-safe)
     var controllerName: String? {
         stateLock.withLock { state in
-            guard state.activeControllers.count == 1, let active = state.activeControllers.values.first else { return nil }
+            guard state.activeControllers.count == 1,
+                  let active = state.activeControllers.values.first else {
+                return nil
+            }
             return active.controller.name
         }
     }
-    // MARK: - Init / lifecycle
 
-    init() {}
+    init(transport: any JoyConHIDTransport = IOKitJoyConHIDTransport()) {
+        self.transport = transport
+    }
 
-    deinit { stop() }
-
-    private func dispatchToHIDThread(_ work: @escaping () -> Void) {
-        if Thread.current == hidThread {
-            work()
-            return
-        }
-
-        guard let runLoop = hidRunLoop else {
-            work()
-            return
-        }
-
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
+    deinit {
+        stop()
     }
 
     private func performHIDOperation(_ work: @escaping () -> Void) {
-        if Thread.current == hidThread {
+        lifecycleCondition.lock()
+        let target: (thread: Thread, runLoop: CFRunLoop)?
+        if case let .running(thread, runLoop) = lifecycleState {
+            target = (thread, runLoop)
+        } else {
+            target = nil
+        }
+        lifecycleCondition.unlock()
+
+        guard let target else {
+            // Managed selection is retained and reconciled once discovery runs.
+            return
+        }
+        if Thread.current === target.thread {
             work()
             return
         }
-
-        guard let runLoop = hidRunLoop else {
-            // If the HID thread isn't running yet, don't perform IOKit operations on an arbitrary thread.
-            return
-        }
-
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue, work)
-        CFRunLoopWakeUp(runLoop)
+        CFRunLoopPerformBlock(target.runLoop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(target.runLoop)
     }
 
-    func start() {
-        startHIDThreadIfNeeded()
+    private func assertOnHIDThread(file: StaticString = #fileID, line: UInt = #line) {
+        lifecycleCondition.lock()
+        let thread: Thread?
+        switch lifecycleState {
+        case let .starting(candidate), let .running(candidate, _), let .stopping(candidate, _):
+            thread = candidate
+        case .stopped:
+            thread = nil
+        }
+        lifecycleCondition.unlock()
+        assert(
+            Thread.current === thread,
+            "JoyConHIDController operation must run on the HID thread",
+            file: file,
+            line: line
+        )
+    }
+
+    @discardableResult
+    func start() -> Bool {
+        lifecycleCondition.lock()
+        while true {
+            switch lifecycleState {
+            case .running:
+                lifecycleCondition.unlock()
+                return true
+            case .starting, .stopping:
+                lifecycleCondition.wait()
+            case .stopped:
+                let thread = Thread { [weak self] in
+                    self?.runHIDThread()
+                }
+                thread.name = "JamCon.JoyConHID"
+                thread.qualityOfService = .userInteractive
+                lifecycleState = .starting(thread)
+                lifecycleCondition.unlock()
+                thread.start()
+
+                lifecycleCondition.lock()
+                while case .starting = lifecycleState {
+                    lifecycleCondition.wait()
+                }
+                let started: Bool
+                if case .running = lifecycleState {
+                    started = true
+                } else {
+                    started = false
+                }
+                lifecycleCondition.unlock()
+                return started
+            }
+        }
     }
 
     func stop() {
-        // Signal the HID thread to exit its run loop
-        hidThread?.cancel()
+        lifecycleCondition.lock()
+        while case .starting = lifecycleState {
+            lifecycleCondition.wait()
+        }
 
-        guard let runLoop = hidRunLoop else {
-            // Fallback cleanup if the HID thread was never started
-            let activeControllersSnapshot: [ActiveController] = stateLock.withLock { state in
-                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
+        switch lifecycleState {
+        case .stopped:
+            lifecycleCondition.unlock()
+        case .stopping:
+            while case .stopping = lifecycleState {
+                lifecycleCondition.wait()
             }
-            for active in activeControllersSnapshot {
-                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
+            lifecycleCondition.unlock()
+        case let .running(thread, runLoop):
+            lifecycleState = .stopping(thread: thread, runLoop: runLoop)
+            thread.cancel()
+            lifecycleCondition.unlock()
+
+            if Thread.current === thread {
+                CFRunLoopStop(runLoop)
+                return
             }
 
-            if let manager = hidManager {
-                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-                hidManager = nil
+            CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) {
+                CFRunLoopStop(runLoop)
             }
+            CFRunLoopWakeUp(runLoop)
 
-            stateLock.withLock { state in
-                state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.managedControllerIDs.removeAll(keepingCapacity: true)
-                state.activeControllers.removeAll(keepingCapacity: true)
-                state.retiredControllers.removeAll(keepingCapacity: true)
+            lifecycleCondition.lock()
+            while case .stopping = lifecycleState {
+                lifecycleCondition.wait()
+            }
+            lifecycleCondition.unlock()
+        case .starting:
+            lifecycleCondition.unlock()
+        }
+    }
+
+    private func runHIDThread() {
+        let currentThread = Thread.current
+        guard let runLoop = CFRunLoopGetCurrent() else {
+            lifecycleCondition.lock()
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            JamLog.error(.joyCon, "Failed to obtain Joy-Con HID thread run loop")
+            return
+        }
+
+        lifecycleCondition.lock()
+        guard case let .starting(thread) = lifecycleState, thread === currentThread else {
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            return
+        }
+        lifecycleCondition.unlock()
+
+        let startupResult = configureHIDManager(on: runLoop)
+        guard case .success = startupResult else {
+            cleanupHIDResources(on: runLoop)
+            lifecycleCondition.lock()
+            lifecycleState = .stopped
+            lifecycleCondition.broadcast()
+            lifecycleCondition.unlock()
+            if case let .failure(error) = startupResult {
+                JamLog.error(.joyCon, "Joy-Con HID backend did not start: \(error)")
             }
             return
         }
 
-        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
-            guard let self else { return }
+        lifecycleCondition.lock()
+        lifecycleState = .running(thread: currentThread, runLoop: runLoop)
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
 
-            let activeControllersSnapshot: [ActiveController] = self.stateLock.withLock { state in
-                Array(state.activeControllers.values) + state.retiredControllers.map(\.controller)
-            }
-            for active in activeControllersSnapshot {
-                IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-                IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
-            }
-
-            if let manager = self.hidManager {
-                IOHIDManagerUnscheduleFromRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-                IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-                self.hidManager = nil
-            }
-
-            self.stateLock.withLock { state in
-                state.discoveredControllers.removeAll(keepingCapacity: true)
-                state.managedControllerIDs.removeAll(keepingCapacity: true)
-                state.activeControllers.removeAll(keepingCapacity: true)
-                state.retiredControllers.removeAll(keepingCapacity: true)
-            }
-
-            CFRunLoopStop(runLoop)
-        }
-
-        CFRunLoopWakeUp(runLoop)
-    }
-
-    // MARK: - HID thread
-
-    private func startHIDThreadIfNeeded() {
-        guard hidThread == nil else { return }
-
-        let thread = Thread { [weak self] in
-            self?.runHIDThread()
-        }
-        thread.name = "JamCon.JoyConHID"
-        thread.qualityOfService = .userInteractive
-        hidThread = thread
-        thread.start()
-
-        hidRunLoopReady.wait()
-    }
-
-    private func runHIDThread() {
-        hidRunLoop = CFRunLoopGetCurrent()
-        hidRunLoopReady.signal()
-
-        configureHIDManager(on: hidRunLoop ?? CFRunLoopGetCurrent())
-
-        // Run loop with periodic autorelease pool drain to prevent memory accumulation
-        // from autoreleased objects created in HID callbacks
+        activateManagedControllersIfNeeded()
         while !Thread.current.isCancelled {
             _ = autoreleasepool {
                 CFRunLoopRunInMode(.defaultMode, 1.0, false)
             }
         }
 
-        hidRunLoop = nil
-        hidThread = nil
+        cleanupHIDResources(on: runLoop)
+        lifecycleCondition.lock()
+        lifecycleState = .stopped
+        lifecycleCondition.broadcast()
+        lifecycleCondition.unlock()
     }
 
-    private func configureHIDManager(on runLoop: CFRunLoop) {
-        guard hidManager == nil else { return }
-
-        hidManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard let manager = hidManager else {
-            log("Failed to create Joy-Con HID manager")
-            return
-        }
-
-        // Match Joy-Con L/R
-        // Usage can be joystick or gamepad depending on firmware/stack, so include both.
-        let usages: [[String: Any]] = [
-            [kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
-             kIOHIDDeviceUsageKey as String: kHIDUsage_GD_Joystick],
-            [kIOHIDDeviceUsagePageKey as String: kHIDPage_GenericDesktop,
-             kIOHIDDeviceUsageKey as String: kHIDUsage_GD_GamePad]
-        ]
-        var matchDictionaries: [[String: Any]] = []
-        for usage in usages {
-            matchDictionaries.append(usage.merging([
-                kIOHIDVendorIDKey as String: JoyConHIDProtocol.nintendoVendorID,
-                kIOHIDProductIDKey as String: JoyConHIDProtocol.leftProductID
-            ], uniquingKeysWith: { _, new in new }))
-            matchDictionaries.append(usage.merging([
-                kIOHIDVendorIDKey as String: JoyConHIDProtocol.nintendoVendorID,
-                kIOHIDProductIDKey as String: JoyConHIDProtocol.rightProductID
-            ], uniquingKeysWith: { _, new in new }))
-        }
-        // Include a loose fallback (vendor + PID only) in case usage filtering fails.
-        matchDictionaries.append([
-            kIOHIDVendorIDKey as String: JoyConHIDProtocol.nintendoVendorID,
-            kIOHIDProductIDKey as String: JoyConHIDProtocol.leftProductID
-        ])
-        matchDictionaries.append([
-            kIOHIDVendorIDKey as String: JoyConHIDProtocol.nintendoVendorID,
-            kIOHIDProductIDKey as String: JoyConHIDProtocol.rightProductID
-        ])
-        IOHIDManagerSetDeviceMatchingMultiple(manager, matchDictionaries as CFArray)
-
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
-            guard let context else { return }
-            let controller = Unmanaged<JoyConHIDController>.fromOpaque(context).takeUnretainedValue()
-            controller.handleDeviceConnected(device)
-        }, context)
-
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
-            guard let context else { return }
-            let controller = Unmanaged<JoyConHIDController>.fromOpaque(context).takeUnretainedValue()
-            controller.handleDeviceDisconnected(device)
-        }, context)
-
-        IOHIDManagerScheduleWithRunLoop(manager, runLoop, CFRunLoopMode.defaultMode.rawValue)
-
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        if result != kIOReturnSuccess {
-            log("Failed to open Joy-Con HID manager: \(result)")
-        } else {
+    private func configureHIDManager(on runLoop: CFRunLoop) -> Result<Void, HIDTransportError> {
+        let result = transport.startDiscovery(
+            on: runLoop,
+            deviceConnected: { [weak self] device in
+                self?.handleDeviceConnected(device)
+            },
+            deviceDisconnected: { [weak self] device in
+                self?.handleDeviceDisconnected(device)
+            }
+        )
+        if case .success = result {
             log("Joy-Con HID manager started (matching Joy-Con L/R)")
         }
+        return result
     }
 
-    // MARK: - Device handling
+    private func cleanupHIDResources(on runLoop: CFRunLoop) {
+        assertOnHIDThread()
 
-    private func handleDeviceConnected(_ device: IOHIDDevice) {
-        let vendorID = IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int ?? 0
-        let productID = IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int ?? 0
-        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Joy-Con"
+        let activeControllers = stateLock.withLock { state in
+            let active = Array(state.activeControllers.values)
+            state.activeControllers.removeAll(keepingCapacity: true)
+            return active
+        }
+        let now = CACurrentMediaTime()
+        for active in activeControllers {
+            flushTransportSummary(for: active, at: now)
+            close(active)
+        }
+        transport.stopDiscovery(on: runLoop)
 
-        log("HID device: vendor=0x\(String(format: "%04X", vendorID)) pid=0x\(String(format: "%04X", productID)) name=\(name)")
-        guard vendorID == JoyConHIDProtocol.nintendoVendorID,
-              (productID == JoyConHIDProtocol.leftProductID || productID == JoyConHIDProtocol.rightProductID) else {
+        stateLock.withLock { state in
+            state.discoveredControllers.removeAll(keepingCapacity: true)
+            state.retiredControllers.removeAll(keepingCapacity: true)
+        }
+    }
+
+    private func activateManagedControllersIfNeeded() {
+        assertOnHIDThread()
+        let controllers = stateLock.withLock { state in
+            state.discoveredControllers.filter {
+                state.managedControllerIDs.contains($0.id) && state.activeControllers[$0.id] == nil
+            }
+        }
+        for controller in controllers {
+            activateController(controller)
+        }
+    }
+
+    private func handleDeviceConnected(_ device: any HIDDeviceHandle) {
+        assertOnHIDThread()
+        guard let properties = transport.properties(for: device) else {
+            JamLog.error(.joyCon, "Ignoring Joy-Con with unreadable HID properties")
             return
         }
 
-        let serial = IOHIDDeviceGetProperty(device, kIOHIDSerialNumberKey as CFString) as? String
-        let location = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int ?? 0
-        let uniqueID = serial ?? "loc-\(location)-pid-\(productID)"
+        let vendorID = properties.vendorID
+        let productID = properties.productID
+        let name = properties.name
+        log(
+            "HID device: vendor=0x\(String(format: "%04X", vendorID)) "
+                + "pid=0x\(String(format: "%04X", productID)) name=\(name)"
+        )
+        guard vendorID == JoyConHIDProtocol.nintendoVendorID,
+              productID == JoyConHIDProtocol.leftProductID
+                || productID == JoyConHIDProtocol.rightProductID else {
+            return
+        }
 
+        let uniqueID = HIDDeviceIdentity.identifier(for: properties)
         let alreadyDiscovered = stateLock.withLock { state in
             state.discoveredControllers.contains(where: { $0.id == uniqueID })
         }
-        if alreadyDiscovered { return }
+        guard !alreadyDiscovered else { return }
 
-        let controller = DiscoveredJoyCon(id: uniqueID, name: name, productID: productID, device: device)
+        let controller = DiscoveredJoyCon(
+            id: uniqueID,
+            name: name,
+            productID: productID,
+            device: device
+        )
         stateLock.withLock { state in
             state.discoveredControllers.append(controller)
         }
@@ -395,13 +399,17 @@ final class JoyConHIDController {
         }
     }
 
-    private func handleDeviceDisconnected(_ device: IOHIDDevice) {
+    private func handleDeviceDisconnected(_ device: any HIDDeviceHandle) {
+        assertOnHIDThread()
         let disconnected: DiscoveredJoyCon? = stateLock.withLock { state in
-            guard let index = state.discoveredControllers.firstIndex(where: { $0.device == device }) else { return nil }
-            let controller = state.discoveredControllers[index]
-            state.discoveredControllers.remove(at: index)
-            return controller
+            guard let index = state.discoveredControllers.firstIndex(where: {
+                $0.device.transportIdentifier == device.transportIdentifier
+            }) else {
+                return nil
+            }
+            return state.discoveredControllers.remove(at: index)
         }
+
         if let controller = disconnected {
             log("Joy-Con disconnected: \(controller.name)")
             deactivateController(id: controller.id)
@@ -409,17 +417,13 @@ final class JoyConHIDController {
         }
     }
 
-    /// Enable/disable processing for a specific Joy-Con controller ID.
     func setControllerManaged(id: String, managed: Bool) {
         if managed {
             let controller: DiscoveredJoyCon? = stateLock.withLock { state in
                 state.managedControllerIDs.insert(id)
                 return state.discoveredControllers.first(where: { $0.id == id })
             }
-            guard let controller else {
-                // Not discovered yet; it'll auto-activate when it appears.
-                return
-            }
+            guard let controller else { return }
             performHIDOperation { [weak self] in
                 self?.activateController(controller)
             }
@@ -434,89 +438,122 @@ final class JoyConHIDController {
     }
 
     private func activateController(_ controller: DiscoveredJoyCon) {
-        assert(Thread.current == hidThread, "JoyConHIDController.activateController must run on the HID thread")
-
+        assertOnHIDThread()
         let controllerID = controller.id
-        let needsActivation: Bool = stateLock.withLock { state in
-            state.activeControllers[controllerID] == nil
+        let currentController: DiscoveredJoyCon? = stateLock.withLock { state in
+            guard state.managedControllerIDs.contains(controllerID),
+                  state.activeControllers[controllerID] == nil,
+                  let discovered = state.discoveredControllers.first(where: { $0.id == controllerID }),
+                  discovered.device.transportIdentifier == controller.device.transportIdentifier else {
+                return nil
+            }
+            return discovered
         }
-        guard needsActivation else { return }
-
-        let device = controller.device
-        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-        if result != kIOReturnSuccess && result != -536870201 { // already open OK
-            log("Failed to open Joy-Con: \(result)")
+        guard let currentController,
+              let runLoop = CFRunLoopGetCurrent() else {
             return
         }
 
-        let active = ActiveController(controller: controller, owner: self)
-        stateLock.withLock { state in
-            state.activeControllers[controllerID] = active
-        }
-
-        // Register input report callback
-        let context = Unmanaged.passUnretained(active.callbackContext).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(
-            device,
-            active.reportBuffer,
-            active.reportBufferLength,
-            { context, _, _, _, reportID, report, length in
-                guard let context else { return }
-                let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
-                callbackContext.owner?.handleInputReport(
-                    controllerID: callbackContext.controllerID,
+        let registrationResult = transport.openInput(
+            for: currentController.device,
+            on: runLoop,
+            reportLength: 64,
+            handler: { [weak self] reportID, report, length in
+                self?.handleInputReport(
+                    controllerID: controllerID,
                     report: report,
                     length: length,
                     reportID: reportID
                 )
-            },
-            context
+            }
         )
+        guard case let .success(registration) = registrationResult else {
+            if case let .failure(error) = registrationResult {
+                JamLog.error(.joyCon, "Failed to seize managed Joy-Con: \(error)")
+            }
+            return
+        }
 
-        // Enable IMU + set input mode
+        let active = ActiveController(controller: currentController, registration: registration)
+        let activated = stateLock.withLock { state in
+            guard state.managedControllerIDs.contains(controllerID),
+                  state.activeControllers[controllerID] == nil,
+                  let discovered = state.discoveredControllers.first(where: { $0.id == controllerID }),
+                  discovered.device.transportIdentifier == currentController.device.transportIdentifier else {
+                return false
+            }
+            state.activeControllers[controllerID] = active
+            return true
+        }
+        guard activated else {
+            if case let .failure(error) = transport.closeInput(registration) {
+                JamLog.error(.joyCon, "Failed to close stale managed Joy-Con: \(error)")
+            }
+            return
+        }
+
         sendSubcommand(.enableIMU, data: [0x01], to: active)
-        sendSubcommand(.setInputMode, data: [UInt8(JoyCon.InputMode.standardFull.rawValue)], to: active)
-        sendSubcommand(.enableVibration, data: [0x01], to: active) // keep LEDs happy
+        sendSubcommand(.setInputMode, data: [JoyCon.InputMode.standardFull.rawValue], to: active)
+        sendSubcommand(.enableVibration, data: [0x01], to: active)
         sendSubcommand(.setPlayerLights, data: [0x01], to: active)
 
-        let displayName = "\(controller.name) (\(controller.side))"
-        onConnectionChange?(true, displayName, controller.id)
+        let displayName = "\(currentController.name) (\(currentController.side))"
+        onConnectionChange?(true, displayName, currentController.id)
         log("Joy-Con activated: \(displayName)")
     }
 
     private func deactivateController(id: String) {
-        assert(Thread.current == hidThread, "JoyConHIDController.deactivateController must run on the HID thread")
-
+        assertOnHIDThread()
         let now = CACurrentMediaTime()
         let active: ActiveController? = stateLock.withLock { state in
             guard let active = state.activeControllers.removeValue(forKey: id) else { return nil }
             state.retiredControllers.append(RetiredController(controller: active, retiredAt: now))
-            state.retiredControllers.removeAll(where: { now - $0.retiredAt > Self.deactivationRetentionSeconds })
+            state.retiredControllers.removeAll {
+                now - $0.retiredAt > Self.deactivationRetentionSeconds
+            }
             return active
         }
         guard let active else { return }
 
-        IOHIDDeviceRegisterInputReportCallback(active.controller.device, active.reportBuffer, active.reportBufferLength, nil, nil)
-        IOHIDDeviceClose(active.controller.device, IOOptionBits(kIOHIDOptionsTypeNone))
-
-        if let summary = active.transportAggregator.flush(at: now) {
-            JamLog.info(.health, "device=joyCon:\(id) transport \(summary.logMessage)")
-        }
-
+        flushTransportSummary(for: active, at: now)
+        close(active)
         let displayName = "\(active.controller.name) (\(active.controller.side))"
         onConnectionChange?(false, displayName, active.controller.id)
     }
 
-    // MARK: - Input reports
+    private func close(_ active: ActiveController) {
+        assertOnHIDThread()
+        if case let .failure(error) = transport.closeInput(active.registration) {
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "device.close.\(active.controller.id)",
+                interval: 2,
+                "Failed to close Joy-Con: \(error)"
+            )
+        }
+    }
+
+    private func flushTransportSummary(for active: ActiveController, at timestamp: TimeInterval) {
+        if let summary = active.transportAggregator.flush(at: timestamp) {
+            JamLog.info(
+                .health,
+                "device=joyCon:\(active.controller.id) transport \(summary.logMessage)"
+            )
+        }
+    }
 
     #if DEBUG
     private var didLogInputReportSample = false
     #endif
 
-    private func handleInputReport(controllerID: String, report: UnsafeMutablePointer<UInt8>, length: Int, reportID: UInt32) {
+    private func handleInputReport(
+        controllerID: String,
+        report: UnsafeMutablePointer<UInt8>,
+        length: Int,
+        reportID: UInt32
+    ) {
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
         let receivedTimestamp = CACurrentMediaTime()
-
         let maxLength = min(length, JoyConHIDProtocol.reportLength)
         let bytes = Array(UnsafeBufferPointer(start: report, count: maxLength))
 
@@ -535,16 +572,21 @@ final class JoyConHIDController {
         }
         guard let (timing, transportSummary) = timingResult else { return }
         if let transportSummary {
-            JamLog.info(.health, "device=joyCon:\(controllerID) transport \(transportSummary.logMessage)")
+            JamLog.info(
+                .health,
+                "device=joyCon:\(controllerID) transport \(transportSummary.logMessage)"
+            )
         }
         guard timing.accepted else { return }
 
         #if DEBUG
-        // One bounded startup sample is enough to identify the report shape.
         if !didLogInputReportSample {
             didLogInputReportSample = true
             let hexBytes = bytes.prefix(50).map { String(format: "%02X", $0) }.joined(separator: " ")
-            JamLog.debug(.joyCon, "Input report sample len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)")
+            JamLog.debug(
+                .joyCon,
+                "Input report sample len=\(length) id=0x\(String(format: "%02X", reportID)): \(hexBytes)"
+            )
         }
         #endif
 
@@ -558,7 +600,6 @@ final class JoyConHIDController {
             return
         }
         let motion = decoded.latest
-
         onReportData?(InputReport(
             controllerID: controllerID,
             bytes: bytes,
@@ -577,32 +618,38 @@ final class JoyConHIDController {
         ))
     }
 
-    // MARK: - Subcommands
-
-    private func sendSubcommand(_ command: Subcommand.CommandType, data: [UInt8], to active: ActiveController) {
-        let device = active.controller.device
-
-        var report = [UInt8](repeating: 0, count: 10 + data.count + 1)
+    private func sendSubcommand(
+        _ command: Subcommand.CommandType,
+        data: [UInt8],
+        to active: ActiveController
+    ) {
+        var report = [UInt8](repeating: 0, count: 11 + data.count)
         report[0] = JoyCon.OutputType.subcommand.rawValue
         report[1] = active.outputPacketCounter
         active.outputPacketCounter = (active.outputPacketCounter &+ 1) & 0x0F
 
-        // Default rumble data (silent)
-        let rumble: [UInt8] = [0x00, 0x01, 0x00, 0x40, 0x00, 0x01, 0x00, 0x40]
-        for i in 0..<rumble.count { report[2 + i] = rumble[i] }
-
+        let silentRumble: [UInt8] = [0x00, 0x01, 0x00, 0x40, 0x00, 0x01, 0x00, 0x40]
+        for index in silentRumble.indices {
+            report[2 + index] = silentRumble[index]
+        }
         report[10] = command.rawValue
-        for (idx, byte) in data.enumerated() {
-            report[11 + idx] = byte
+        for (index, byte) in data.enumerated() {
+            report[11 + index] = byte
         }
 
-        let result = IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, CFIndex(JoyCon.OutputType.subcommand.rawValue), &report, report.count)
-        if result != kIOReturnSuccess {
-            JamLog.errorThrottled(.joyCon, key: "subcommand.\(command.rawValue)", interval: 2.0, "Joy-Con subcommand \(command) failed: \(result)")
+        if case let .failure(error) = transport.sendOutputReport(
+            report,
+            reportID: JoyCon.OutputType.subcommand.rawValue,
+            using: active.registration
+        ) {
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "subcommand.\(command.rawValue)",
+                interval: 2,
+                "Joy-Con subcommand \(command) failed: \(error)"
+            )
         }
     }
-
-    // MARK: - Logging
 
     private func log(_ message: String) {
         JamLog.info(.joyCon, message)
