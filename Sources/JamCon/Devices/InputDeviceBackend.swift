@@ -1,4 +1,5 @@
 import Foundation
+import os.lock
 
 /// Stable identifier for one implementation of a device-family backend.
 /// Multiple implementations for the same family (for example direct HID and
@@ -78,11 +79,11 @@ enum InputDeviceMotionSamples: Equatable, Sendable {
             return (sample.gyroX, sample.gyroY, sample.gyroZ)
         case let .batch(samples):
             guard !samples.isEmpty else { return nil }
-            let count = Int32(samples.count)
-            let sums = samples.reduce(into: (x: Int32(0), y: Int32(0), z: Int32(0))) { result, sample in
-                result.x += Int32(sample.gyroX)
-                result.y += Int32(sample.gyroY)
-                result.z += Int32(sample.gyroZ)
+            let count = Int64(samples.count)
+            let sums = samples.reduce(into: (x: Int64(0), y: Int64(0), z: Int64(0))) { result, sample in
+                result.x += Int64(sample.gyroX)
+                result.y += Int64(sample.gyroY)
+                result.z += Int64(sample.gyroZ)
             }
             return (
                 Int16(sums.x / count),
@@ -108,6 +109,89 @@ struct InputDeviceFrame: Equatable, Sendable {
     let timestampSource: InputTimestampSource
 
     var length: Int { bytes.count }
+}
+
+/// Structural failures that can be checked without understanding a device's
+/// private report format. The registry rejects these before they reach the
+/// latency-sensitive application policy in InputEngine.
+enum InputDeviceFrameContractViolation: String, Equatable, Sendable {
+    case backendMismatch
+    case emptyDeviceID
+    case nonFiniteTimestamp
+    case nonFiniteReceivedTimestamp
+    case nonFiniteInputTimestamp
+    case emptyMotionBatch
+    case undeclaredMotion
+
+    var message: String {
+        switch self {
+        case .backendMismatch:
+            return "the frame descriptor does not match its emitting backend"
+        case .emptyDeviceID:
+            return "the frame has no stable device identity"
+        case .nonFiniteTimestamp:
+            return "the processing timestamp is not finite"
+        case .nonFiniteReceivedTimestamp:
+            return "the receipt timestamp is not finite"
+        case .nonFiniteInputTimestamp:
+            return "the optional input timestamp is not finite"
+        case .emptyMotionBatch:
+            return "the frame contains an empty motion batch"
+        case .undeclaredMotion:
+            return "the frame contains motion from a backend that does not declare motion capability"
+        }
+    }
+}
+
+private enum InputDeviceMetadataContractViolation: String {
+    case emptyDeviceID
+    case duplicateDeviceID
+    case kindMismatch
+    case missingHandedness
+    case unexpectedHandedness
+
+    var message: String {
+        switch self {
+        case .emptyDeviceID:
+            return "discovered device has no stable identity"
+        case .duplicateDeviceID:
+            return "discovered device identity is duplicated within its backend"
+        case .kindMismatch:
+            return "discovered device kind does not match its backend"
+        case .missingHandedness:
+            return "a sided device has no backend-supplied handedness"
+        case .unexpectedHandedness:
+            return "a non-sided device declares handedness"
+        }
+    }
+}
+
+extension InputDeviceFrame {
+    func contractViolation(
+        expectedBackend: InputDeviceBackendDescriptor
+    ) -> InputDeviceFrameContractViolation? {
+        guard backend == expectedBackend else { return .backendMismatch }
+        guard !deviceID.isEmpty else {
+            return .emptyDeviceID
+        }
+        guard timestamp.isFinite else { return .nonFiniteTimestamp }
+        guard receivedTimestamp.isFinite else { return .nonFiniteReceivedTimestamp }
+        if let inputTimestamp, !inputTimestamp.isFinite {
+            return .nonFiniteInputTimestamp
+        }
+
+        switch motion {
+        case .none:
+            break
+        case let .batch(samples) where samples.isEmpty:
+            return .emptyMotionBatch
+        case .single, .batch:
+            guard expectedBackend.capabilities.contains(.motion) else {
+                return .undeclaredMotion
+            }
+        }
+        return nil
+    }
 }
 
 struct InputDeviceBackendConnectionEvent: Equatable, Sendable {
@@ -165,6 +249,7 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
     private let orderedBackends: [any InputDeviceBackend]
     private let backendsByID: [InputDeviceBackendID: any InputDeviceBackend]
     private let primaryBackendByKind: [ControllerKind: any InputDeviceBackend]
+    private let eventStateLock = OSAllocatedUnfairLock(initialState: Set<InputDeviceBackendID>())
 
     init(backends: [any InputDeviceBackend]) {
         var byID: [InputDeviceBackendID: any InputDeviceBackend] = [:]
@@ -207,10 +292,12 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
         for backend in orderedBackends {
             let descriptor = backend.backendDescriptor
             backend.setEventHandlers(InputDeviceBackendEventHandlers(
-                devicesChanged: {
+                devicesChanged: { [weak self] in
+                    guard self?.isAcceptingEvents(from: descriptor.id) == true else { return }
                     devicesChanged(descriptor)
                 },
-                connectionChanged: { connected, name, deviceID in
+                connectionChanged: { [weak self] connected, name, deviceID in
+                    guard self?.isAcceptingEvents(from: descriptor.id) == true else { return }
                     connectionChanged(InputDeviceBackendConnectionEvent(
                         backend: descriptor,
                         connected: connected,
@@ -218,13 +305,14 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
                         deviceID: deviceID
                     ))
                 },
-                inputFrame: { frame in
-                    guard frame.backend == descriptor else {
+                inputFrame: { [weak self] frame in
+                    guard self?.isAcceptingEvents(from: descriptor.id) == true else { return }
+                    if let violation = frame.contractViolation(expectedBackend: descriptor) {
                         JamLog.errorThrottled(
                             .engine,
-                            key: "input.backend-mismatch.\(descriptor.id.rawValue)",
+                            key: "input.contract.\(descriptor.id.rawValue).\(violation.rawValue)",
                             interval: 2,
-                            "Dropping input frame whose descriptor does not match backend \(descriptor.id.rawValue)"
+                            "Dropping invalid input frame from \(descriptor.id.rawValue): \(violation.message)"
                         )
                         return
                     }
@@ -236,22 +324,60 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
 
     @discardableResult
     func startAll() -> [InputDeviceBackendStartResult] {
-        orderedBackends.map { backend in
-            InputDeviceBackendStartResult(
+        eventStateLock.withLock { $0.removeAll(keepingCapacity: true) }
+        return orderedBackends.map { backend in
+            let backendID = backend.backendDescriptor.id
+            setAcceptingEvents(true, from: backendID)
+            let result = InputDeviceBackendStartResult(
                 backend: backend.backendDescriptor,
                 started: backend.start()
             )
+            if !result.started {
+                setAcceptingEvents(false, from: backendID)
+            }
+            return result
         }
     }
 
     func stopAll() {
+        // Close the registry boundary before asking transports to stop so
+        // callbacks arriving during transport teardown are ignored.
+        eventStateLock.withLock { $0.removeAll(keepingCapacity: true) }
         for backend in orderedBackends {
             backend.stop()
         }
     }
 
     func availableDevicesSnapshot() -> [ControllerInfo] {
-        orderedBackends.flatMap { $0.availableDevicesSnapshot() }
+        orderedBackends.flatMap { backend in
+            let descriptor = backend.backendDescriptor
+            var seenDeviceIDs = Set<String>()
+            return backend.availableDevicesSnapshot().filter { device in
+                let violation: InputDeviceMetadataContractViolation?
+                if device.id.isEmpty {
+                    violation = .emptyDeviceID
+                } else if !seenDeviceIDs.insert(device.id).inserted {
+                    violation = .duplicateDeviceID
+                } else if device.kind != descriptor.kind {
+                    violation = .kindMismatch
+                } else if device.kind.hasSides && device.handedness == .none {
+                    violation = .missingHandedness
+                } else if !device.kind.hasSides && device.handedness != .none {
+                    violation = .unexpectedHandedness
+                } else {
+                    violation = nil
+                }
+
+                guard let violation else { return true }
+                JamLog.errorThrottled(
+                    .engine,
+                    key: "input.metadata.\(descriptor.id.rawValue).\(violation.rawValue)",
+                    interval: 2,
+                    "Ignoring invalid device metadata from \(descriptor.id.rawValue): \(violation.message)"
+                )
+                return false
+            }
+        }
     }
 
     var isConnected: Bool {
@@ -267,6 +393,20 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
         guard let backend = primaryBackendByKind[kind] else { return false }
         backend.setDeviceManaged(id: id, managed: managed)
         return true
+    }
+
+    private func isAcceptingEvents(from backendID: InputDeviceBackendID) -> Bool {
+        eventStateLock.withLock { $0.contains(backendID) }
+    }
+
+    private func setAcceptingEvents(_ acceptsEvents: Bool, from backendID: InputDeviceBackendID) {
+        eventStateLock.withLock { backendIDs in
+            if acceptsEvents {
+                backendIDs.insert(backendID)
+            } else {
+                backendIDs.remove(backendID)
+            }
+        }
     }
 }
 

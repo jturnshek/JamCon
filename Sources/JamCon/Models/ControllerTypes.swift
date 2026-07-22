@@ -39,6 +39,23 @@ enum ControllerKind: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Physical handedness reported by a device backend. Keeping this metadata on
+/// ControllerInfo prevents shared UI and profile code from knowing transport-
+/// specific product IDs.
+enum ControllerHandedness: String, Codable, Sendable {
+    case left
+    case right
+    case none
+
+    var displayName: String {
+        switch self {
+        case .left: return "Left"
+        case .right: return "Right"
+        case .none: return ""
+        }
+    }
+}
+
 /// Identifies a specific controller profile by type and side.
 /// Used as the key for per-profile settings like button mappings.
 struct ControllerProfile: Hashable, Codable, Sendable {
@@ -91,6 +108,7 @@ struct ControllerInfo: Identifiable, Equatable, Sendable {
     let name: String
     let productID: Int
     let kind: ControllerKind
+    let handedness: ControllerHandedness
 
     /// Stable key for persisting per-device "managed" state.
     /// Includes kind to avoid cross-device ID collisions.
@@ -98,18 +116,9 @@ struct ControllerInfo: Identifiable, Equatable, Sendable {
         "\(kind.rawValue):\(id)"
     }
 
-    var isLeft: Bool {
-        switch kind {
-        case .sense:
-            return productID == SenseHIDProtocol.leftProductID
-        case .joyCon:
-            return productID == JoyConHIDProtocol.leftProductID
-        case .mouse:
-            return false  // Mouse has no sides
-        }
-    }
+    var isLeft: Bool { handedness == .left }
 
     var side: String {
-        kind.hasSides ? (isLeft ? "Left" : "Right") : ""
+        handedness.displayName
     }
 }

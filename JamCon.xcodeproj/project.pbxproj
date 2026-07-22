@@ -23,6 +23,7 @@
 		1B4B2C826770E9C71671BD06 /* SyntheticOutputCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABAA59B316572E85D9EE23D /* SyntheticOutputCoordinatorTests.swift */; };
 		1CB3FF8011DE5FBD05478CF9 /* HIDReportDecoders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09CDE9F45FF5A7A3E0DC1068 /* HIDReportDecoders.swift */; };
 		1E6CE7E3F8D6800F08943001 /* GyroProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C136BA82CCD276619FD1D2B0 /* GyroProcessorTests.swift */; };
+		2598EC0BFEF20F62A9277C0A /* InputDeviceBackendContractHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EF2B4D4AB66FED742DC2FB2 /* InputDeviceBackendContractHarness.swift */; };
 		26B5066DE5FD48012CF6D994 /* RadialMenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ADFD097F5F8EC3ACB1D7AFE /* RadialMenuView.swift */; };
 		2825E809B62C7960707B5265 /* BatteryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = D920CEDAF995B8D68634D45C /* BatteryHelper.swift */; };
 		29A48D0A2155B85E42A2C511 /* HIDReportTraceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D980C43478DE65C61974E481 /* HIDReportTraceTests.swift */; };
@@ -159,6 +160,7 @@
 		67C6DF8687263295A3E6B6A9 /* BoundedFileLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoundedFileLog.swift; sourceTree = "<group>"; };
 		6CB21011BC2F9F33F7C2294B /* InputEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputEngine.swift; sourceTree = "<group>"; };
 		6E7AC5D94676D46304336BCC /* InputEngine+RadialMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InputEngine+RadialMenu.swift"; sourceTree = "<group>"; };
+		6EF2B4D4AB66FED742DC2FB2 /* InputDeviceBackendContractHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputDeviceBackendContractHarness.swift; sourceTree = "<group>"; };
 		711FFE2917B5D367B2BFBDFB /* ControllerTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControllerTypes.swift; sourceTree = "<group>"; };
 		7242DF63166C644BA82EB5DB /* MouseDebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MouseDebugViews.swift; sourceTree = "<group>"; };
 		729272B6BA204FBC63DA47BF /* SyntheticOutputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticOutputCoordinator.swift; sourceTree = "<group>"; };
@@ -341,6 +343,7 @@
 				3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */,
 				46DA83FE39F535BAD09608C8 /* HIDReportDecoderTests.swift */,
 				D980C43478DE65C61974E481 /* HIDReportTraceTests.swift */,
+				6EF2B4D4AB66FED742DC2FB2 /* InputDeviceBackendContractHarness.swift */,
 				F0AA6052A54C6930DE9FE55E /* InputDeviceBackendRegistryTests.swift */,
 				77E469C11B836491B6C362B1 /* InputEngineInteractionTests.swift */,
 				3D95DAA009CC55FD9E9F6CAA /* InputHealthAggregatorTests.swift */,
@@ -530,6 +533,7 @@
 				F1E7A2513151EA698E18E197 /* HIDButtonMappingTests.swift in Sources */,
 				CFE5A5635D7EB52BF4164B8F /* HIDReportDecoderTests.swift in Sources */,
 				29A48D0A2155B85E42A2C511 /* HIDReportTraceTests.swift in Sources */,
+				2598EC0BFEF20F62A9277C0A /* InputDeviceBackendContractHarness.swift in Sources */,
 				D36CEB60744F1D04E173E069 /* InputDeviceBackendRegistryTests.swift in Sources */,
 				41A0E61F9DF8EF52A9D39003 /* InputEngineInteractionTests.swift in Sources */,
 				6C50007365B00571644FE291 /* InputHealthAggregatorTests.swift in Sources */,

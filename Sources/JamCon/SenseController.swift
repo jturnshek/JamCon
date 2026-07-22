@@ -9,13 +9,20 @@ struct DiscoveredController: Identifiable, Equatable, Sendable {
     let productID: Int
     let device: any HIDDeviceHandle
 
-    var isLeft: Bool { productID == 0x0E45 }
-    var isRight: Bool { productID == 0x0E46 }
-    var side: String { isLeft ? "Left" : "Right" }
+    var isLeft: Bool { productID == SenseHIDProtocol.leftProductID }
+    var isRight: Bool { productID == SenseHIDProtocol.rightProductID }
+    var handedness: ControllerHandedness { isLeft ? .left : .right }
+    var side: String { handedness.displayName }
 
     /// Convert to UI-safe info struct
     var info: ControllerInfo {
-        ControllerInfo(id: id, name: name, productID: productID, kind: .sense)
+        ControllerInfo(
+            id: id,
+            name: name,
+            productID: productID,
+            kind: .sense,
+            handedness: handedness
+        )
     }
 
     static func == (lhs: DiscoveredController, rhs: DiscoveredController) -> Bool {

@@ -4,7 +4,7 @@
 
 1. A concrete InputDeviceBackend receives framework or HID input on its transport thread.
 2. The backend copies any callback-owned bytes, decodes transport timing and motion, and emits an InputDeviceFrame.
-3. InputDeviceBackendRegistry validates the frame's backend identity and forwards it to InputEngine's serial queue.
+3. InputDeviceBackendRegistry validates the frame's backend identity, stable device identity, finite clocks, motion shape, and declared capabilities before forwarding it to InputEngine's serial queue.
 4. InputEngine applies profile settings and application-level button, gyro, scroll, and radial-menu policy.
 5. MouseController posts CGEvents directly to the system.
 6. UI state updates are dispatched to MainActor only.
@@ -21,9 +21,9 @@
 
 - AppState: central UI state, persists managed devices and profile settings, and mirrors engine callbacks into SwiftUI state.
 - HIDTransport: shared opaque device handles, device properties, transport errors, callback registrations, and stable identity selection used by controller backends.
-- InputDeviceBackend: common contract for backend identity and capabilities, lifecycle, discovery snapshots, managed-device intent, connection state, lifecycle events, and high-frequency InputDeviceFrame delivery.
+- InputDeviceBackend: common contract for backend identity and capabilities, lifecycle, discovery snapshots, backend-supplied handedness, managed-device intent, connection state, lifecycle events, and high-frequency InputDeviceFrame delivery.
 - InputDeviceFrame: allocation-conscious engine handoff containing stable device/backend identity, monotonic timing, copied diagnostic bytes, and either no motion, one IMU sample, or an adapter-owned sample batch.
-- InputDeviceBackendRegistry: ordered owner of the active backends. InputEngine uses it for start/stop, device enumeration, management routing, aggregate connection state, lifecycle callbacks, and validated input-frame delivery.
+- InputDeviceBackendRegistry: ordered owner of the active backends. InputEngine uses it for start/stop, device enumeration, management routing, aggregate connection state, lifecycle callbacks, and validated input-frame delivery. The registry only forwards callbacks while its lifecycle is running, so teardown callbacks cannot revive stopped engine state.
 - SenseInputDeviceBackend: owns the complete Sense adapter by combining IOKit identity discovery with Apple's Game Controller session and resolving native left/right input to stable managed-device IDs.
 - JoyConHIDController and G502XHIDController: complete direct-HID backends with device-specific lifecycle, managed-device policy, setup, decoding, and common-frame emission. They revalidate queued activations and only open explicitly managed devices.
 - SenseController: IOKit discovery and stable identity component owned by SenseInputDeviceBackend. It never opens raw Sense input.
@@ -39,11 +39,17 @@
 
 Device transport handles, backend descriptors, common frames, decoded reports, settings snapshots, and mapping profiles are `Sendable`. Raw IOKit and framework references and callback buffers remain inside the concrete backends; adapters immediately copy callback bytes into owned storage. Controller start/stop is serialized, failed startup is retryable, managed selections survive backend restarts and reconnects, and shutdown closes each active input registration exactly once. Deterministic fake transports, native sessions, and registry backends cover those lifecycle contracts without connected hardware.
 
+## Backend boundary versus product policy
+
+The backend owns facts and mechanics specific to the physical device: framework or HID objects, discovery, stable identity, handedness, transport lifecycle, report validation, timestamps, common motion extraction, and copied raw diagnostic bytes. Shared models must not infer those facts from vendor or product IDs.
+
+InputEngine and the settings UI own JamCon behavior layered on those facts: family-specific button/stick layout interpretation, controller profiles, logical mappings, clutch and scroll overrides, radial-menu behavior, gyro tuning, and synthetic output. An explicit InputEngine processor per controller family is intentional product policy rather than a transport leak; a generic physical-control schema should only be introduced when concrete new-device requirements justify it.
+
 ## Adding a device backend
 
 1. Add a stable InputDeviceBackendID and a descriptor declaring the device kind and capabilities.
-2. Keep all framework objects, HID handles, discovery, decoding, and transport lifecycle inside the adapter.
-3. Emit stable device snapshots and connection events only for managed input-ready devices.
-4. Emit InputDeviceFrame values with copied raw bytes, the real report/receipt clocks, and reusable IMU samples where available.
+2. Keep all framework objects, HID handles, discovery, report validation, common timing/motion extraction, and transport lifecycle inside the adapter.
+3. Emit stable device snapshots with explicit handedness, and connection events only for managed input-ready devices.
+4. Emit InputDeviceFrame values with a nonempty stable device ID, copied raw bytes, finite real report/receipt clocks, and reusable IMU samples only when the descriptor declares motion capability.
 5. Register the adapter with InputDeviceBackendRegistry and add only the profile-specific application policy needed by InputEngine.
-6. Cover start/stop retryability, stable identity, manage/unmanage, disconnect cleanup, and frame delivery with a deterministic fake transport or session.
+6. Use InputDeviceBackendContractHarness with a deterministic fake transport or session to cover start/stop retryability, stable identity and handedness, manage/unmanage, disconnect cleanup, valid frame delivery, and callback shutdown.

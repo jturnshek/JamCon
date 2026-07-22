@@ -7,13 +7,15 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             id: "sense-1",
             name: "Sense Right",
             productID: SenseHIDProtocol.rightProductID,
-            kind: .sense
+            kind: .sense,
+            handedness: .right
         )
         let joyConDevice = ControllerInfo(
             id: "joycon-1",
             name: "Joy-Con Right",
             productID: JoyConHIDProtocol.rightProductID,
-            kind: .joyCon
+            kind: .joyCon,
+            handedness: .right
         )
         let sense = FakeInputDeviceBackend(
             descriptor: descriptor(id: "test.sense", kind: .sense),
@@ -32,6 +34,47 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         XCTAssertFalse(registry.setDeviceManaged(id: "missing", kind: .mouse, managed: true))
         XCTAssertTrue(registry.backend(id: sense.backendDescriptor.id) === sense)
         XCTAssertTrue(registry.backend(for: .joyCon) === joyCon)
+    }
+
+    func testRegistryFiltersInvalidDiscoveredDeviceMetadata() {
+        let valid = ControllerInfo(
+            id: "joycon-1",
+            name: "Joy-Con Right",
+            productID: JoyConHIDProtocol.rightProductID,
+            kind: .joyCon,
+            handedness: .right
+        )
+        let backend = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.joycon", kind: .joyCon),
+            devices: [
+                valid,
+                ControllerInfo(
+                    id: "",
+                    name: "No Identity",
+                    productID: 1,
+                    kind: .joyCon,
+                    handedness: .left
+                ),
+                ControllerInfo(
+                    id: "wrong-kind",
+                    name: "Wrong Kind",
+                    productID: 2,
+                    kind: .mouse,
+                    handedness: .none
+                ),
+                ControllerInfo(
+                    id: "missing-side",
+                    name: "Missing Side",
+                    productID: 3,
+                    kind: .joyCon,
+                    handedness: .none
+                ),
+                valid,
+            ]
+        )
+        let registry = InputDeviceBackendRegistry(backends: [backend])
+
+        XCTAssertEqual(registry.availableDevicesSnapshot(), [valid])
     }
 
     func testRegistryStartsAndStopsBackendsInRegistrationOrder() {
@@ -67,21 +110,8 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         let backend = FakeInputDeviceBackend(
             descriptor: descriptor(id: "test.joycon", kind: .joyCon)
         )
-        let registry = InputDeviceBackendRegistry(backends: [backend])
-        let changedBackends = LockedBackendValue<[InputDeviceBackendDescriptor]>([])
-        let connectionEvents = LockedBackendValue<[InputDeviceBackendConnectionEvent]>([])
-        let inputFrames = LockedBackendValue<[InputDeviceFrame]>([])
-        registry.setEventHandlers(
-            devicesChanged: { descriptor in
-                changedBackends.update { $0.append(descriptor) }
-            },
-            connectionChanged: { event in
-                connectionEvents.update { $0.append(event) }
-            },
-            inputFrame: { frame in
-                inputFrames.update { $0.append(frame) }
-            }
-        )
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
 
         backend.emitDevicesChanged()
         backend.emitConnection(connected: true, name: "Joy-Con", id: "joycon-1")
@@ -98,8 +128,8 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         )
         backend.emitInputFrame(frame)
 
-        XCTAssertEqual(changedBackends.snapshot(), [backend.backendDescriptor])
-        XCTAssertEqual(connectionEvents.snapshot(), [
+        XCTAssertEqual(harness.changedBackendsSnapshot(), [backend.backendDescriptor])
+        XCTAssertEqual(harness.connectionEventsSnapshot(), [
             InputDeviceBackendConnectionEvent(
                 backend: backend.backendDescriptor,
                 connected: true,
@@ -107,7 +137,8 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
                 deviceID: "joycon-1"
             ),
         ])
-        XCTAssertEqual(inputFrames.snapshot(), [frame])
+        XCTAssertEqual(harness.inputFramesSnapshot(), [frame])
+        harness.stop()
     }
 
     func testRegistryConnectionStateIsAggregate() {
@@ -130,13 +161,8 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         let backend = FakeInputDeviceBackend(
             descriptor: descriptor(id: "test.joycon", kind: .joyCon)
         )
-        let registry = InputDeviceBackendRegistry(backends: [backend])
-        let receivedFrames = LockedBackendValue<[InputDeviceFrame]>([])
-        registry.setEventHandlers(
-            devicesChanged: { _ in },
-            connectionChanged: { _ in },
-            inputFrame: { frame in receivedFrames.update { $0.append(frame) } }
-        )
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
 
         backend.emitInputFrame(InputDeviceFrame(
             backend: descriptor(id: "other.joycon", kind: .joyCon),
@@ -150,7 +176,141 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             timestampSource: .hostReceipt
         ))
 
-        XCTAssertTrue(receivedFrames.snapshot().isEmpty)
+        XCTAssertTrue(harness.inputFramesSnapshot().isEmpty)
+        harness.stop()
+    }
+
+    func testRegistryRejectsEveryCommonFrameContractViolation() {
+        let backend = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.joycon", kind: .joyCon)
+        )
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
+
+        let valid = frame(backend: backend.backendDescriptor)
+        let invalidFrames = [
+            frame(backend: backend.backendDescriptor, deviceID: ""),
+            frame(backend: backend.backendDescriptor, timestamp: .nan),
+            frame(backend: backend.backendDescriptor, receivedTimestamp: .infinity),
+            frame(backend: backend.backendDescriptor, inputTimestamp: -.infinity),
+            frame(backend: backend.backendDescriptor, motion: .batch([])),
+            frame(
+                backend: backend.backendDescriptor,
+                motion: .single(IMUSample(
+                    accelX: 0,
+                    accelY: 0,
+                    accelZ: 0,
+                    gyroX: 0,
+                    gyroY: 0,
+                    gyroZ: 0
+                ))
+            ),
+        ]
+
+        invalidFrames.forEach(backend.emitInputFrame)
+        backend.emitInputFrame(valid)
+
+        XCTAssertEqual(harness.inputFramesSnapshot(), [valid])
+        harness.stop()
+    }
+
+    func testRegistryAcceptsMotionWhenBackendDeclaresCapability() {
+        let descriptor = InputDeviceBackendDescriptor(
+            id: InputDeviceBackendID(rawValue: "test.motion"),
+            kind: .sense,
+            displayName: "Motion Test",
+            capabilities: [.motion]
+        )
+        let backend = FakeInputDeviceBackend(descriptor: descriptor)
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
+        let motionFrame = frame(
+            backend: descriptor,
+            motion: .single(IMUSample(
+                accelX: 1,
+                accelY: 2,
+                accelZ: 3,
+                gyroX: 4,
+                gyroY: 5,
+                gyroZ: 6
+            ))
+        )
+
+        backend.emitInputFrame(motionFrame)
+
+        XCTAssertEqual(harness.inputFramesSnapshot(), [motionFrame])
+        harness.stop()
+    }
+
+    func testRegistrySuppressesCallbacksBeforeStartAndAfterStop() {
+        let backend = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.joycon", kind: .joyCon)
+        )
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        let validFrame = frame(backend: backend.backendDescriptor)
+
+        backend.emitDevicesChanged()
+        backend.emitConnection(connected: true, name: "Joy-Con", id: "joycon-1")
+        backend.emitInputFrame(validFrame)
+        XCTAssertTrue(harness.changedBackendsSnapshot().isEmpty)
+        XCTAssertTrue(harness.connectionEventsSnapshot().isEmpty)
+        XCTAssertTrue(harness.inputFramesSnapshot().isEmpty)
+
+        XCTAssertTrue(harness.start())
+        backend.emitDevicesChanged()
+        backend.emitConnection(connected: true, name: "Joy-Con", id: "joycon-1")
+        backend.emitInputFrame(validFrame)
+        XCTAssertEqual(harness.changedBackendsSnapshot().count, 1)
+        XCTAssertEqual(harness.connectionEventsSnapshot().count, 1)
+        XCTAssertEqual(harness.inputFramesSnapshot(), [validFrame])
+
+        harness.stop()
+        backend.emitDevicesChanged()
+        backend.emitConnection(connected: false, name: "Joy-Con", id: "joycon-1")
+        backend.emitInputFrame(validFrame)
+        XCTAssertEqual(harness.changedBackendsSnapshot().count, 1)
+        XCTAssertEqual(harness.connectionEventsSnapshot().count, 1)
+        XCTAssertEqual(harness.inputFramesSnapshot(), [validFrame])
+    }
+
+    func testFailedBackendCannotEmitWhileAnotherBackendIsRunning() {
+        let failed = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.failed", kind: .joyCon),
+            startResult: false
+        )
+        let running = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.running", kind: .sense)
+        )
+        let registry = InputDeviceBackendRegistry(backends: [failed, running])
+        let receivedFrames = LockedBackendValue<[InputDeviceFrame]>([])
+        registry.setEventHandlers(
+            devicesChanged: { _ in },
+            connectionChanged: { _ in },
+            inputFrame: { frame in receivedFrames.update { $0.append(frame) } }
+        )
+        let results = registry.startAll()
+        let failedFrame = frame(backend: failed.backendDescriptor)
+        let runningFrame = frame(backend: running.backendDescriptor)
+
+        failed.emitInputFrame(failedFrame)
+        running.emitInputFrame(runningFrame)
+
+        XCTAssertEqual(results.map(\.started), [false, true])
+        XCTAssertEqual(receivedFrames.snapshot(), [runningFrame])
+        registry.stopAll()
+    }
+
+    func testControllerInfoUsesBackendSuppliedHandedness() {
+        let info = ControllerInfo(
+            id: "future-device",
+            name: "Future Device",
+            productID: 0,
+            kind: .sense,
+            handedness: .left
+        )
+
+        XCTAssertTrue(info.isLeft)
+        XCTAssertEqual(info.side, "Left")
     }
 
     private func descriptor(
@@ -163,105 +323,25 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             displayName: id
         )
     }
-}
 
-private struct ManagedCall: Equatable, Sendable {
-    let id: String
-    let managed: Bool
-}
-
-private final class FakeInputDeviceBackend: InputDeviceBackend, @unchecked Sendable {
-    let backendDescriptor: InputDeviceBackendDescriptor
-
-    private let lock = NSLock()
-    private let startResult: Bool
-    private let sharedEvents: LockedBackendValue<[String]>?
-    private var devices: [ControllerInfo]
-    private var connected = false
-    private var managedCalls: [ManagedCall] = []
-    private var handlers = InputDeviceBackendEventHandlers.none
-
-    init(
-        descriptor: InputDeviceBackendDescriptor,
-        devices: [ControllerInfo] = [],
-        startResult: Bool = true,
-        sharedEvents: LockedBackendValue<[String]>? = nil
-    ) {
-        backendDescriptor = descriptor
-        self.devices = devices
-        self.startResult = startResult
-        self.sharedEvents = sharedEvents
-    }
-
-    func start() -> Bool {
-        sharedEvents?.update { $0.append("start:\(backendDescriptor.id.rawValue)") }
-        return startResult
-    }
-
-    func stop() {
-        sharedEvents?.update { $0.append("stop:\(backendDescriptor.id.rawValue)") }
-    }
-
-    func availableDevicesSnapshot() -> [ControllerInfo] {
-        locked { devices }
-    }
-
-    var isConnected: Bool {
-        locked { connected }
-    }
-
-    func setDeviceManaged(id: String, managed: Bool) {
-        locked { managedCalls.append(ManagedCall(id: id, managed: managed)) }
-    }
-
-    func setEventHandlers(_ handlers: InputDeviceBackendEventHandlers) {
-        locked { self.handlers = handlers }
-    }
-
-    func managedCallsSnapshot() -> [ManagedCall] {
-        locked { managedCalls }
-    }
-
-    func setConnected(_ connected: Bool) {
-        locked { self.connected = connected }
-    }
-
-    func emitDevicesChanged() {
-        locked { handlers }.devicesChanged()
-    }
-
-    func emitConnection(connected: Bool, name: String?, id: String?) {
-        locked { handlers }.connectionChanged(connected, name, id)
-    }
-
-    func emitInputFrame(_ frame: InputDeviceFrame) {
-        locked { handlers }.inputFrame(frame)
-    }
-
-    private func locked<Value>(_ body: () -> Value) -> Value {
-        lock.lock()
-        defer { lock.unlock() }
-        return body()
-    }
-}
-
-private final class LockedBackendValue<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value: Value
-
-    init(_ value: Value) {
-        self.value = value
-    }
-
-    func update(_ body: (inout Value) -> Void) {
-        lock.lock()
-        body(&value)
-        lock.unlock()
-    }
-
-    func snapshot() -> Value {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
+    private func frame(
+        backend: InputDeviceBackendDescriptor,
+        deviceID: String = "device-1",
+        motion: InputDeviceMotionSamples = .none,
+        timestamp: TimeInterval = 10,
+        receivedTimestamp: TimeInterval = 10,
+        inputTimestamp: TimeInterval? = nil
+    ) -> InputDeviceFrame {
+        InputDeviceFrame(
+            backend: backend,
+            deviceID: deviceID,
+            reportID: 1,
+            bytes: [1],
+            motion: motion,
+            timestamp: timestamp,
+            receivedTimestamp: receivedTimestamp,
+            inputTimestamp: inputTimestamp,
+            timestampSource: .hostReceipt
+        )
     }
 }

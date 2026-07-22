@@ -19,7 +19,13 @@ struct DiscoveredG502X: Identifiable, Equatable, Sendable {
     var interfaces: [G502XInterface]
 
     var info: ControllerInfo {
-        ControllerInfo(id: id, name: name, productID: productID, kind: .mouse)
+        ControllerInfo(
+            id: id,
+            name: name,
+            productID: productID,
+            kind: .mouse,
+            handedness: .none
+        )
     }
 
     static func == (lhs: DiscoveredG502X, rhs: DiscoveredG502X) -> Bool {

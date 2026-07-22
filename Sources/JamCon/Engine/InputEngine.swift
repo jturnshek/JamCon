@@ -562,6 +562,7 @@ final class InputEngine: @unchecked Sendable {
 
     private func processInputDeviceFrame(_ frame: InputDeviceFrame) {
         assertOnEngineQueue()
+        guard isRunning else { return }
         guard backendRegistry.backend(id: frame.backend.id)?.backendDescriptor == frame.backend else {
             JamLog.errorThrottled(
                 .engine,
@@ -584,6 +585,7 @@ final class InputEngine: @unchecked Sendable {
 
     private func handleBackendConnectionEvent(_ event: InputDeviceBackendConnectionEvent) {
         assertOnEngineQueue()
+        guard isRunning else { return }
         let kind = event.backend.kind
 
         switch kind {

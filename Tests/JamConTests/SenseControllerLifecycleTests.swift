@@ -10,6 +10,7 @@ final class SenseControllerLifecycleTests: XCTestCase {
 
         XCTAssertTrue(controller.start())
         XCTAssertEqual(controller.controllerInfosSnapshot().map(\.id), ["sense-right"])
+        XCTAssertEqual(controller.controllerInfosSnapshot().map(\.handedness), [.right])
         XCTAssertEqual(transport.count(of: .open("right")), 0)
 
         controller.stop()
@@ -120,21 +121,21 @@ final class SenseControllerLifecycleTests: XCTestCase {
         let connected = expectation(description: "native input ready")
         let inputReceived = expectation(description: "common input frame")
         let receivedFrame = LockedSenseTestValue<InputDeviceFrame?>(nil)
-        backend.setEventHandlers(InputDeviceBackendEventHandlers(
-            devicesChanged: {},
-            connectionChanged: { isConnected, _, id in
-                if isConnected, id == "sense-right" {
+        let harness = InputDeviceBackendContractHarness(
+            backend: backend,
+            connectionObserver: { event in
+                if event.connected, event.deviceID == "sense-right" {
                     connected.fulfill()
                 }
             },
-            inputFrame: { frame in
+            inputObserver: { frame in
                 receivedFrame.set(frame)
                 inputReceived.fulfill()
             }
-        ))
+        )
 
-        XCTAssertTrue(backend.start())
-        backend.setDeviceManaged(id: "sense-right", managed: true)
+        XCTAssertTrue(harness.start())
+        XCTAssertTrue(harness.setDeviceManaged(id: "sense-right", kind: .sense, managed: true))
         nativeSession.emitConnection(
             connected: true,
             device: SenseGameControllerDevice(
@@ -176,7 +177,7 @@ final class SenseControllerLifecycleTests: XCTestCase {
             gyroZ: 33
         ))
 
-        backend.stop()
+        harness.stop()
         XCTAssertEqual(nativeSession.startCount, 1)
         XCTAssertEqual(nativeSession.stopCount, 1)
         XCTAssertFalse(backend.isConnected)

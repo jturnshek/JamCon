@@ -28,10 +28,19 @@ struct DiscoveredJoyCon: Identifiable, Equatable, Sendable {
     let productID: Int
     let device: any HIDDeviceHandle
 
-    var side: String { productID == JoyConHIDProtocol.leftProductID ? "Left" : "Right" }
+    var handedness: ControllerHandedness {
+        productID == JoyConHIDProtocol.leftProductID ? .left : .right
+    }
+    var side: String { handedness.displayName }
 
     var info: ControllerInfo {
-        ControllerInfo(id: id, name: name, productID: productID, kind: .joyCon)
+        ControllerInfo(
+            id: id,
+            name: name,
+            productID: productID,
+            kind: .joyCon,
+            handedness: handedness
+        )
     }
 
     static func == (lhs: DiscoveredJoyCon, rhs: DiscoveredJoyCon) -> Bool {

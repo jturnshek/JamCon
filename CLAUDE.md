@@ -37,7 +37,7 @@ Input processing happens off the main thread to minimize latency. The `SettingsS
 **Input flow:**
 1. An `InputDeviceBackend` receives Game Controller or HID input on its transport thread
 2. The backend emits a common `InputDeviceFrame` with stable identity, timing, raw diagnostics, and motion samples
-3. `InputDeviceBackendRegistry` validates and forwards the frame to `InputEngine`'s serial queue
+3. `InputDeviceBackendRegistry` validates identity, timing, motion/capability consistency, and running lifecycle before forwarding the frame to `InputEngine`'s serial queue
 4. `InputEngine` applies profile/application policy and calls `MouseController` directly
 5. `MouseController` posts `CGEvent`s to the system
 6. Only UI state changes dispatch to `@MainActor`
@@ -46,7 +46,7 @@ Input processing happens off the main thread to minimize latency. The `SettingsS
 
 - **AppState** (`AppState.swift`): Central UI state. Owns managed-device state, persists per-profile settings, and mirrors engine callbacks into SwiftUI.
 
-- **InputDeviceBackend/Registry** (`Devices/InputDeviceBackend.swift`): Common lifecycle, capability, discovery, management, connection, and high-frequency frame boundary for all device adapters.
+- **InputDeviceBackend/Registry** (`Devices/InputDeviceBackend.swift`): Common lifecycle, capability, discovery, backend-supplied handedness, management, connection, validation, and high-frequency frame boundary for all device adapters.
 
 - **SenseInputDeviceBackend** (`Devices/SenseInputDeviceBackend.swift`): Complete PlayStation Sense adapter. Combines IOKit stable-identity discovery with Apple's Game Controller input session.
 
@@ -71,6 +71,10 @@ JamCon can manage multiple supported devices at the same time:
 - Button mappings are stored per controller profile
 - Cursor control can be enabled or disabled per profile
 - Multiple managed controllers can stay connected simultaneously
+
+### Adding Device Families
+
+Backends own framework/HID objects, discovery, stable identity, handedness, transport lifecycle, report validation, timing, common motion extraction, and copied raw diagnostics. `InputEngine` and the settings UI intentionally own family control-layout interpretation and application policy such as controller profiles, mappings, clutch/scroll behavior, radial menus, and gyro tuning. New adapter tests should use `InputDeviceBackendContractHarness` with a fake transport or framework session so lifecycle and frame-boundary behavior is exercised consistently.
 
 ### Button Mapping System
 
