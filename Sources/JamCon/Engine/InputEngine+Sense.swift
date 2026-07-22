@@ -22,78 +22,22 @@ enum SenseTriggerHysteresis {
 
 extension InputEngine {
 
-    // MARK: - Game Controller Input
-
-    func handleSenseGameControllerConnection(
-        connected: Bool,
-        device nativeDevice: SenseGameControllerDevice
-    ) {
-        assertOnEngineQueue()
-        guard let device = managedSenseDevice(forLeftSide: nativeDevice.isLeft) else {
-            JamLog.errorThrottled(
-                .sense,
-                key: "native.connection.unmatched.\(nativeDevice.isLeft)",
-                interval: 2,
-                "Game Controller \(nativeDevice.name) has no unique managed \(nativeDevice.isLeft ? "left" : "right") Sense device"
-            )
-            return
-        }
-
-        resetSenseTransientState(device)
-        if !connected {
-            let key = ManagedDeviceKey(kind: .sense, id: device.id)
-            clearBatteryLevel(for: key)
-            cancelRadialMenuIfOwned(by: key)
-        }
-        JamLog.info(
-            .sense,
-            "Game Controller input \(connected ? "ready" : "unavailable") for managed device \(device.id)"
-        )
-    }
-
-    func processSenseGameControllerFrame(_ frame: SenseGameControllerInputFrame) {
-        assertOnEngineQueue()
-        guard let device = managedSenseDevice(forLeftSide: frame.device.isLeft) else {
-            JamLog.errorThrottled(
-                .sense,
-                key: "native.frame.unmatched.\(frame.device.isLeft)",
-                interval: 2,
-                "Dropping Game Controller input with no unique managed \(frame.device.isLeft ? "left" : "right") Sense device"
-            )
-            return
-        }
-
-        let report = SenseController.InputReport(
-            controllerID: device.id,
-            bytes: frame.bytes,
-            length: frame.bytes.count,
-            gyroX: frame.gyroX,
-            gyroY: frame.gyroY,
-            gyroZ: frame.gyroZ,
-            accelX: frame.accelX,
-            accelY: frame.accelY,
-            accelZ: frame.accelZ,
-            timestamp: frame.timestamp,
-            receivedTimestamp: frame.timestamp,
-            inputTimestamp: nil,
-            timestampSource: .hostReceipt
-        )
-        processSenseReport(report)
-    }
-
-    private func managedSenseDevice(forLeftSide isLeft: Bool) -> SenseDeviceState? {
-        let matches = senseDevices.values.filter { $0.profile.isLeft == isLeft }
-        guard matches.count == 1 else { return nil }
-        return matches[0]
-    }
-
     // MARK: - Sense Report Processing
 
-    func processSenseReport(_ report: SenseController.InputReport) {
+    func processSenseReport(_ report: InputDeviceFrame) {
         assertOnEngineQueue()
         guard isRunning else { return }
+        guard let motion = report.motion.latest else {
+            JamLog.errorThrottled(
+                .sense,
+                key: "input.missing-motion.\(report.deviceID)",
+                interval: 2,
+                "Dropping Sense input frame without motion data"
+            )
+            return
+        }
         let engineStartTimestamp = CACurrentMediaTime()
-        let healthDevice = ManagedDeviceKey(kind: .sense, id: report.controllerID)
+        let healthDevice = ManagedDeviceKey(kind: .sense, id: report.deviceID)
         let signpostID = Self.inputPerformanceLog.signpostsEnabled
             ? OSSignpostID(log: Self.inputPerformanceLog)
             : nil
@@ -120,7 +64,7 @@ extension InputEngine {
 
         guard s.isEnabled else { return }
 
-        guard let device = senseDevices[report.controllerID] else { return }
+        guard let device = senseDevices[report.deviceID] else { return }
         let profile = device.profile
         let owner = ManagedDeviceKey(kind: .sense, id: device.id)
 
@@ -164,9 +108,9 @@ extension InputEngine {
 
         // 3. Process gyro through unified remap → process pipeline
         let remappedGyro = GyroRemapper.remap(
-            rawX: report.gyroX,
-            rawY: report.gyroY,
-            rawZ: report.gyroZ,
+            rawX: motion.gyroX,
+            rawY: motion.gyroY,
+            rawZ: motion.gyroZ,
             controllerKind: .sense
         )
         var gyroSettings = s.gyroSettings[.sense] ?? .defaultForKind(.sense)
@@ -214,17 +158,17 @@ extension InputEngine {
             )
             debugBuffer.recordTrace(
                 device: owner,
-                reportID: SenseHIDProtocol.inputReportID,
+                reportID: report.reportID,
                 bytes: report.bytes,
                 timestamp: report.receivedTimestamp
             )
             debugBuffer.record(
                 bytes: report.bytes,
                 length: report.length,
-                rawGyro: (x: report.gyroX, y: report.gyroY, z: report.gyroZ),
+                rawGyro: (x: motion.gyroX, y: motion.gyroY, z: motion.gyroZ),
                 remappedGyro: remappedGyro,
                 normalizedGyro: normalizedGyro,
-                accel: (report.accelX, report.accelY, report.accelZ),
+                accel: (motion.accelX, motion.accelY, motion.accelZ),
                 buttonStates: device.buttonStates,
                 controllerKind: .sense,
                 gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState),

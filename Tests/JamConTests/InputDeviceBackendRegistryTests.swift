@@ -70,17 +70,33 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         let registry = InputDeviceBackendRegistry(backends: [backend])
         let changedBackends = LockedBackendValue<[InputDeviceBackendDescriptor]>([])
         let connectionEvents = LockedBackendValue<[InputDeviceBackendConnectionEvent]>([])
+        let inputFrames = LockedBackendValue<[InputDeviceFrame]>([])
         registry.setEventHandlers(
             devicesChanged: { descriptor in
                 changedBackends.update { $0.append(descriptor) }
             },
             connectionChanged: { event in
                 connectionEvents.update { $0.append(event) }
+            },
+            inputFrame: { frame in
+                inputFrames.update { $0.append(frame) }
             }
         )
 
         backend.emitDevicesChanged()
         backend.emitConnection(connected: true, name: "Joy-Con", id: "joycon-1")
+        let frame = InputDeviceFrame(
+            backend: backend.backendDescriptor,
+            deviceID: "joycon-1",
+            reportID: JoyConHIDProtocol.inputReportID,
+            bytes: [0x30],
+            motion: .none,
+            timestamp: 10,
+            receivedTimestamp: 10,
+            inputTimestamp: nil,
+            timestampSource: .hostReceipt
+        )
+        backend.emitInputFrame(frame)
 
         XCTAssertEqual(changedBackends.snapshot(), [backend.backendDescriptor])
         XCTAssertEqual(connectionEvents.snapshot(), [
@@ -91,6 +107,7 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
                 deviceID: "joycon-1"
             ),
         ])
+        XCTAssertEqual(inputFrames.snapshot(), [frame])
     }
 
     func testRegistryConnectionStateIsAggregate() {
@@ -107,6 +124,33 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         XCTAssertTrue(registry.isConnected)
         mouse.setConnected(false)
         XCTAssertFalse(registry.isConnected)
+    }
+
+    func testRegistryRejectsFrameWhoseDescriptorDoesNotMatchItsBackend() {
+        let backend = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.joycon", kind: .joyCon)
+        )
+        let registry = InputDeviceBackendRegistry(backends: [backend])
+        let receivedFrames = LockedBackendValue<[InputDeviceFrame]>([])
+        registry.setEventHandlers(
+            devicesChanged: { _ in },
+            connectionChanged: { _ in },
+            inputFrame: { frame in receivedFrames.update { $0.append(frame) } }
+        )
+
+        backend.emitInputFrame(InputDeviceFrame(
+            backend: descriptor(id: "other.joycon", kind: .joyCon),
+            deviceID: "joycon-1",
+            reportID: JoyConHIDProtocol.inputReportID,
+            bytes: [0x30],
+            motion: .none,
+            timestamp: 10,
+            receivedTimestamp: 10,
+            inputTimestamp: nil,
+            timestampSource: .hostReceipt
+        ))
+
+        XCTAssertTrue(receivedFrames.snapshot().isEmpty)
     }
 
     private func descriptor(
@@ -188,6 +232,10 @@ private final class FakeInputDeviceBackend: InputDeviceBackend, @unchecked Senda
 
     func emitConnection(connected: Bool, name: String?, id: String?) {
         locked { handlers }.connectionChanged(connected, name, id)
+    }
+
+    func emitInputFrame(_ frame: InputDeviceFrame) {
+        locked { handlers }.inputFrame(frame)
     }
 
     private func locked<Value>(_ body: () -> Value) -> Value {

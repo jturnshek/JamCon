@@ -108,6 +108,80 @@ final class SenseControllerLifecycleTests: XCTestCase {
         XCTAssertEqual(transport.count(of: .stop), 2)
     }
 
+    func testSenseBackendOwnsNativeSessionAndEmitsCommonFramesWithStableIdentity() {
+        let device = FakeSenseHIDDevice(label: "right")
+        let transport = FakeSenseHIDTransport(devices: [device: properties(serial: "sense-right")])
+        let discovery = SenseController(transport: transport)
+        let nativeSession = FakeSenseGameControllerSession()
+        let backend = SenseInputDeviceBackend(
+            discovery: discovery,
+            gameControllerSession: nativeSession
+        )
+        let connected = expectation(description: "native input ready")
+        let inputReceived = expectation(description: "common input frame")
+        let receivedFrame = LockedSenseTestValue<InputDeviceFrame?>(nil)
+        backend.setEventHandlers(InputDeviceBackendEventHandlers(
+            devicesChanged: {},
+            connectionChanged: { isConnected, _, id in
+                if isConnected, id == "sense-right" {
+                    connected.fulfill()
+                }
+            },
+            inputFrame: { frame in
+                receivedFrame.set(frame)
+                inputReceived.fulfill()
+            }
+        ))
+
+        XCTAssertTrue(backend.start())
+        backend.setDeviceManaged(id: "sense-right", managed: true)
+        nativeSession.emitConnection(
+            connected: true,
+            device: SenseGameControllerDevice(
+                name: "PlayStation VR2 Sense Controller (R)",
+                isLeft: false
+            )
+        )
+        wait(for: [connected], timeout: 1)
+        XCTAssertTrue(backend.isConnected)
+
+        var bytes = [UInt8](repeating: 0, count: SenseHIDProtocol.reportLength)
+        bytes[0] = UInt8(SenseHIDProtocol.inputReportID)
+        nativeSession.emitFrame(SenseGameControllerInputFrame(
+            device: SenseGameControllerDevice(
+                name: "PlayStation VR2 Sense Controller (R)",
+                isLeft: false
+            ),
+            bytes: bytes,
+            gyroX: 11,
+            gyroY: 22,
+            gyroZ: 33,
+            accelX: 44,
+            accelY: 55,
+            accelZ: 66,
+            timestamp: 100
+        ))
+        wait(for: [inputReceived], timeout: 1)
+
+        let frame = receivedFrame.get()
+        XCTAssertEqual(frame?.backend, backend.backendDescriptor)
+        XCTAssertEqual(frame?.deviceID, "sense-right")
+        XCTAssertEqual(frame?.reportID, SenseHIDProtocol.inputReportID)
+        XCTAssertEqual(frame?.motion.latest, IMUSample(
+            accelX: 44,
+            accelY: 55,
+            accelZ: 66,
+            gyroX: 11,
+            gyroY: 22,
+            gyroZ: 33
+        ))
+
+        backend.stop()
+        XCTAssertEqual(nativeSession.startCount, 1)
+        XCTAssertEqual(nativeSession.stopCount, 1)
+        XCTAssertFalse(backend.isConnected)
+    }
+
     func testDeviceIdentityPrefersExistingSerialFormat() {
         let deviceProperties = properties(
             serial: " 88:03:4C:18:C4:E5 ",
@@ -158,6 +232,63 @@ final class SenseControllerLifecycleTests: XCTestCase {
             locationID: locationID,
             registryEntryID: registryEntryID
         )
+    }
+}
+
+private final class FakeSenseGameControllerSession: SenseGameControllerSessioning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var handlers = SenseGameControllerSessionHandlers.none
+    private var starts = 0
+    private var stops = 0
+
+    var startCount: Int { locked { starts } }
+    var stopCount: Int { locked { stops } }
+
+    func setEventHandlers(_ handlers: SenseGameControllerSessionHandlers) {
+        locked { self.handlers = handlers }
+    }
+
+    func start() {
+        locked { starts += 1 }
+    }
+
+    func stop() {
+        locked { stops += 1 }
+    }
+
+    func emitConnection(connected: Bool, device: SenseGameControllerDevice) {
+        locked { handlers }.connectionChanged(connected, device)
+    }
+
+    func emitFrame(_ frame: SenseGameControllerInputFrame) {
+        locked { handlers }.inputFrame(frame)
+    }
+
+    private func locked<Value>(_ body: () -> Value) -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+}
+
+private final class LockedSenseTestValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func set(_ value: Value) {
+        lock.lock()
+        self.value = value
+        lock.unlock()
+    }
+
+    func get() -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
 

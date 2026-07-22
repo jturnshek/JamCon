@@ -18,6 +18,17 @@ struct InputDeviceBackendID: RawRepresentable, Hashable, Codable, Sendable, Cust
     static let g502DirectHID = InputDeviceBackendID(rawValue: "g502x.direct-hid")
 }
 
+/// Static feature set advertised by an input backend. This is intentionally a
+/// bit set so capability checks stay allocation-free on the input path.
+struct InputDeviceCapabilities: OptionSet, Hashable, Codable, Sendable {
+    let rawValue: UInt8
+
+    static let buttons = InputDeviceCapabilities(rawValue: 1 << 0)
+    static let analogStick = InputDeviceCapabilities(rawValue: 1 << 1)
+    static let motion = InputDeviceCapabilities(rawValue: 1 << 2)
+    static let battery = InputDeviceCapabilities(rawValue: 1 << 3)
+}
+
 /// Low-frequency metadata used for registry routing and diagnostics. The
 /// existing ControllerKind remains a compatibility field while profiles and
 /// persistence still use that model.
@@ -25,6 +36,78 @@ struct InputDeviceBackendDescriptor: Hashable, Codable, Sendable {
     let id: InputDeviceBackendID
     let kind: ControllerKind
     let displayName: String
+    let capabilities: InputDeviceCapabilities
+
+    init(
+        id: InputDeviceBackendID,
+        kind: ControllerKind,
+        displayName: String,
+        capabilities: InputDeviceCapabilities = []
+    ) {
+        self.id = id
+        self.kind = kind
+        self.displayName = displayName
+        self.capabilities = capabilities
+    }
+}
+
+/// Motion storage that reuses the adapter's existing sample representation.
+/// Sense supplies one sample, Joy-Con supplies its existing three-sample
+/// array, and devices without an IMU use `.none`.
+enum InputDeviceMotionSamples: Equatable, Sendable {
+    case none
+    case single(IMUSample)
+    case batch([IMUSample])
+
+    var latest: IMUSample? {
+        switch self {
+        case .none:
+            return nil
+        case let .single(sample):
+            return sample
+        case let .batch(samples):
+            return samples.last
+        }
+    }
+
+    var averagedGyro: (x: Int16, y: Int16, z: Int16)? {
+        switch self {
+        case .none:
+            return nil
+        case let .single(sample):
+            return (sample.gyroX, sample.gyroY, sample.gyroZ)
+        case let .batch(samples):
+            guard !samples.isEmpty else { return nil }
+            let count = Int32(samples.count)
+            let sums = samples.reduce(into: (x: Int32(0), y: Int32(0), z: Int32(0))) { result, sample in
+                result.x += Int32(sample.gyroX)
+                result.y += Int32(sample.gyroY)
+                result.z += Int32(sample.gyroZ)
+            }
+            return (
+                Int16(sums.x / count),
+                Int16(sums.y / count),
+                Int16(sums.z / count)
+            )
+        }
+    }
+}
+
+/// Common high-frequency handoff from every device adapter to the engine.
+/// Raw bytes remain available for device-specific control mapping and bounded
+/// diagnostics, while identity, timing, and motion have one shared contract.
+struct InputDeviceFrame: Equatable, Sendable {
+    let backend: InputDeviceBackendDescriptor
+    let deviceID: String
+    let reportID: UInt32
+    let bytes: [UInt8]
+    let motion: InputDeviceMotionSamples
+    let timestamp: TimeInterval
+    let receivedTimestamp: TimeInterval
+    let inputTimestamp: TimeInterval?
+    let timestampSource: InputTimestampSource
+
+    var length: Int { bytes.count }
 }
 
 struct InputDeviceBackendConnectionEvent: Equatable, Sendable {
@@ -46,18 +129,20 @@ struct InputDeviceBackendEventHandlers: Sendable {
         _ deviceName: String?,
         _ deviceID: String?
     ) -> Void
+    let inputFrame: @Sendable (InputDeviceFrame) -> Void
 
     static let none = InputDeviceBackendEventHandlers(
         devicesChanged: {},
-        connectionChanged: { _, _, _ in }
+        connectionChanged: { _, _, _ in },
+        inputFrame: { _ in }
     )
 }
 
 /// Common low-frequency contract for built-in device adapters.
 ///
-/// Raw framework handles and reports remain behind each concrete adapter. The
-/// high-frequency report callback is deliberately not type-erased here; it is
-/// migrated separately when the normalized input-frame contract is introduced.
+/// Raw framework handles and transport-specific report types remain behind
+/// each concrete adapter. All high-frequency input crosses this boundary as an
+/// `InputDeviceFrame`.
 protocol InputDeviceBackend: AnyObject, Sendable {
     var backendDescriptor: InputDeviceBackendDescriptor { get }
 
@@ -116,7 +201,8 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
 
     func setEventHandlers(
         devicesChanged: @escaping @Sendable (_ backend: InputDeviceBackendDescriptor) -> Void,
-        connectionChanged: @escaping @Sendable (InputDeviceBackendConnectionEvent) -> Void
+        connectionChanged: @escaping @Sendable (InputDeviceBackendConnectionEvent) -> Void,
+        inputFrame: @escaping @Sendable (InputDeviceFrame) -> Void
     ) {
         for backend in orderedBackends {
             let descriptor = backend.backendDescriptor
@@ -131,6 +217,18 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
                         deviceName: name,
                         deviceID: deviceID
                     ))
+                },
+                inputFrame: { frame in
+                    guard frame.backend == descriptor else {
+                        JamLog.errorThrottled(
+                            .engine,
+                            key: "input.backend-mismatch.\(descriptor.id.rawValue)",
+                            interval: 2,
+                            "Dropping input frame whose descriptor does not match backend \(descriptor.id.rawValue)"
+                        )
+                        return
+                    }
+                    inputFrame(frame)
                 }
             ))
         }
@@ -172,35 +270,13 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
     }
 }
 
-extension SenseController: InputDeviceBackend {
-    var backendDescriptor: InputDeviceBackendDescriptor {
-        InputDeviceBackendDescriptor(
-            id: .senseGameController,
-            kind: .sense,
-            displayName: "PlayStation Sense Game Controller"
-        )
-    }
-
-    func availableDevicesSnapshot() -> [ControllerInfo] {
-        controllerInfosSnapshot()
-    }
-
-    func setDeviceManaged(id: String, managed: Bool) {
-        setControllerManaged(id: id, managed: managed)
-    }
-
-    func setEventHandlers(_ handlers: InputDeviceBackendEventHandlers) {
-        onControllersChanged = handlers.devicesChanged
-        onConnectionChange = handlers.connectionChanged
-    }
-}
-
 extension JoyConHIDController: InputDeviceBackend {
     var backendDescriptor: InputDeviceBackendDescriptor {
         InputDeviceBackendDescriptor(
             id: .joyConDirectHID,
             kind: .joyCon,
-            displayName: "Joy-Con Direct HID"
+            displayName: "Joy-Con Direct HID",
+            capabilities: [.buttons, .analogStick, .motion, .battery]
         )
     }
 
@@ -215,6 +291,19 @@ extension JoyConHIDController: InputDeviceBackend {
     func setEventHandlers(_ handlers: InputDeviceBackendEventHandlers) {
         onControllersChanged = handlers.devicesChanged
         onConnectionChange = handlers.connectionChanged
+        onReportData = { [descriptor = backendDescriptor] report in
+            handlers.inputFrame(InputDeviceFrame(
+                backend: descriptor,
+                deviceID: report.controllerID,
+                reportID: JoyConHIDProtocol.inputReportID,
+                bytes: report.bytes,
+                motion: .batch(report.motionSamples),
+                timestamp: report.timestamp,
+                receivedTimestamp: report.receivedTimestamp,
+                inputTimestamp: report.inputTimestamp,
+                timestampSource: report.timestampSource
+            ))
+        }
     }
 }
 
@@ -223,7 +312,8 @@ extension G502XHIDController: InputDeviceBackend {
         InputDeviceBackendDescriptor(
             id: .g502DirectHID,
             kind: .mouse,
-            displayName: "G502 X Direct HID"
+            displayName: "G502 X Direct HID",
+            capabilities: [.buttons]
         )
     }
 
@@ -242,5 +332,27 @@ extension G502XHIDController: InputDeviceBackend {
     func setEventHandlers(_ handlers: InputDeviceBackendEventHandlers) {
         onControllersChanged = handlers.devicesChanged
         onConnectionChange = handlers.connectionChanged
+        onReportData = { [weak self, descriptor = backendDescriptor] report in
+            guard let deviceID = self?.selectedMouseID else {
+                JamLog.errorThrottled(
+                    .g502x,
+                    key: "input.missing-device-id",
+                    interval: 2,
+                    "Dropping mouse input without a selected device identity"
+                )
+                return
+            }
+            handlers.inputFrame(InputDeviceFrame(
+                backend: descriptor,
+                deviceID: deviceID,
+                reportID: 0,
+                bytes: report.bytes,
+                motion: .none,
+                timestamp: report.timestamp,
+                receivedTimestamp: report.receivedTimestamp,
+                inputTimestamp: report.inputTimestamp,
+                timestampSource: report.timestampSource
+            ))
+        }
     }
 }

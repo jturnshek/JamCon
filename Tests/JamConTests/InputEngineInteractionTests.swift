@@ -209,16 +209,12 @@ private final class SenseEngineHarness {
         bytes[SenseHIDProtocol.Offset.triggerAnalog] = trigger
         let motion = try! SenseInputReportDecoder.decode(bytes).motion
         let timestamp = CACurrentMediaTime()
-        let report = SenseController.InputReport(
-            controllerID: deviceID,
+        let report = InputDeviceFrame(
+            backend: engine.senseBackend.backendDescriptor,
+            deviceID: deviceID,
+            reportID: SenseHIDProtocol.inputReportID,
             bytes: bytes,
-            length: bytes.count,
-            gyroX: motion.gyroX,
-            gyroY: motion.gyroY,
-            gyroZ: motion.gyroZ,
-            accelX: motion.accelX,
-            accelY: motion.accelY,
-            accelZ: motion.accelZ,
+            motion: .single(motion),
             timestamp: timestamp,
             receivedTimestamp: timestamp,
             inputTimestamp: nil,

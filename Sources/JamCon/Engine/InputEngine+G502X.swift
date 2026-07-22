@@ -7,11 +7,11 @@ extension InputEngine {
 
     // MARK: - G502X Report Processing
 
-    func processG502XReport(_ report: G502XHIDController.InputReport) {
+    func processG502XReport(_ report: InputDeviceFrame) {
         assertOnEngineQueue()
         guard isRunning else { return }
         let engineStartTimestamp = CACurrentMediaTime()
-        let healthDevice = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
+        let healthDevice = ManagedDeviceKey(kind: .mouse, id: report.deviceID)
         let signpostID = Self.inputPerformanceLog.signpostsEnabled
             ? OSSignpostID(log: Self.inputPerformanceLog)
             : nil
@@ -60,8 +60,8 @@ extension InputEngine {
         if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .mouse) {
             let engineEndTimestamp = CACurrentMediaTime()
             debugBuffer.recordTrace(
-                device: ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse"),
-                reportID: 0,
+                device: healthDevice,
+                reportID: report.reportID,
                 bytes: report.bytes,
                 timestamp: report.receivedTimestamp
             )

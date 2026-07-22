@@ -7,11 +7,20 @@ extension InputEngine {
 
     // MARK: - Joy-Con Report Processing
 
-    func processJoyConReport(_ report: JoyConHIDController.InputReport) {
+    func processJoyConReport(_ report: InputDeviceFrame) {
         assertOnEngineQueue()
         guard isRunning else { return }
+        guard let motion = report.motion.latest else {
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "input.missing-motion.\(report.deviceID)",
+                interval: 2,
+                "Dropping Joy-Con input frame without motion data"
+            )
+            return
+        }
         let engineStartTimestamp = CACurrentMediaTime()
-        let healthDevice = ManagedDeviceKey(kind: .joyCon, id: report.controllerID)
+        let healthDevice = ManagedDeviceKey(kind: .joyCon, id: report.deviceID)
         let signpostID = Self.inputPerformanceLog.signpostsEnabled
             ? OSSignpostID(log: Self.inputPerformanceLog)
             : nil
@@ -38,7 +47,7 @@ extension InputEngine {
 
         guard s.isEnabled else { return }
 
-        guard let device = joyConDevices[report.controllerID] else { return }
+        guard let device = joyConDevices[report.deviceID] else { return }
         let profile = device.profile
         let owner = ManagedDeviceKey(kind: .joyCon, id: device.id)
 
@@ -72,8 +81,8 @@ extension InputEngine {
         // 2. Process gyro through unified pipeline. The decoder exposes all
         // three batched Joy-Con IMU samples so policy stays in the engine.
         let rawGyro = s.joyConUseAveragedGyroSamples
-            ? report.averagedGyro
-            : (x: report.gyroX, y: report.gyroY, z: report.gyroZ)
+            ? (report.motion.averagedGyro ?? (x: motion.gyroX, y: motion.gyroY, z: motion.gyroZ))
+            : (x: motion.gyroX, y: motion.gyroY, z: motion.gyroZ)
 
         let pipeline = GyroRemapper.process(
             rawX: rawGyro.x,
@@ -127,7 +136,7 @@ extension InputEngine {
             let engineEndTimestamp = CACurrentMediaTime()
             debugBuffer.recordTrace(
                 device: owner,
-                reportID: JoyConHIDProtocol.inputReportID,
+                reportID: report.reportID,
                 bytes: report.bytes,
                 timestamp: report.receivedTimestamp
             )
@@ -137,7 +146,7 @@ extension InputEngine {
                 rawGyro: pipeline.raw,
                 remappedGyro: pipeline.remapped,
                 normalizedGyro: pipeline.normalized,
-                accel: (report.accelX, report.accelY, report.accelZ),
+                accel: (motion.accelX, motion.accelY, motion.accelZ),
                 buttonStates: device.buttonStates,
                 controllerKind: .joyCon,
                 gyroDebug: mapGyroDebug(from: device.gyroProcessor.lastDebugState),

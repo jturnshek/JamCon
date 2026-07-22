@@ -35,17 +35,22 @@ security find-identity -v -p codesigning
 Input processing happens off the main thread to minimize latency. The `SettingsStore` class provides thread-safe access to settings using `OSAllocatedUnfairLock`, avoiding main thread dispatch for high-frequency gyro updates (~66Hz). Controller-local hot settings that need to cross UI, engine, and HID threads use small lock-protected runtime config objects with explicit last-writer-wins semantics.
 
 **Input flow:**
-1. `SenseController` or `JoyConHIDController` receives HID reports on a background queue
-2. Callbacks (`onGyroUpdate`, `onButtonPress`, `onStickUpdate`) fire on that queue
-3. `InputEngine` processes input and calls `MouseController` directly (no dispatch)
-4. `MouseController` posts `CGEvent`s to the system
-5. Only UI state changes dispatch to `@MainActor`
+1. An `InputDeviceBackend` receives Game Controller or HID input on its transport thread
+2. The backend emits a common `InputDeviceFrame` with stable identity, timing, raw diagnostics, and motion samples
+3. `InputDeviceBackendRegistry` validates and forwards the frame to `InputEngine`'s serial queue
+4. `InputEngine` applies profile/application policy and calls `MouseController` directly
+5. `MouseController` posts `CGEvent`s to the system
+6. Only UI state changes dispatch to `@MainActor`
 
 ### Key Components
 
 - **AppState** (`AppState.swift`): Central UI state. Owns managed-device state, persists per-profile settings, and mirrors engine callbacks into SwiftUI.
 
-- **SenseController** (`SenseController.swift`): PlayStation Sense controller Bluetooth HID driver. Direct IOHIDManager access for low-latency gyro data.
+- **InputDeviceBackend/Registry** (`Devices/InputDeviceBackend.swift`): Common lifecycle, capability, discovery, management, connection, and high-frequency frame boundary for all device adapters.
+
+- **SenseInputDeviceBackend** (`Devices/SenseInputDeviceBackend.swift`): Complete PlayStation Sense adapter. Combines IOKit stable-identity discovery with Apple's Game Controller input session.
+
+- **SenseController** (`SenseController.swift`): PlayStation Sense IOKit discovery and stable identity only. Raw HID input is intentionally not opened on macOS.
 
 - **JoyConHIDController** (`JoyConHIDController.swift`): Joy-Con Bluetooth HID driver. Handles both left and right Joy-Con with IMU data parsing.
 

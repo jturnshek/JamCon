@@ -96,6 +96,7 @@
 		C9F20DDF222F97B2FD4D1CA8 /* TabHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FD489691A9B75A41664C23C /* TabHeader.swift */; };
 		CA1FE7FE21192BF679CCFBEE /* InputEngine+G502X.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4D1E28D1B041DCDBDD7E65 /* InputEngine+G502X.swift */; };
 		CC8218D06A6C54FC1E6D2F29 /* JoyConButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ADB2C885D2F10A6375BE8D4 /* JoyConButtonMapping.swift */; };
+		CF21256CB5F6B07E1A50E682 /* SenseInputDeviceBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C929417BA91BD8E38F12FE18 /* SenseInputDeviceBackend.swift */; };
 		CFE5A5635D7EB52BF4164B8F /* HIDReportDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DA83FE39F535BAD09608C8 /* HIDReportDecoderTests.swift */; };
 		D36CEB60744F1D04E173E069 /* InputDeviceBackendRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0AA6052A54C6930DE9FE55E /* InputDeviceBackendRegistryTests.swift */; };
 		D9D87158CF3C89C83EFEF984 /* RadialMenuGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EE21F4F3AE342904504DEF0 /* RadialMenuGeometry.swift */; };
@@ -205,6 +206,7 @@
 		C136BA82CCD276619FD1D2B0 /* GyroProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GyroProcessorTests.swift; sourceTree = "<group>"; };
 		C5C01428554A70A94A325B2E /* SenseGameControllerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseGameControllerSession.swift; sourceTree = "<group>"; };
 		C6587389D0C707A15E16452F /* LockedRuntimeConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockedRuntimeConfig.swift; sourceTree = "<group>"; };
+		C929417BA91BD8E38F12FE18 /* SenseInputDeviceBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseInputDeviceBackend.swift; sourceTree = "<group>"; };
 		CF38ACEC2AA030BBC3B9A3CB /* RadialMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuState.swift; sourceTree = "<group>"; };
 		D04EB933AD21491B69DCFE64 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		D920CEDAF995B8D68634D45C /* BatteryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryHelper.swift; sourceTree = "<group>"; };
@@ -385,6 +387,7 @@
 				09AA15AFB2477628A7FB876C /* JoyConPacketTiming.swift */,
 				C5C01428554A70A94A325B2E /* SenseGameControllerSession.swift */,
 				BF355D1D6393E268A33A06E6 /* SenseHIDTransport.swift */,
+				C929417BA91BD8E38F12FE18 /* SenseInputDeviceBackend.swift */,
 			);
 			path = Devices;
 			sourceTree = "<group>";
@@ -617,6 +620,7 @@
 				467C78E937463F4E7A49E3E6 /* SenseGameControllerSession.swift in Sources */,
 				025742718620188765E3FE97 /* SenseHIDProtocol.swift in Sources */,
 				4475504EEBF580D5BD4786A1 /* SenseHIDTransport.swift in Sources */,
+				CF21256CB5F6B07E1A50E682 /* SenseInputDeviceBackend.swift in Sources */,
 				ED5CD22FDC47AFF8FD2D6C5C /* SensorValidationViews.swift in Sources */,
 				BF9A242464B1D450BFED6C0D /* SettingsStore.swift in Sources */,
 				4DCADBA39379F43AC90DD100 /* SettingsView.swift in Sources */,

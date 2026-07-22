@@ -23,7 +23,7 @@ final class InputEngine: @unchecked Sendable {
     // MARK: - Controllers
 
     let senseController: SenseController
-    let senseGameControllerSession: any SenseGameControllerSessioning
+    let senseBackend: SenseInputDeviceBackend
     let joyConController: JoyConHIDController
     let g502xController: G502XHIDController
     let backendRegistry: InputDeviceBackendRegistry
@@ -274,11 +274,14 @@ final class InputEngine: @unchecked Sendable {
         self.actionExecutor = actionExecutor ?? ActionExecutor(mouseController: mouseController)
         self.holdScheduler = holdScheduler
         self.senseController = senseController
-        self.senseGameControllerSession = senseGameControllerSession ?? SenseGameControllerSession()
+        self.senseBackend = SenseInputDeviceBackend(
+            discovery: senseController,
+            gameControllerSession: senseGameControllerSession ?? SenseGameControllerSession()
+        )
         self.joyConController = joyConController
         self.g502xController = g502xController
         self.backendRegistry = InputDeviceBackendRegistry(backends: [
-            senseController,
+            senseBackend,
             joyConController,
             g502xController,
         ])
@@ -305,7 +308,6 @@ final class InputEngine: @unchecked Sendable {
 
         JamLog.info(.engine, "Input engine starting")
         setupCallbacks()
-        senseGameControllerSession.start()
 
         let startResults = backendRegistry.startAll()
         let failedBackends = startResults.filter { !$0.started }.map { $0.backend.id.rawValue }
@@ -355,7 +357,6 @@ final class InputEngine: @unchecked Sendable {
         guard shouldStop else { return }
 
         backendRegistry.stopAll()
-        senseGameControllerSession.stop()
         JamLog.info(.engine, "Input engine stopped; synthetic outputs released")
     }
 
@@ -550,45 +551,35 @@ final class InputEngine: @unchecked Sendable {
                 self?.engineQueueAsync { [weak self] in
                     self?.handleBackendConnectionEvent(event)
                 }
-            }
-        )
-
-        // Sense Controller
-        senseController.onReportData = { [weak self] report in
-            self?.engineQueueAsync { [weak self] in
-                self?.processSenseReport(report)
-            }
-        }
-
-        senseGameControllerSession.setEventHandlers(
-            SenseGameControllerSessionHandlers(
-                connectionChanged: { [weak self] connected, device in
-                    self?.engineQueueAsync { [weak self] in
-                        self?.handleSenseGameControllerConnection(connected: connected, device: device)
-                    }
-                },
-                inputFrame: { [weak self] frame in
-                    self?.engineQueueAsync { [weak self] in
-                        self?.processSenseGameControllerFrame(frame)
-                    }
+            },
+            inputFrame: { [weak self] frame in
+                self?.engineQueueAsync { [weak self] in
+                    self?.processInputDeviceFrame(frame)
                 }
-            )
+            }
         )
+    }
 
-        // Joy-Con Controller
-        joyConController.onReportData = { [weak self] report in
-            self?.engineQueueAsync { [weak self] in
-                self?.processJoyConReport(report)
-            }
+    private func processInputDeviceFrame(_ frame: InputDeviceFrame) {
+        assertOnEngineQueue()
+        guard backendRegistry.backend(id: frame.backend.id)?.backendDescriptor == frame.backend else {
+            JamLog.errorThrottled(
+                .engine,
+                key: "input.unknown-backend.\(frame.backend.id.rawValue)",
+                interval: 2,
+                "Dropping input from unregistered backend \(frame.backend.id.rawValue)"
+            )
+            return
         }
 
-        // G502X Mouse Controller
-        g502xController.onReportData = { [weak self] report in
-            self?.engineQueueAsync { [weak self] in
-                self?.processG502XReport(report)
-            }
+        switch frame.backend.kind {
+        case .sense:
+            processSenseReport(frame)
+        case .joyCon:
+            processJoyConReport(frame)
+        case .mouse:
+            processG502XReport(frame)
         }
-
     }
 
     private func handleBackendConnectionEvent(_ event: InputDeviceBackendConnectionEvent) {
