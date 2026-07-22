@@ -12,21 +12,34 @@ struct JoystickTab: View {
 
                 HStack {
                     Text("Scroll Speed")
-                    Slider(value: $appState.joystickScrollSpeed, in: 1...50, step: 1)
-                    Text(String(format: "%.0f", appState.joystickScrollSpeed))
-                        .frame(width: 30)
+                    PreciseSlider(
+                        value: $appState.joystickScrollSpeed,
+                        range: 1...50,
+                        step: 1,
+                        fractionDigits: 0
+                    )
                 }
                 .disabled(!appState.joystickScrollEnabled)
 
                 HStack {
                     Text("Acceleration")
-                    Slider(value: $appState.joystickScrollAcceleration, in: 0.2...5.0, step: 0.1)
-                    Text(String(format: "%.1f", appState.joystickScrollAcceleration))
-                        .frame(width: 30)
+                    PreciseSlider(
+                        value: $appState.joystickScrollAcceleration,
+                        range: 0.2...5,
+                        step: 0.1,
+                        fractionDigits: 1
+                    )
                 }
                 .disabled(!appState.joystickScrollEnabled)
+
+                Button {
+                    appState.resetJoystickSettings()
+                } label: {
+                    Label("Reset Joystick Scroll", systemImage: "arrow.counterclockwise")
+                }
+                .foregroundColor(.secondary)
             } footer: {
-                Text("Applies to controller joysticks (Sense/Joy-Con). USB mice are not affected.\n\nAcceleration < 1: more responsive at low deflection\nAcceleration > 1: more precision at low deflection, faster at full push")
+                Text("Applies to Sense and Joy-Con joysticks. Higher acceleration preserves more precision near the center while retaining full-speed scrolling.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -47,27 +47,12 @@ struct JamConApp: App {
         .defaultPosition(.center)
 
         MenuBarExtra {
-            if appState.isConnected {
-                Text(appState.controllerName)
-                if appState.batteryLevel > 0 {
-                    Text("Battery: \(appState.batteryLevel)%")
-                }
-            } else {
-                Text("No controller selected")
-            }
-
-            Divider()
-
-            Button("Settings...") {
+            MenuBarView(appState: appState) {
                 openWindow(id: "settings")
                 NSApp.activate(ignoringOtherApps: true)
             }
-
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-            }
         } label: {
-            Image(systemName: "rotate.3d")
+            Image(systemName: appState.isEnabled ? "rotate.3d" : "pause.circle")
         }
     }
 }

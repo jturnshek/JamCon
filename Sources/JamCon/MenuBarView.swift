@@ -5,53 +5,45 @@ struct MenuBarView: View {
     let openSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Connection status
-            HStack {
-                StatusDot(isActive: appState.isConnected, size: 10)
+        Group {
+            if appState.isConnected {
                 Text(appState.controllerName)
-                    .fontWeight(.semibold)
-                Spacer()
-                if appState.isConnected {
-                    Image(systemName: BatteryHelper.icon(for: appState.batteryLevel))
-                        .foregroundColor(BatteryHelper.color(for: appState.batteryLevel))
-                    Text("\(appState.batteryLevel)%")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
+                if appState.batteryLevel > 0 {
+                    Text("Battery: \(appState.batteryLevel)%")
                 }
+            } else {
+                Text(appState.controllerName)
             }
-
-            Text(appState.statusMessage)
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
 
             Divider()
 
-            // Settings button
-            Button(action: openSettings) {
-                HStack {
-                    Image(systemName: "gear")
-                    Text("Settings...")
-                    Spacer()
-                }
+            Toggle(isOn: $appState.isEnabled) {
+                Label(
+                    appState.isEnabled ? "JamCon Enabled" : "JamCon Paused",
+                    systemImage: appState.isEnabled ? "play.fill" : "pause.fill"
+                )
             }
-            .buttonStyle(.plain)
+
+            if !appState.hasAccessibilityPermission {
+                Button {
+                    appState.openAccessibilitySettings()
+                } label: {
+                    Label("Grant Accessibility Access…", systemImage: "exclamationmark.triangle")
+                }
+
+                Divider()
+            }
+
+            Button("Settings…", action: openSettings)
 
             Divider()
 
-            // Quit button
-            Button {
+            Button("Quit") {
                 NSApplication.shared.terminate(nil)
-            } label: {
-                HStack {
-                    Image(systemName: "power")
-                    Text("Quit")
-                    Spacer()
-                }
             }
-            .buttonStyle(.plain)
         }
-        .padding()
-        .frame(width: 330)
+        .onAppear {
+            appState.checkAccessibilityPermission()
+        }
     }
 }

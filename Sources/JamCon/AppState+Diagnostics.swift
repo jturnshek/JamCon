@@ -149,30 +149,60 @@ extension AppState {
 
     // MARK: - Gyro Settings Reset
 
-    func resetGyroSettings() {
+    enum GyroSettingsSection: Sendable {
+        case sensitivity
+        case filtering
+        case samplingAndCalibration
+        case acceleration
+    }
+
+    func resetGyroSettings(_ section: GyroSettingsSection) {
         let defaults = GyroSettingsState.defaultForKind(configurationProfile.kind)
 
-        sensitivity = defaults.sensitivity
+        switch section {
+        case .sensitivity:
+            sensitivity = defaults.sensitivity
+
+        case .filtering:
+            filterEnabled = defaults.filterEnabled
+            minCutoff = defaults.minCutoff
+            beta = defaults.beta
+            adaptiveSmoothingMode = defaults.adaptiveSmoothingMode
+
+        case .samplingAndCalibration:
+            autoTuneSampleRate = defaults.autoTuneSampleRate
+            autoNeutralEnabled = defaults.autoNeutralEnabled
+            if configurationProfile.kind == .joyCon {
+                joyConUseAveragedGyroSamples = defaults.joyConUseAveragedGyroSamples
+            }
+
+        case .acceleration:
+            accelerationMode = defaults.accelerationMode
+            simpleAcceleration = defaults.simpleAcceleration
+            accelerationCurve = defaults.accelerationCurve
+            accelerationStrength = defaults.accelerationStrength
+            sensitivityCap = defaults.sensitivityCap
+            curveExponent = defaults.curveExponent
+            rampSpeed = defaults.rampSpeed
+        }
+    }
+
+    func resetGyroSettings() {
+        let defaults = GyroSettingsState.defaultForKind(configurationProfile.kind)
+        resetGyroSettings(.sensitivity)
         gyroScale = defaults.gyroScale
-        filterEnabled = defaults.filterEnabled
-        minCutoff = defaults.minCutoff
-        beta = defaults.beta
-        adaptiveSmoothingMode = defaults.adaptiveSmoothingMode
-        accelerationMode = defaults.accelerationMode
-        simpleAcceleration = defaults.simpleAcceleration
-        accelerationCurve = defaults.accelerationCurve
-        accelerationStrength = defaults.accelerationStrength
-        sensitivityCap = defaults.sensitivityCap
-        curveExponent = defaults.curveExponent
-        rampSpeed = defaults.rampSpeed
+        resetGyroSettings(.filtering)
+        resetGyroSettings(.samplingAndCalibration)
+        resetGyroSettings(.acceleration)
+
         softCutoffThreshold = defaults.softCutoffThreshold
         recoveryThreshold = defaults.recoveryThreshold
-        autoTuneSampleRate = defaults.autoTuneSampleRate
-        autoNeutralEnabled = defaults.autoNeutralEnabled
+    }
 
-        if configurationProfile.kind == .joyCon {
-            joyConUseAveragedGyroSamples = defaults.joyConUseAveragedGyroSamples
-        }
+    func resetJoystickSettings() {
+        joystickScrollEnabled = true
+        joystickScrollSpeed = 10
+        joystickScrollAcceleration = 3
     }
 
     // MARK: - Convenience Accessors

@@ -101,6 +101,7 @@
 		E2F52932691CF13F4F700120 /* SenseDebugSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01FFD05D2FB52AD9A3A1C658 /* SenseDebugSections.swift */; };
 		E3191C7EFB5345EACDC7CB9A /* G502XButtonMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A71BABCA2FB0A2DC34AAAFC /* G502XButtonMapping.swift */; };
 		E7436A6CDCF84C0AD2888755 /* JoyConDebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A81838AF98AE7582D22183C /* JoyConDebugViews.swift */; };
+		ECFB2011DA12E2ACD9C0B0F0 /* NumericSettingNormalizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE721A3294F981DDB55E28A /* NumericSettingNormalizerTests.swift */; };
 		ED5CD22FDC47AFF8FD2D6C5C /* SensorValidationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E3C96DF01C9561153E345E7 /* SensorValidationViews.swift */; };
 		F1E7A2513151EA698E18E197 /* HIDButtonMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3372D0921FAF7EB936E6713C /* HIDButtonMappingTests.swift */; };
 /* End PBXBuildFile section */
@@ -143,6 +144,7 @@
 		482C873BBFA74526B404F547 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
 		49ADE054843492EEE54E60F5 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		4A81838AF98AE7582D22183C /* JoyConDebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoyConDebugViews.swift; sourceTree = "<group>"; };
+		4BE721A3294F981DDB55E28A /* NumericSettingNormalizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumericSettingNormalizerTests.swift; sourceTree = "<group>"; };
 		4C819904F3BF1FFCC0228A41 /* SenseController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SenseController.swift; sourceTree = "<group>"; };
 		4CF4E6221314FE64E89F2DEE /* StickTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickTab.swift; sourceTree = "<group>"; };
 		52BE750046AA88415C1C5FBE /* RadialMenuTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RadialMenuTab.swift; sourceTree = "<group>"; };
@@ -335,6 +337,7 @@
 				3D95DAA009CC55FD9E9F6CAA /* InputHealthAggregatorTests.swift */,
 				80405D6C6CE1920D28E97548 /* JoyConControllerLifecycleTests.swift */,
 				3440D8DC0A14534B74EE6CF0 /* JoyConPacketTimingTests.swift */,
+				4BE721A3294F981DDB55E28A /* NumericSettingNormalizerTests.swift */,
 				F73801B24A897732CB553AEA /* RadialMenuGeometryTests.swift */,
 				76E9C743A7C6C9E173E18424 /* SenseControllerLifecycleTests.swift */,
 				AABAA59B316572E85D9EE23D /* SyntheticOutputCoordinatorTests.swift */,
@@ -519,6 +522,7 @@
 				6C50007365B00571644FE291 /* InputHealthAggregatorTests.swift in Sources */,
 				88B16046D86EB4ADE6404A38 /* JoyConControllerLifecycleTests.swift in Sources */,
 				0E5DC92990ED3FC7EC2F5D67 /* JoyConPacketTimingTests.swift in Sources */,
+				ECFB2011DA12E2ACD9C0B0F0 /* NumericSettingNormalizerTests.swift in Sources */,
 				899AC5107836E3C1A7BC3003 /* RadialMenuGeometryTests.swift in Sources */,
 				A8558A4C94D421A263E51DA6 /* SenseControllerLifecycleTests.swift in Sources */,
 				1B4B2C826770E9C71671BD06 /* SyntheticOutputCoordinatorTests.swift in Sources */,

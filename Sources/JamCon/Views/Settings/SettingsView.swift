@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Settings View
 
@@ -49,10 +50,21 @@ struct SettingsView: View {
             .id(selection)
         }
         .frame(minWidth: 760, minHeight: 520)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !appState.hasAccessibilityPermission {
+                AccessibilityPermissionBanner {
+                    appState.openAccessibilitySettings()
+                }
+            }
+        }
         .onAppear {
+            appState.checkAccessibilityPermission()
             if selection == nil {
                 selection = .devices
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appState.checkAccessibilityPermission()
         }
     }
 

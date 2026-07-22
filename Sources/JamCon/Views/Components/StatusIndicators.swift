@@ -72,3 +72,36 @@ struct BatteryIndicatorWithBar: View {
         }
     }
 }
+
+/// Global warning shown when JamCon cannot emit pointer, click, or keyboard events.
+struct AccessibilityPermissionBanner: View {
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .font(.title3)
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Accessibility access is required")
+                    .font(.subheadline.weight(.semibold))
+                Text("JamCon can receive input, but it cannot control the pointer or send clicks and keys.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button("Open Privacy Settings", action: openSettings)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.1))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+}

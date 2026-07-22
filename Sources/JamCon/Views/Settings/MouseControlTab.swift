@@ -11,7 +11,7 @@ struct MouseControlTab: View {
                 // Mouse devices don't have gyro
                 NoControllerView(
                     icon: "computermouse",
-                    message: "Gyro mouse settings are not available for USB mice.\n\nThese settings control how controller gyroscope data is translated to mouse movement."
+                    message: "USB mice do not use gyro pointer settings."
                 )
             } else {
                 ScrollView {
@@ -36,7 +36,7 @@ struct MouseControlTab: View {
                             Button(action: { appState.resetGyroSettings() }) {
                                 HStack {
                                     Image(systemName: "arrow.counterclockwise")
-                                    Text("Reset to Defaults")
+                                    Text("Reset All Pointer Settings")
                                 }
                                 .foregroundColor(.secondary)
                             }
@@ -62,7 +62,7 @@ private struct CursorControlSection: View {
             Toggle("Enable Cursor Control", isOn: $appState.cursorControlEnabled)
                 .font(.subheadline.weight(.medium))
 
-            DescriptionText(text: "When off, this controller won't move the cursor or scroll. Button actions still run normally. USB mice are never affected.")
+            DescriptionText(text: "When off, this profile’s buttons still work, but its gyro and joystick will not move or scroll the pointer.")
         }
         .padding()
         .background(Color.secondary.opacity(0.05))
@@ -80,9 +80,9 @@ private struct GyroProfileIndicator: View {
             Image(systemName: "cpu")
                 .foregroundColor(.blue)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Configuring: \(appState.configurationProfile.kind.displayName)")
+                Text("Configuring: \(appState.configurationProfile.displayName)")
                     .font(.caption.bold())
-                Text("Gyro settings are saved separately for each controller type")
+                Text("Pointer settings are saved for this controller type.")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -117,15 +117,20 @@ private struct SensitivitySection: View {
             HStack {
                 Text("Sensitivity")
                     .font(.subheadline.weight(.medium))
-                Spacer()
-                Text(String(format: "%.1f", appState.sensitivity))
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundColor(.secondary)
             }
 
-            Slider(value: $appState.sensitivity, in: 1...100, step: 0.5)
+            PreciseSlider(
+                value: $appState.sensitivity,
+                range: 1...100,
+                step: 0.5,
+                fractionDigits: 1
+            )
 
-            DescriptionText(text: "Base multiplier for all mouse movement. Higher values make the cursor move faster for the same physical controller rotation. This is applied after all filtering and acceleration.")
+            DescriptionText(text: "Higher values move the pointer farther for the same controller rotation.")
+
+            SectionResetButton("Sensitivity") {
+                appState.resetGyroSettings(.sensitivity)
+            }
         }
         .padding()
         .background(Color.secondary.opacity(0.05))
@@ -137,7 +142,7 @@ private struct SensitivitySection: View {
 
 private struct FilteringSection: View {
     @ObservedObject var appState: AppState
-    @State private var isExpanded = true
+    @State private var isExpanded = false
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -147,7 +152,7 @@ private struct FilteringSection: View {
                     Toggle("Enable One Euro Filter", isOn: $appState.filterEnabled)
                         .font(.subheadline)
 
-                    DescriptionText(text: "The One Euro filter is an adaptive low-pass filter designed specifically for human input devices. It automatically adjusts smoothing based on how fast you're moving - heavy smoothing when stationary or moving slowly (to eliminate jitter), minimal smoothing when moving quickly (to preserve responsiveness). This is the industry-standard filter used in VR/AR systems.")
+                    DescriptionText(text: "Reduces small-motion jitter while relaxing smoothing during faster movement.")
                 }
 
                 if appState.filterEnabled {
@@ -158,13 +163,15 @@ private struct FilteringSection: View {
                         HStack {
                             Text("Min Cutoff (Smoothing)")
                                 .font(.caption.weight(.medium))
-                            Spacer()
-                            Text(String(format: "%.2f Hz", appState.minCutoff))
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
                         }
-                        Slider(value: $appState.minCutoff, in: 0.5...10.0, step: 0.5)
-                        DescriptionText(text: "The base cutoff frequency in Hz. This controls how much smoothing is applied when you're moving slowly or holding still. Lower values = more smoothing = less jitter but more perceived lag. Higher values = less smoothing = more responsive but potentially jittery. Typical range: 0.5-3.0 Hz.")
+                        PreciseSlider(
+                            value: $appState.minCutoff,
+                            range: 0.5...10,
+                            step: 0.5,
+                            fractionDigits: 1,
+                            suffix: "Hz"
+                        )
+                        DescriptionText(text: "Lower values are steadier; higher values respond faster.")
                     }
 
                     // Beta
@@ -172,13 +179,14 @@ private struct FilteringSection: View {
                         HStack {
                             Text("Beta (Speed Reactivity)")
                                 .font(.caption.weight(.medium))
-                            Spacer()
-                            Text(String(format: "%.2f", appState.beta))
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
                         }
-                        Slider(value: $appState.beta, in: 0.0...2.0, step: 0.1)
-                        DescriptionText(text: "Controls how much the filter 'opens up' when you move fast. Higher values mean the filter will reduce smoothing more aggressively during quick movements, reducing lag during flicks and fast aiming. Lower values keep more consistent smoothing regardless of speed. 0 = static smoothing, 1+ = very reactive.")
+                        PreciseSlider(
+                            value: $appState.beta,
+                            range: 0...2,
+                            step: 0.1,
+                            fractionDigits: 1
+                        )
+                        DescriptionText(text: "Higher values remove smoothing more quickly as movement speeds up.")
                     }
 
                     // Adaptive Mode
@@ -194,6 +202,10 @@ private struct FilteringSection: View {
                         DescriptionText(text: adaptiveModeDescription)
                     }
 
+                }
+
+                SectionResetButton("Filtering") {
+                    appState.resetGyroSettings(.filtering)
                 }
             }
             .padding(.vertical, 8)
@@ -213,11 +225,11 @@ private struct FilteringSection: View {
     private var adaptiveModeDescription: String {
         switch appState.adaptiveSmoothingMode {
         case .off:
-            return "Static beta value - smoothing doesn't change based on motion characteristics. The filter behaves the same regardless of how you move."
+            return "Uses the same smoothing response at every movement speed."
         case .speed:
-            return "Beta increases proportionally to angular velocity. Fast movements automatically get less smoothing, reducing lag during quick motions while maintaining stability when moving slowly."
+            return "Reduces smoothing as movement gets faster."
         case .speedAndJerk:
-            return "Beta increases based on both velocity AND acceleration (jerk). This mode responds to sudden direction changes, not just speed. Best for fast-paced use where you make quick, sharp movements."
+            return "Also responds quickly to sudden starts and direction changes."
         }
     }
 }
@@ -226,7 +238,7 @@ private struct FilteringSection: View {
 
 private struct SamplingAndCalibrationSection: View {
     @ObservedObject var appState: AppState
-    @State private var isExpanded = true
+    @State private var isExpanded = false
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -239,7 +251,7 @@ private struct SamplingAndCalibrationSection: View {
                         )
                         .font(.subheadline)
                         DescriptionText(
-                            text: "Joy-Con reports contain three gyro samples. Leave this off for the freshest sample and lowest latency; enable it only when extra smoothing is worth the added averaging."
+                            text: "Averages the three gyro samples in each Joy-Con report. Leave off for the freshest response."
                         )
                     }
                 }
@@ -248,7 +260,7 @@ private struct SamplingAndCalibrationSection: View {
                     Toggle("Auto-tune nominal sample rate", isOn: $appState.autoTuneSampleRate)
                         .font(.subheadline)
                     DescriptionText(
-                        text: "Learns small differences in the device’s normal report cadence. Dropped reports and Bluetooth stalls are ignored, so connection problems cannot redefine the nominal sample rate."
+                        text: "Learns small differences in normal report cadence while ignoring stalls."
                     )
                 }
 
@@ -256,8 +268,12 @@ private struct SamplingAndCalibrationSection: View {
                     Toggle("Auto-calibrate when very still", isOn: $appState.autoNeutralEnabled)
                         .font(.subheadline)
                     DescriptionText(
-                        text: "Refreshes gyro neutral only after low-variance motion remains close to the established bias. Deliberate constant-speed movement is rejected."
+                        text: "Refreshes gyro neutral after the controller remains genuinely still."
                     )
+                }
+
+                SectionResetButton("Sampling & Calibration") {
+                    appState.resetGyroSettings(.samplingAndCalibration)
                 }
             }
             .padding(.vertical, 8)
@@ -279,7 +295,7 @@ private struct SamplingAndCalibrationSection: View {
 
 private struct AccelerationSection: View {
     @ObservedObject var appState: AppState
-    @State private var isExpanded = true
+    @State private var isExpanded = false
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -297,12 +313,13 @@ private struct AccelerationSection: View {
                     HStack {
                         Text("Curve Shape (Exponent)")
                             .font(.caption.weight(.medium))
-                        Spacer()
-                        Text(String(format: "%.2f", appState.curveExponent))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
                     }
-                    Slider(value: $appState.curveExponent, in: 0.1...5.0, step: 0.05)
+                    PreciseSlider(
+                        value: $appState.curveExponent,
+                        range: 0.1...5,
+                        step: 0.05,
+                        fractionDigits: 2
+                    )
                     DescriptionText(text: curveShapeDescription)
                 }
 
@@ -311,13 +328,15 @@ private struct AccelerationSection: View {
                     HStack {
                         Text("Ramp Speed")
                             .font(.caption.weight(.medium))
-                        Spacer()
-                        Text(String(format: "%.0f °/s", appState.rampSpeed))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
                     }
-                    Slider(value: $appState.rampSpeed, in: 10...500, step: 5)
-                    DescriptionText(text: "Speed at which gain reaches the cap. Lower = reaches cap faster, higher = more gradual ramp.")
+                    PreciseSlider(
+                        value: $appState.rampSpeed,
+                        range: 10...500,
+                        step: 5,
+                        fractionDigits: 0,
+                        suffix: "°/s"
+                    )
+                    DescriptionText(text: "Lower values reach maximum gain sooner; higher values ramp more gradually.")
                 }
 
                 // Cap
@@ -325,13 +344,19 @@ private struct AccelerationSection: View {
                     HStack {
                         Text("Cap (Max Gain)")
                             .font(.caption.weight(.medium))
-                        Spacer()
-                        Text(String(format: "%.0fx", appState.sensitivityCap))
-                            .font(.caption.monospacedDigit())
-                            .foregroundColor(.secondary)
                     }
-                    Slider(value: $appState.sensitivityCap, in: 1...1000, step: 1)
-                    DescriptionText(text: "Maximum gain multiplier at high speeds. Higher = faster flicks possible.")
+                    PreciseSlider(
+                        value: $appState.sensitivityCap,
+                        range: 1...1000,
+                        step: 1,
+                        fractionDigits: 0,
+                        suffix: "×"
+                    )
+                    DescriptionText(text: "Limits the gain applied during the fastest movements.")
+                }
+
+                SectionResetButton("Acceleration") {
+                    appState.resetGyroSettings(.acceleration)
                 }
             }
             .padding(.vertical, 8)
@@ -350,12 +375,31 @@ private struct AccelerationSection: View {
 
     private var curveShapeDescription: String {
         if appState.curveExponent < 0.9 {
-            return "Concave curve - ramps up quickly at low speeds, then levels off. Good for precise control with fast flick capability."
+            return "Ramps quickly at lower speeds, then levels off."
         } else if appState.curveExponent > 1.1 {
-            return "Convex curve - slow at low speeds, steep at high speeds. Maximum precision at low speeds, aggressive at high."
+            return "Preserves low-speed precision, then ramps more sharply."
         } else {
-            return "Linear curve - constant rate of acceleration. Predictable and easy to learn."
+            return "Uses a predictable linear acceleration ramp."
         }
+    }
+}
+
+private struct SectionResetButton: View {
+    let sectionName: String
+    let action: () -> Void
+
+    init(_ sectionName: String, action: @escaping () -> Void) {
+        self.sectionName = sectionName
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Label("Reset \(sectionName)", systemImage: "arrow.counterclockwise")
+                .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
     }
 }
 
