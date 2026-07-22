@@ -17,7 +17,7 @@ final class SenseControllerLifecycleTests: XCTestCase {
         XCTAssertEqual(transport.count(of: .stop), 1)
     }
 
-    func testManageIsIdempotentAndUnmanageClosesExactlyOnce() {
+    func testManageIsIdempotentAndDoesNotOpenRawInput() {
         let device = FakeSenseHIDDevice(label: "right")
         let transport = FakeSenseHIDTransport(devices: [device: properties(serial: "sense-right")])
         let controller = SenseController(transport: transport)
@@ -33,15 +33,15 @@ final class SenseControllerLifecycleTests: XCTestCase {
 
         controller.setControllerManaged(id: "sense-right", managed: true)
         XCTAssertTrue(transport.flush())
-        XCTAssertEqual(transport.count(of: .open("right")), 1)
+        XCTAssertEqual(transport.count(of: .open("right")), 0)
 
         controller.setControllerManaged(id: "sense-right", managed: false)
         wait(for: [deactivated], timeout: 1)
         XCTAssertTrue(transport.flush())
-        XCTAssertEqual(transport.count(of: .close("right")), 1)
+        XCTAssertEqual(transport.count(of: .close("right")), 0)
 
         controller.stop()
-        XCTAssertEqual(transport.count(of: .close("right")), 1)
+        XCTAssertEqual(transport.count(of: .close("right")), 0)
     }
 
     func testRemovalQueuedBeforeActivationCannotOpenStaleDevice() {
@@ -103,8 +103,8 @@ final class SenseControllerLifecycleTests: XCTestCase {
         controller.stop()
 
         XCTAssertEqual(transport.count(of: .start), 2)
-        XCTAssertEqual(transport.count(of: .open("right")), 2)
-        XCTAssertEqual(transport.count(of: .close("right")), 2)
+        XCTAssertEqual(transport.count(of: .open("right")), 0)
+        XCTAssertEqual(transport.count(of: .close("right")), 0)
         XCTAssertEqual(transport.count(of: .stop), 2)
     }
 

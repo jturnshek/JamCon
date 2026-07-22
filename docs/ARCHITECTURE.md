@@ -20,8 +20,12 @@
 
 - AppState: central UI state, persists managed devices and profile settings, and mirrors engine callbacks into SwiftUI state.
 - HIDTransport: shared opaque device handles, device properties, transport errors, callback registrations, and stable identity selection used by controller backends.
+- InputDeviceBackend: common low-frequency contract for backend identity, lifecycle, discovery snapshots, managed-device intent, connection state, and lifecycle events. High-frequency reports remain concrete until the normalized input-frame layer is introduced.
+- InputDeviceBackendRegistry: ordered owner of the active backends. InputEngine uses it for start/stop, device enumeration, management routing, aggregate connection state, and backend-tagged lifecycle callbacks.
 - SenseController, JoyConHIDController, and G502XHIDController: device-specific lifecycle, managed-device policy, setup, and report decoding. They revalidate queued activations and only open explicitly managed devices.
-- IOKitSenseHIDTransport and IOKitJoyConHIDTransport: low-level discovery and exclusive input registration for motion controllers.
+- SenseGameControllerSession: owns Sense motion, buttons, stick, and battery input through Apple's background Game Controller APIs, activates native motion when required, and records aggregate callback health.
+- IOKitSenseHIDTransport: Sense discovery and stable physical identity only. JamCon intentionally does not open Sense HID devices because either raw-open mode terminates their Bluetooth session on macOS.
+- IOKitJoyConHIDTransport: low-level Joy-Con discovery and exclusive input registration.
 - IOKitG502XHIDTransport: low-level Logitech discovery, non-exclusive per-interface input registration, and HID++ feature/output writes. A physical G502 can expose several HID interfaces, which the controller groups under one stable identity before activating only the selected mouse.
 - InputEngine: unified processing for gyro, buttons, and radial menu.
 - GyroProcessor: gyro to mouse translation, smoothing, and bias estimation.
@@ -29,4 +33,4 @@
 - SettingsStore: thread-safe settings bridge from UI to engine.
 - DebugBuffer: thread-safe engine-to-UI telemetry and log buffer for diagnostics.
 
-Device transport handles, decoded reports, settings snapshots, and mapping profiles are `Sendable`. Raw IOKit references and callback buffers remain inside the concrete transports; controllers immediately copy callback bytes into owned storage. This is the boundary for adding future HID or Game Controller backends without exposing framework objects to the engine. Controller start/stop is serialized, failed startup is retryable, managed selections survive backend restarts and reconnects, and shutdown closes each active input registration exactly once. Deterministic fake transports cover those lifecycle contracts without connected hardware.
+Device transport handles, backend descriptors, decoded reports, settings snapshots, and mapping profiles are `Sendable`. Raw IOKit references and callback buffers remain inside the concrete transports; controllers immediately copy callback bytes into owned storage. New backends join the common registry without exposing framework objects to the engine. Controller start/stop is serialized, failed startup is retryable, managed selections survive backend restarts and reconnects, and shutdown closes each active input registration exactly once. Deterministic fake transports and registry backends cover those lifecycle contracts without connected hardware.

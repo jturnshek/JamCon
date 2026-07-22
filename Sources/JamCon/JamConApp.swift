@@ -52,7 +52,7 @@ struct JamConApp: App {
                 NSApp.activate(ignoringOtherApps: true)
             }
         } label: {
-            Image(systemName: appState.isEnabled ? "rotate.3d" : "pause.circle")
+            Image(systemName: "rotate.3d")
         }
     }
 }

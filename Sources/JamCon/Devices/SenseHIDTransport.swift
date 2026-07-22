@@ -138,40 +138,16 @@ final class IOKitSenseHIDTransport: SenseHIDTransport, @unchecked Sendable {
     }
 
     func openInput(
-        for device: any HIDDeviceHandle,
-        on runLoop: CFRunLoop,
-        reportLength: Int,
-        handler: @escaping HIDReportHandler
+        for _: any HIDDeviceHandle,
+        on _: CFRunLoop,
+        reportLength _: Int,
+        handler _: @escaping HIDReportHandler
     ) -> Result<any HIDInputRegistration, HIDTransportError> {
-        guard let handle = device as? DeviceHandle else {
-            return .failure(.unexpectedHandle)
-        }
-
-        let result = IOHIDDeviceOpen(handle.device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-        guard result == kIOReturnSuccess else {
-            return .failure(.deviceOpenFailed(result))
-        }
-
-        let registration = InputRegistration(
-            device: handle.device,
-            runLoop: runLoop,
-            reportLength: reportLength,
-            handler: handler
+        .failure(
+            .unsupportedOperation(
+                "Raw Sense input is disabled because opening the HID device terminates its Bluetooth session"
+            )
         )
-        let context = Unmanaged.passUnretained(registration).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(
-            handle.device,
-            registration.reportBuffer,
-            registration.reportLength,
-            { context, _, _, _, reportID, report, length in
-                guard let context else { return }
-                let registration = Unmanaged<InputRegistration>.fromOpaque(context).takeUnretainedValue()
-                registration.handler(reportID, report, length)
-            },
-            context
-        )
-        IOHIDDeviceScheduleWithRunLoop(handle.device, runLoop, CFRunLoopMode.defaultMode.rawValue)
-        return .success(registration)
     }
 
     func closeInput(

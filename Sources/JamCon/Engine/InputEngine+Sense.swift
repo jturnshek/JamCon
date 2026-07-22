@@ -22,6 +22,71 @@ enum SenseTriggerHysteresis {
 
 extension InputEngine {
 
+    // MARK: - Game Controller Input
+
+    func handleSenseGameControllerConnection(
+        connected: Bool,
+        device nativeDevice: SenseGameControllerDevice
+    ) {
+        assertOnEngineQueue()
+        guard let device = managedSenseDevice(forLeftSide: nativeDevice.isLeft) else {
+            JamLog.errorThrottled(
+                .sense,
+                key: "native.connection.unmatched.\(nativeDevice.isLeft)",
+                interval: 2,
+                "Game Controller \(nativeDevice.name) has no unique managed \(nativeDevice.isLeft ? "left" : "right") Sense device"
+            )
+            return
+        }
+
+        resetSenseTransientState(device)
+        if !connected {
+            let key = ManagedDeviceKey(kind: .sense, id: device.id)
+            clearBatteryLevel(for: key)
+            cancelRadialMenuIfOwned(by: key)
+        }
+        JamLog.info(
+            .sense,
+            "Game Controller input \(connected ? "ready" : "unavailable") for managed device \(device.id)"
+        )
+    }
+
+    func processSenseGameControllerFrame(_ frame: SenseGameControllerInputFrame) {
+        assertOnEngineQueue()
+        guard let device = managedSenseDevice(forLeftSide: frame.device.isLeft) else {
+            JamLog.errorThrottled(
+                .sense,
+                key: "native.frame.unmatched.\(frame.device.isLeft)",
+                interval: 2,
+                "Dropping Game Controller input with no unique managed \(frame.device.isLeft ? "left" : "right") Sense device"
+            )
+            return
+        }
+
+        let report = SenseController.InputReport(
+            controllerID: device.id,
+            bytes: frame.bytes,
+            length: frame.bytes.count,
+            gyroX: frame.gyroX,
+            gyroY: frame.gyroY,
+            gyroZ: frame.gyroZ,
+            accelX: frame.accelX,
+            accelY: frame.accelY,
+            accelZ: frame.accelZ,
+            timestamp: frame.timestamp,
+            receivedTimestamp: frame.timestamp,
+            inputTimestamp: nil,
+            timestampSource: .hostReceipt
+        )
+        processSenseReport(report)
+    }
+
+    private func managedSenseDevice(forLeftSide isLeft: Bool) -> SenseDeviceState? {
+        let matches = senseDevices.values.filter { $0.profile.isLeft == isLeft }
+        guard matches.count == 1 else { return nil }
+        return matches[0]
+    }
+
     // MARK: - Sense Report Processing
 
     func processSenseReport(_ report: SenseController.InputReport) {

@@ -217,7 +217,9 @@ JamCon therefore timestamps Sense reports at raw callback entry with `CACurrentM
 ## JamCon Transport Lifecycle
 
 - The IOKit manager uses independent-device discovery and does not open every enumerated controller.
-- JamCon opens a Sense device exclusively only after the user marks that physical controller as managed.
+- JamCon registers as a background Game Controller client before starting HID discovery and activates native motion sensors when the framework requires it. This gives the macOS PS VR2 service plugin ownership of device initialization, input delivery, and Bluetooth session policy.
+- IOKit is used only to discover Sense hardware and retain its stable serial-derived identity. JamCon does not open the raw device: testing confirmed that both exclusive and non-exclusive raw opens terminate the Sense Bluetooth session after a few seconds.
+- Native motion, buttons, thumbstick, trigger, and battery values are normalized into JamCon's existing Sense input-frame representation before entering the shared engine pipeline.
 - Queued activation revalidates both managed state and the current transport handle, so an unmanage or removal event cannot reopen a stale device.
 - Input callbacks, raw IOKit references, scheduling, and close operations stay on the dedicated Sense HID thread.
 - Manager startup failure tears down partial resources and leaves the backend stopped and retryable.

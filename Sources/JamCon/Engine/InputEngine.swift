@@ -23,8 +23,10 @@ final class InputEngine: @unchecked Sendable {
     // MARK: - Controllers
 
     let senseController: SenseController
+    let senseGameControllerSession: any SenseGameControllerSessioning
     let joyConController: JoyConHIDController
     let g502xController: G502XHIDController
+    let backendRegistry: InputDeviceBackendRegistry
     let mouseController: MouseController
     let actionExecutor: ActionExecutor
     let holdScheduler: HoldScheduling
@@ -232,7 +234,7 @@ final class InputEngine: @unchecked Sendable {
         updateBatteryFromLevels()
     }
 
-    private func clearBatteryLevel(for device: ManagedDeviceKey) {
+    func clearBatteryLevel(for device: ManagedDeviceKey) {
         if batteryLevels.removeValue(forKey: device) != nil {
             updateBatteryFromLevels()
         }
@@ -256,26 +258,37 @@ final class InputEngine: @unchecked Sendable {
         debugBuffer: DebugBuffer,
         mouseController: MouseController? = nil,
         actionExecutor: ActionExecutor? = nil,
-        holdScheduler: HoldScheduling = DispatchHoldScheduler()
+        holdScheduler: HoldScheduling = DispatchHoldScheduler(),
+        senseGameControllerSession: (any SenseGameControllerSessioning)? = nil,
+        senseController: SenseController? = nil,
+        joyConController: JoyConHIDController? = nil,
+        g502xController: G502XHIDController? = nil
     ) {
         self.settings = settings
         self.debugBuffer = debugBuffer
         let mouseController = mouseController ?? MouseController()
+        let senseController = senseController ?? SenseController()
+        let joyConController = joyConController ?? JoyConHIDController()
+        let g502xController = g502xController ?? G502XHIDController()
         self.mouseController = mouseController
         self.actionExecutor = actionExecutor ?? ActionExecutor(mouseController: mouseController)
         self.holdScheduler = holdScheduler
-        engineQueue.setSpecific(key: engineQueueKey, value: ())
-
-        // Initialize controllers
-        self.senseController = SenseController()
-        self.joyConController = JoyConHIDController()
-        self.g502xController = G502XHIDController()
+        self.senseController = senseController
+        self.senseGameControllerSession = senseGameControllerSession ?? SenseGameControllerSession()
+        self.joyConController = joyConController
+        self.g502xController = g502xController
+        self.backendRegistry = InputDeviceBackendRegistry(backends: [
+            senseController,
+            joyConController,
+            g502xController,
+        ])
         // Initialize G502X button state arrays
         let g502xButtonCount = G502XLogicalButton.count
         self.g502xButtonStates = Array(repeating: false, count: g502xButtonCount)
         self.g502xPreviousButtonStates = Array(repeating: false, count: g502xButtonCount)
         self.g502xButtonPressStates = Array(repeating: nil, count: g502xButtonCount)
         self.g502xHoldTimers = Array(repeating: nil, count: g502xButtonCount)
+        engineQueue.setSpecific(key: engineQueueKey, value: ())
     }
 
     // MARK: - Lifecycle
@@ -292,10 +305,13 @@ final class InputEngine: @unchecked Sendable {
 
         JamLog.info(.engine, "Input engine starting")
         setupCallbacks()
+        senseGameControllerSession.start()
 
-        senseController.start()
-        joyConController.start()
-        g502xController.start()
+        let startResults = backendRegistry.startAll()
+        let failedBackends = startResults.filter { !$0.started }.map { $0.backend.id.rawValue }
+        if !failedBackends.isEmpty {
+            JamLog.error(.engine, "Input backends failed to start: \(failedBackends.joined(separator: ", "))")
+        }
         JamLog.info(.engine, "Input engine started")
     }
 
@@ -338,9 +354,8 @@ final class InputEngine: @unchecked Sendable {
         }
         guard shouldStop else { return }
 
-        senseController.stop()
-        joyConController.stop()
-        g502xController.stop()
+        backendRegistry.stopAll()
+        senseGameControllerSession.stop()
         JamLog.info(.engine, "Input engine stopped; synthetic outputs released")
     }
 
@@ -440,9 +455,9 @@ final class InputEngine: @unchecked Sendable {
                         }
                         senseDevices[id] = SenseDeviceState(id: id, profile: profile)
                     }
-                    senseController.setControllerManaged(id: id, managed: true)
+                    backendRegistry.setDeviceManaged(id: id, kind: kind, managed: true)
                 } else {
-                    senseController.setControllerManaged(id: id, managed: false)
+                    backendRegistry.setDeviceManaged(id: id, kind: kind, managed: false)
                     removeSenseDevice(id: id)
                 }
 
@@ -455,29 +470,28 @@ final class InputEngine: @unchecked Sendable {
                         }
                         joyConDevices[id] = JoyConDeviceState(id: id, profile: profile)
                     }
-                    joyConController.setControllerManaged(id: id, managed: true)
+                    backendRegistry.setDeviceManaged(id: id, kind: kind, managed: true)
                 } else {
-                    joyConController.setControllerManaged(id: id, managed: false)
+                    backendRegistry.setDeviceManaged(id: id, kind: kind, managed: false)
                     removeJoyConDevice(id: id)
                 }
 
             case .mouse:
                 if managed {
                     if selectedMouseID == id,
-                       g502xController.selectedMouseID == id,
-                       g502xController.isConnected {
+                       backendRegistry.backend(for: kind)?.isConnected == true {
                         return
                     }
                     selectedMouseID = id
                     resetG502XButtonStateBaseline()
-                    g502xController.selectMouse(id: id)
-                } else if g502xController.selectedMouseID == id {
+                    backendRegistry.setDeviceManaged(id: id, kind: kind, managed: true)
+                } else if selectedMouseID == id {
                     let key = ManagedDeviceKey(kind: .mouse, id: id)
                     cancelRadialMenuIfOwned(by: key)
                     selectedMouseID = nil
                     resetG502XButtonStateBaseline()
                     actionExecutor.releaseAll(for: key)
-                    g502xController.deselectMouse()
+                    backendRegistry.setDeviceManaged(id: id, kind: kind, managed: false)
                 }
             }
         }
@@ -503,14 +517,12 @@ final class InputEngine: @unchecked Sendable {
 
     /// Get list of available controllers
     var availableControllers: [ControllerInfo] {
-        senseController.controllerInfosSnapshot()
-            + joyConController.controllerInfosSnapshot()
-            + g502xController.mouseInfosSnapshot()
+        backendRegistry.availableDevicesSnapshot()
     }
 
     /// Current connection state
     var isConnected: Bool {
-        senseController.isConnected || joyConController.isConnected || g502xController.isConnected
+        backendRegistry.isConnected
     }
 
     /// Recalibrate the gyro
@@ -528,6 +540,19 @@ final class InputEngine: @unchecked Sendable {
     // MARK: - Callbacks Setup
 
     private func setupCallbacks() {
+        backendRegistry.setEventHandlers(
+            devicesChanged: { [weak self] _ in
+                self?.engineQueueAsync { [weak self] in
+                    self?.onControllerListChanged?()
+                }
+            },
+            connectionChanged: { [weak self] event in
+                self?.engineQueueAsync { [weak self] in
+                    self?.handleBackendConnectionEvent(event)
+                }
+            }
+        )
+
         // Sense Controller
         senseController.onReportData = { [weak self] report in
             self?.engineQueueAsync { [weak self] in
@@ -535,61 +560,25 @@ final class InputEngine: @unchecked Sendable {
             }
         }
 
-        senseController.onConnectionChange = { [weak self] connected, name, controllerID in
-            self?.engineQueueAsync { [weak self] in
-                guard let self else { return }
-                if let id = controllerID {
-                    let key = ManagedDeviceKey(kind: .sense, id: id)
-                    if let device = self.senseDevices[id] {
-                        self.resetSenseTransientState(device)
+        senseGameControllerSession.setEventHandlers(
+            SenseGameControllerSessionHandlers(
+                connectionChanged: { [weak self] connected, device in
+                    self?.engineQueueAsync { [weak self] in
+                        self?.handleSenseGameControllerConnection(connected: connected, device: device)
                     }
-                    if !connected {
-                        self.clearBatteryLevel(for: key)
-                        self.cancelRadialMenuIfOwned(by: key)
+                },
+                inputFrame: { [weak self] frame in
+                    self?.engineQueueAsync { [weak self] in
+                        self?.processSenseGameControllerFrame(frame)
                     }
                 }
-                self.onConnectionChanged?(connected, name, .sense)
-            }
-        }
-
-        senseController.onControllersChanged = { [weak self] in
-            self?.engineQueueAsync { [weak self] in
-                self?.onControllerListChanged?()
-            }
-        }
+            )
+        )
 
         // Joy-Con Controller
         joyConController.onReportData = { [weak self] report in
             self?.engineQueueAsync { [weak self] in
                 self?.processJoyConReport(report)
-            }
-        }
-
-        joyConController.onConnectionChange = { [weak self] connected, name, controllerID in
-            self?.engineQueueAsync { [weak self] in
-                guard let self else { return }
-
-                if let id = controllerID {
-                    let key = ManagedDeviceKey(kind: .joyCon, id: id)
-                    if let device = self.joyConDevices[id] {
-                        self.resetJoyConTransientState(device)
-                        if connected {
-                            device.mapping.calibration.reset()
-                        }
-                    }
-                    if !connected {
-                        self.clearBatteryLevel(for: key)
-                        self.cancelRadialMenuIfOwned(by: key)
-                    }
-                }
-
-                self.onConnectionChanged?(connected, name, .joyCon)
-            }
-        }
-
-        joyConController.onControllersChanged = { [weak self] in
-            self?.engineQueueAsync { [weak self] in
-                self?.onControllerListChanged?()
             }
         }
 
@@ -600,26 +589,51 @@ final class InputEngine: @unchecked Sendable {
             }
         }
 
-        g502xController.onConnectionChange = { [weak self] connected, name, controllerID in
-            self?.engineQueueAsync { [weak self] in
-                guard let self else { return }
-                self.resetG502XButtonStateBaseline()
-                if !connected, let controllerID {
-                    self.actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .mouse, id: controllerID))
-                }
-                self.onConnectionChanged?(connected, name, .mouse)
-            }
-        }
-
-        g502xController.onControllersChanged = { [weak self] in
-            self?.engineQueueAsync { [weak self] in
-                self?.onControllerListChanged?()
-            }
-        }
-
     }
 
-    private func resetSenseTransientState(_ device: SenseDeviceState) {
+    private func handleBackendConnectionEvent(_ event: InputDeviceBackendConnectionEvent) {
+        assertOnEngineQueue()
+        let kind = event.backend.kind
+
+        switch kind {
+        case .sense:
+            if let id = event.deviceID {
+                let key = ManagedDeviceKey(kind: kind, id: id)
+                if let device = senseDevices[id] {
+                    resetSenseTransientState(device)
+                }
+                if !event.connected {
+                    clearBatteryLevel(for: key)
+                    cancelRadialMenuIfOwned(by: key)
+                }
+            }
+
+        case .joyCon:
+            if let id = event.deviceID {
+                let key = ManagedDeviceKey(kind: kind, id: id)
+                if let device = joyConDevices[id] {
+                    resetJoyConTransientState(device)
+                    if event.connected {
+                        device.mapping.calibration.reset()
+                    }
+                }
+                if !event.connected {
+                    clearBatteryLevel(for: key)
+                    cancelRadialMenuIfOwned(by: key)
+                }
+            }
+
+        case .mouse:
+            resetG502XButtonStateBaseline()
+            if !event.connected, let id = event.deviceID {
+                actionExecutor.releaseAll(for: ManagedDeviceKey(kind: kind, id: id))
+            }
+        }
+
+        onConnectionChanged?(event.connected, event.deviceName, kind)
+    }
+
+    func resetSenseTransientState(_ device: SenseDeviceState) {
         for idx in device.holdTimers.indices {
             device.holdTimers[idx]?.cancel()
             device.holdTimers[idx] = nil

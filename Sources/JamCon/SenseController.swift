@@ -58,9 +58,9 @@ final class SenseController: @unchecked Sendable {
 
     private final class ActiveController: Sendable {
         let controller: DiscoveredController
-        let registration: any HIDInputRegistration
+        let registration: (any HIDInputRegistration)?
 
-        init(controller: DiscoveredController, registration: any HIDInputRegistration) {
+        init(controller: DiscoveredController, registration: (any HIDInputRegistration)? = nil) {
             self.controller = controller
             self.registration = registration
         }
@@ -403,7 +403,7 @@ final class SenseController: @unchecked Sendable {
         let controllerID = controller.id
         // This method is commonly queued from another thread. Re-resolve the
         // device at execution time so a preceding unmanage or removal callback
-        // cannot make us seize a stale controller.
+        // cannot make us open a stale controller.
         let currentController: DiscoveredController? = stateLock.withLock { state in
             guard state.managedControllerIDs.contains(controllerID),
                   state.activeControllers[controllerID] == nil,
@@ -415,34 +415,11 @@ final class SenseController: @unchecked Sendable {
         }
         guard let currentController else { return }
 
-        guard let runLoop = CFRunLoopGetCurrent() else {
-            JamLog.error(.sense, "Cannot activate Sense device without a HID run loop")
-            return
-        }
-
-        // Managed Sense devices require exclusive access so macOS does not also
-        // translate controller buttons into system actions.
-        let registrationResult = transport.openInput(
-            for: currentController.device,
-            on: runLoop,
-            reportLength: 256,
-            handler: { [weak self] reportID, report, length in
-                self?.handleInputReport(
-                    controllerID: controllerID,
-                    report: report,
-                    length: length,
-                    reportID: reportID
-                )
-            }
-        )
-        guard case let .success(registration) = registrationResult else {
-            if case let .failure(error) = registrationResult {
-                JamLog.error(.sense, "Failed to seize managed device: \(error)")
-            }
-            return
-        }
-
-        let active = ActiveController(controller: currentController, registration: registration)
+        // Do not open the raw HID device. Both exclusive and non-exclusive
+        // opens cause PS VR2 Sense Bluetooth sessions to terminate on macOS.
+        // IOKit remains responsible only for stable discovery/identity; input
+        // arrives through SenseGameControllerSession.
+        let active = ActiveController(controller: currentController)
         let activated = stateLock.withLock { state in
             guard state.managedControllerIDs.contains(controllerID),
                   state.activeControllers[controllerID] == nil,
@@ -454,14 +431,11 @@ final class SenseController: @unchecked Sendable {
             return true
         }
         guard activated else {
-            if case let .failure(error) = transport.closeInput(registration) {
-                JamLog.error(.sense, "Failed to close stale managed device: \(error)")
-            }
             return
         }
 
         let displayName = "\(currentController.name) (\(currentController.side))"
-        log("Activated: \(displayName)")
+        log("Activated for Game Controller input: \(displayName)")
         onConnectionChange?(true, displayName, currentController.id)
     }
 
@@ -484,7 +458,8 @@ final class SenseController: @unchecked Sendable {
 
     private func close(_ active: ActiveController) {
         assertOnHIDThread()
-        if case let .failure(error) = transport.closeInput(active.registration) {
+        guard let registration = active.registration else { return }
+        if case let .failure(error) = transport.closeInput(registration) {
             JamLog.errorThrottled(
                 .sense,
                 key: "device.close.\(active.controller.id)",
@@ -563,8 +538,8 @@ final class SenseController: @unchecked Sendable {
         if let controller = disconnected {
             log("Sense \(controller.side) Controller disconnected")
 
-            // If this was active, deactivation unregisters callbacks and balances
-            // the exclusive open performed during activation.
+            // If this managed device was active, publish its disconnection and
+            // release the associated engine state.
             deactivateController(id: controller.id)
             onControllersChanged?()
         }

@@ -21,6 +21,7 @@ enum HIDTransportError: Error, Equatable, Sendable, CustomStringConvertible {
     case managerCreationFailed
     case managerOpenFailed(Int32)
     case unexpectedHandle
+    case unsupportedOperation(String)
     case deviceOpenFailed(Int32)
     case deviceCloseFailed(Int32)
     case outputReportFailed(Int32)
@@ -33,6 +34,8 @@ enum HIDTransportError: Error, Equatable, Sendable, CustomStringConvertible {
             return "HID manager open failed (IOReturn=\(result))"
         case .unexpectedHandle:
             return "HID transport received a handle from another transport"
+        case let .unsupportedOperation(message):
+            return message
         case let .deviceOpenFailed(result):
             return "managed device open failed (IOReturn=\(result))"
         case let .deviceCloseFailed(result):

@@ -17,13 +17,6 @@ struct MenuBarView: View {
 
             Divider()
 
-            Toggle(isOn: $appState.isEnabled) {
-                Label(
-                    appState.isEnabled ? "JamCon Enabled" : "JamCon Paused",
-                    systemImage: appState.isEnabled ? "play.fill" : "pause.fill"
-                )
-            }
-
             if !appState.hasAccessibilityPermission {
                 Button {
                     appState.openAccessibilitySettings()
