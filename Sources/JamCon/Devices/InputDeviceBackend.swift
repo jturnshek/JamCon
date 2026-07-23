@@ -16,6 +16,7 @@ struct InputDeviceBackendID: RawRepresentable, Hashable, Codable, Sendable, Cust
 
     static let senseGameController = InputDeviceBackendID(rawValue: "sense.game-controller")
     static let joyConDirectHID = InputDeviceBackendID(rawValue: "joycon.direct-hid")
+    static let joyCon2BluetoothLE = InputDeviceBackendID(rawValue: "joycon2.bluetooth-le")
     static let g502DirectHID = InputDeviceBackendID(rawValue: "g502x.direct-hid")
 }
 
@@ -107,8 +108,39 @@ struct InputDeviceFrame: Equatable, Sendable {
     let receivedTimestamp: TimeInterval
     let inputTimestamp: TimeInterval?
     let timestampSource: InputTimestampSource
+    /// Native raw-unit scale for one gyroscope LSB. nil uses the family default.
+    let gyroScale: Double?
+    /// Motion cadence currently delivered by the transport. This may differ
+    /// from the rate requested from the device after BLE negotiation.
+    let motionSampleRate: Double?
 
     var length: Int { bytes.count }
+
+    init(
+        backend: InputDeviceBackendDescriptor,
+        deviceID: String,
+        reportID: UInt32,
+        bytes: [UInt8],
+        motion: InputDeviceMotionSamples,
+        timestamp: TimeInterval,
+        receivedTimestamp: TimeInterval,
+        inputTimestamp: TimeInterval?,
+        timestampSource: InputTimestampSource,
+        gyroScale: Double? = nil,
+        motionSampleRate: Double? = nil
+    ) {
+        self.backend = backend
+        self.deviceID = deviceID
+        self.reportID = reportID
+        self.bytes = bytes
+        self.motion = motion
+        self.timestamp = timestamp
+        self.receivedTimestamp = receivedTimestamp
+        self.inputTimestamp = inputTimestamp
+        self.timestampSource = timestampSource
+        self.gyroScale = gyroScale
+        self.motionSampleRate = motionSampleRate
+    }
 }
 
 /// Structural failures that can be checked without understanding a device's
@@ -120,6 +152,8 @@ enum InputDeviceFrameContractViolation: String, Equatable, Sendable {
     case nonFiniteTimestamp
     case nonFiniteReceivedTimestamp
     case nonFiniteInputTimestamp
+    case invalidGyroScale
+    case invalidMotionSampleRate
     case emptyMotionBatch
     case undeclaredMotion
 
@@ -135,6 +169,10 @@ enum InputDeviceFrameContractViolation: String, Equatable, Sendable {
             return "the receipt timestamp is not finite"
         case .nonFiniteInputTimestamp:
             return "the optional input timestamp is not finite"
+        case .invalidGyroScale:
+            return "the optional gyroscope scale is not finite and positive"
+        case .invalidMotionSampleRate:
+            return "the optional motion sample rate is not finite and positive"
         case .emptyMotionBatch:
             return "the frame contains an empty motion batch"
         case .undeclaredMotion:
@@ -178,6 +216,14 @@ extension InputDeviceFrame {
         guard receivedTimestamp.isFinite else { return .nonFiniteReceivedTimestamp }
         if let inputTimestamp, !inputTimestamp.isFinite {
             return .nonFiniteInputTimestamp
+        }
+        if let gyroScale,
+           !gyroScale.isFinite || gyroScale <= 0 {
+            return .invalidGyroScale
+        }
+        if let motionSampleRate,
+           !motionSampleRate.isFinite || motionSampleRate <= 0 {
+            return .invalidMotionSampleRate
         }
 
         switch motion {
@@ -248,12 +294,13 @@ protocol InputDeviceBackend: AnyObject, Sendable {
 final class InputDeviceBackendRegistry: @unchecked Sendable {
     private let orderedBackends: [any InputDeviceBackend]
     private let backendsByID: [InputDeviceBackendID: any InputDeviceBackend]
-    private let primaryBackendByKind: [ControllerKind: any InputDeviceBackend]
+    private let backendsByKind: [ControllerKind: [any InputDeviceBackend]]
     private let eventStateLock = OSAllocatedUnfairLock(initialState: Set<InputDeviceBackendID>())
+    private let ownershipLock = OSAllocatedUnfairLock(initialState: [String: InputDeviceBackendID]())
 
     init(backends: [any InputDeviceBackend]) {
         var byID: [InputDeviceBackendID: any InputDeviceBackend] = [:]
-        var byKind: [ControllerKind: any InputDeviceBackend] = [:]
+        var byKind: [ControllerKind: [any InputDeviceBackend]] = [:]
 
         for backend in backends {
             let descriptor = backend.backendDescriptor
@@ -261,15 +308,12 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
                 byID.updateValue(backend, forKey: descriptor.id) == nil,
                 "Duplicate input device backend ID: \(descriptor.id)"
             )
-            precondition(
-                byKind.updateValue(backend, forKey: descriptor.kind) == nil,
-                "Backend arbitration is required before registering multiple backends for \(descriptor.kind)"
-            )
+            byKind[descriptor.kind, default: []].append(backend)
         }
 
         orderedBackends = backends
         backendsByID = byID
-        primaryBackendByKind = byKind
+        backendsByKind = byKind
     }
 
     var descriptors: [InputDeviceBackendDescriptor] {
@@ -281,7 +325,7 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
     }
 
     func backend(for kind: ControllerKind) -> (any InputDeviceBackend)? {
-        primaryBackendByKind[kind]
+        backendsByKind[kind]?.first
     }
 
     func setEventHandlers(
@@ -349,7 +393,9 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
     }
 
     func availableDevicesSnapshot() -> [ControllerInfo] {
-        orderedBackends.flatMap { backend in
+        var owners: [String: InputDeviceBackendID] = [:]
+        var seenFamilyDeviceIDs = Set<String>()
+        let devices = orderedBackends.flatMap { backend in
             let descriptor = backend.backendDescriptor
             var seenDeviceIDs = Set<String>()
             return backend.availableDevicesSnapshot().filter { device in
@@ -357,6 +403,8 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
                 if device.id.isEmpty {
                     violation = .emptyDeviceID
                 } else if !seenDeviceIDs.insert(device.id).inserted {
+                    violation = .duplicateDeviceID
+                } else if !seenFamilyDeviceIDs.insert("\(device.kind.rawValue):\(device.id)").inserted {
                     violation = .duplicateDeviceID
                 } else if device.kind != descriptor.kind {
                     violation = .kindMismatch
@@ -368,7 +416,10 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
                     violation = nil
                 }
 
-                guard let violation else { return true }
+                guard let violation else {
+                    owners["\(device.kind.rawValue):\(device.id)"] = descriptor.id
+                    return true
+                }
                 JamLog.errorThrottled(
                     .engine,
                     key: "input.metadata.\(descriptor.id.rawValue).\(violation.rawValue)",
@@ -378,6 +429,13 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
                 return false
             }
         }
+        let discoveredOwners = owners
+        ownershipLock.withLock { knownOwners in
+            // Preserve owners learned during management so a temporarily
+            // disconnected device can still be routed for an explicit unmanage.
+            knownOwners.merge(discoveredOwners) { _, current in current }
+        }
+        return devices
     }
 
     var isConnected: Bool {
@@ -390,8 +448,22 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
         kind: ControllerKind,
         managed: Bool
     ) -> Bool {
-        guard let backend = primaryBackendByKind[kind] else { return false }
+        let key = "\(kind.rawValue):\(id)"
+        let candidates = backendsByKind[kind] ?? []
+        let rememberedID = ownershipLock.withLock { $0[key] }
+        let backend = rememberedID.flatMap { backendsByID[$0] }
+            ?? candidates.first(where: { candidate in
+                candidate.availableDevicesSnapshot().contains(where: { $0.id == id })
+            })
+        guard let backend else { return false }
         backend.setDeviceManaged(id: id, managed: managed)
+        ownershipLock.withLock { owners in
+            if managed {
+                owners[key] = backend.backendDescriptor.id
+            } else {
+                owners.removeValue(forKey: key)
+            }
+        }
         return true
     }
 

@@ -56,22 +56,33 @@ enum ControllerHandedness: String, Codable, Sendable {
     }
 }
 
+/// Hardware layout variant within a controller family. This stays separate
+/// from ControllerKind so generations that share the same input pipeline can
+/// still have independent button profiles.
+enum ControllerProfileVariant: String, Codable, Sendable {
+    case standard
+    case joyCon2
+}
+
 /// Identifies a specific controller profile by type and side.
 /// Used as the key for per-profile settings like button mappings.
 struct ControllerProfile: Hashable, Codable, Sendable {
     let kind: ControllerKind
     let isLeft: Bool
+    let variant: ControllerProfileVariant
 
     /// Key used for UserDefaults persistence, e.g. "sense.left"
     var persistenceKey: String {
-        "\(kind.rawValue).\(isLeft ? "left" : "right")"
+        let family = variant == .joyCon2 ? "joyCon2" : kind.rawValue
+        return "\(family).\(isLeft ? "left" : "right")"
     }
 
     /// Human-readable display name, e.g. "Joy-Con Left" or just "G502X"
     var displayName: String {
         if kind.hasSides {
             let sideName = isLeft ? "Left" : "Right"
-            return "\(kind.displayName) \(sideName)"
+            let familyName = variant == .joyCon2 ? "Joy-Con 2" : kind.displayName
+            return "\(familyName) \(sideName)"
         } else {
             return kind.displayName
         }
@@ -86,19 +97,43 @@ struct ControllerProfile: Hashable, Codable, Sendable {
     static let senseRight = ControllerProfile(kind: .sense, isLeft: false)
     static let joyConLeft = ControllerProfile(kind: .joyCon, isLeft: true)
     static let joyConRight = ControllerProfile(kind: .joyCon, isLeft: false)
+    static let joyCon2Left = ControllerProfile(kind: .joyCon, isLeft: true, variant: .joyCon2)
+    static let joyCon2Right = ControllerProfile(kind: .joyCon, isLeft: false, variant: .joyCon2)
     static let mouse = ControllerProfile(kind: .mouse, isLeft: false)  // Mouse has no sides
 
-    static let allProfiles: [ControllerProfile] = [.senseLeft, .senseRight, .joyConLeft, .joyConRight, .mouse]
+    static let allProfiles: [ControllerProfile] = [
+        .senseLeft, .senseRight,
+        .joyConLeft, .joyConRight,
+        .joyCon2Left, .joyCon2Right,
+        .mouse,
+    ]
 
     /// Create a profile from a ControllerInfo
     init(from info: ControllerInfo) {
         self.kind = info.kind
         self.isLeft = info.isLeft
+        self.variant = info.kind == .joyCon ? info.profileVariant : .standard
     }
 
-    init(kind: ControllerKind, isLeft: Bool) {
+    init(kind: ControllerKind, isLeft: Bool, variant: ControllerProfileVariant = .standard) {
         self.kind = kind
         self.isLeft = isLeft
+        self.variant = kind == .joyCon ? variant : .standard
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, isLeft, variant
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(ControllerKind.self, forKey: .kind)
+        isLeft = try container.decode(Bool.self, forKey: .isLeft)
+        let decodedVariant = try container.decodeIfPresent(
+            ControllerProfileVariant.self,
+            forKey: .variant
+        ) ?? .standard
+        variant = kind == .joyCon ? decodedVariant : .standard
     }
 }
 
@@ -109,6 +144,23 @@ struct ControllerInfo: Identifiable, Equatable, Sendable {
     let productID: Int
     let kind: ControllerKind
     let handedness: ControllerHandedness
+    let profileVariant: ControllerProfileVariant
+
+    init(
+        id: String,
+        name: String,
+        productID: Int,
+        kind: ControllerKind,
+        handedness: ControllerHandedness,
+        profileVariant: ControllerProfileVariant = .standard
+    ) {
+        self.id = id
+        self.name = name
+        self.productID = productID
+        self.kind = kind
+        self.handedness = handedness
+        self.profileVariant = kind == .joyCon ? profileVariant : .standard
+    }
 
     /// Stable key for persisting per-device "managed" state.
     /// Includes kind to avoid cross-device ID collisions.

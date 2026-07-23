@@ -63,6 +63,7 @@ final class AppState: ObservableObject {
     private enum DefaultsKeys {
         static let configurationKind = "configurationProfile.kind"
         static let configurationIsLeft = "configurationProfile.isLeft"
+        static let configurationVariant = "configurationProfile.variant"
         static let managedDeviceKeys = "managedDeviceKeys"
     }
 
@@ -356,13 +357,16 @@ final class AppState: ObservableObject {
         }
 
         let isLeft = defaults.bool(forKey: DefaultsKeys.configurationIsLeft)
-        return ControllerProfile(kind: kind, isLeft: kind.hasSides ? isLeft : false)
+        let variant = defaults.string(forKey: DefaultsKeys.configurationVariant)
+            .flatMap(ControllerProfileVariant.init(rawValue:)) ?? .standard
+        return ControllerProfile(kind: kind, isLeft: kind.hasSides ? isLeft : false, variant: variant)
     }
 
     private func saveConfigurationProfile() {
         let defaults = UserDefaults.standard
         defaults.set(configurationProfile.kind.rawValue, forKey: DefaultsKeys.configurationKind)
         defaults.set(configurationProfile.isLeft, forKey: DefaultsKeys.configurationIsLeft)
+        defaults.set(configurationProfile.variant.rawValue, forKey: DefaultsKeys.configurationVariant)
     }
 
     private static func cursorControlEnabledKey(for profile: ControllerProfile) -> String {
@@ -833,7 +837,13 @@ final class AppState: ObservableObject {
         // Ensure engine selections track our persisted managed set.
         for controller in availableControllers {
             let managed = managedDeviceKeys.contains(controller.managementKey)
-            engine.setDeviceManaged(id: controller.id, kind: controller.kind, isLeft: controller.isLeft, managed: managed)
+            engine.setDeviceManaged(
+                id: controller.id,
+                kind: controller.kind,
+                isLeft: controller.isLeft,
+                profileVariant: controller.profileVariant,
+                managed: managed
+            )
         }
     }
 

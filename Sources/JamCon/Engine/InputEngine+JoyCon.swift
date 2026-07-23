@@ -51,12 +51,28 @@ extension InputEngine {
         let profile = device.profile
         let owner = ManagedDeviceKey(kind: .joyCon, id: device.id)
 
+        let controlBytes: [UInt8]
+        if report.backend.id == .joyCon2BluetoothLE {
+            guard let normalized = JoyCon2BLEProtocol.controlBytes(from: report.bytes) else {
+                JamLog.errorThrottled(
+                    .joyCon,
+                    key: "joycon2.input.malformed-controls.\(report.deviceID)",
+                    interval: 2,
+                    "Dropping malformed Joy-Con 2 control report (length=\(report.length))"
+                )
+                return
+            }
+            controlBytes = normalized
+        } else {
+            controlBytes = report.bytes
+        }
+
         let isLeft = profile.isLeft
         let buttonProfile: JoyConButtonMappingProfile = s.joyConButtonMappings[profile] ?? .defaultProfile(for: profile)
         let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
         // Continuous auto-calibration: updates center when stick is stationary
-        let raw = device.mapping.joystickPositionRaw(in: report.bytes)
+        let raw = device.mapping.joystickPositionRaw(in: controlBytes)
         device.mapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
 
         // 1. Process Joy-Con buttons
@@ -64,7 +80,7 @@ extension InputEngine {
             processJoyConButtonActions(
                 owner: owner,
                 device: device,
-                bytes: report.bytes,
+                bytes: controlBytes,
                 mapping: device.mapping,
                 profile: buttonProfile,
                 holdThreshold: buttonProfile.holdThreshold
@@ -72,7 +88,7 @@ extension InputEngine {
         } else {
             primeJoyConButtonStates(
                 device: device,
-                bytes: report.bytes,
+                bytes: controlBytes,
                 mapping: device.mapping
             )
             device.hasPrimedButtonState = true
@@ -89,14 +105,23 @@ extension InputEngine {
             rawY: rawGyro.y,
             rawZ: rawGyro.z,
             controllerKind: .joyCon,
-            isLeft: isLeft
+            isLeft: isLeft,
+            profileVariant: profile.variant,
+            nativeScale: report.gyroScale
         )
 
         // Pass remapped values to gyro processor (which expects pitch in X, yaw in Y)
         var gyroSettings = s.gyroSettings[.joyCon] ?? .defaultForKind(.joyCon)
         let userScale = gyroSettings.gyroScale
-        gyroSettings.gyroScale = effectiveGyroScale(for: .joyCon, userScale: userScale)
-        gyroSettings.expectedSampleRate = 66.0  // Joy-Con packets are ~66 Hz (3 IMU samples per packet)
+        gyroSettings.gyroScale = effectiveGyroScale(
+            for: .joyCon,
+            userScale: userScale,
+            nativeScale: report.gyroScale
+        )
+        if profile.variant == .joyCon2 {
+            gyroSettings.sensitivity *= JoyCon2BLEProtocol.cursorSensitivityMultiplier
+        }
+        gyroSettings.expectedSampleRate = report.motionSampleRate ?? 66.0
         gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
         if let (dx, dy) = device.gyroProcessor.process(
             rawX: pipeline.remapped.pitch,
@@ -123,11 +148,11 @@ extension InputEngine {
 
         // 3. Process joystick scroll (if enabled)
         if s.joystickScrollEnabled, cursorEnabled {
-            processJoyConJoystickScroll(bytes: report.bytes, mapping: device.mapping, settings: s)
+            processJoyConJoystickScroll(bytes: controlBytes, mapping: device.mapping, settings: s)
         }
 
         // 4. Update battery level (Joy-Con battery is in byte 2, upper nibble)
-        if report.bytes.count > 2 {
+        if report.backend.id == .joyConDirectHID, report.bytes.count > 2 {
             setBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]), for: owner)
         }
 
@@ -172,7 +197,7 @@ extension InputEngine {
         holdThreshold: Double
     ) {
         // Process all buttons available on this Joy-Con side
-        let availableButtons = mapping.isLeftController ? JoyConLogicalButton.leftButtons : JoyConLogicalButton.rightButtons
+        let availableButtons = JoyConLogicalButton.availableButtons(for: device.profile)
 
         for button in availableButtons {
             let idx = button.index
@@ -198,7 +223,7 @@ extension InputEngine {
         bytes: [UInt8],
         mapping: JoyConButtonMapping
     ) {
-        let availableButtons = mapping.isLeftController ? JoyConLogicalButton.leftButtons : JoyConLogicalButton.rightButtons
+        let availableButtons = JoyConLogicalButton.availableButtons(for: device.profile)
         for button in availableButtons {
             let idx = button.index
             let isPressed = mapping.isPressed(button, in: bytes)

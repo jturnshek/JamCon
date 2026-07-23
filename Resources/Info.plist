@@ -35,5 +35,7 @@
 	<string>NSApplication</string>
 	<key>NSAccessoryTrackingUsageDescription</key>
 	<string>JamCon uses controller motion to move the pointer.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>JamCon uses Bluetooth to connect directly to Joy-Con 2 controllers.</string>
 </dict>
 </plist>

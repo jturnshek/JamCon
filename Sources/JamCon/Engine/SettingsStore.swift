@@ -86,7 +86,10 @@ final class SettingsStore: @unchecked Sendable {
             }
 
             // Load per-profile button mappings for Joy-Con
-            for profile in [ControllerProfile.joyConLeft, .joyConRight] {
+            for profile in [
+                ControllerProfile.joyConLeft, .joyConRight,
+                .joyCon2Left, .joyCon2Right,
+            ] {
                 if JoyConButtonMappingProfile.hasPerProfileSettings(for: profile) {
                     settings.joyConButtonMappings[profile] = .load(for: profile)
                 } else {

@@ -34,6 +34,9 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
     case sl
     case sr
 
+    // Joy-Con 2 system button (Right only)
+    case c
+
     /// Stable index for array-backed hot-path storage
     var index: Int {
         switch self {
@@ -56,6 +59,7 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
         case .dpadDown: return 16
         case .dpadLeft: return 17
         case .dpadRight: return 18
+        case .c: return 19
         }
     }
 
@@ -81,15 +85,25 @@ enum JoyConLogicalButton: String, CaseIterable, Codable {
         case .stickClick: return "Stick"
         case .sl: return "SL"
         case .sr: return "SR"
+        case .c: return "C"
         }
     }
 
     /// Number of buttons for array allocation
-    static var count: Int { 19 }
+    static var count: Int { 20 }
 
     /// Buttons available on Right Joy-Con
     static var rightButtons: [JoyConLogicalButton] {
         [.a, .b, .x, .y, .r, .zr, .plus, .home, .stickClick, .sl, .sr]
+    }
+
+    static var joyCon2RightButtons: [JoyConLogicalButton] {
+        rightButtons + [.c]
+    }
+
+    static func availableButtons(for profile: ControllerProfile) -> [JoyConLogicalButton] {
+        if profile.isLeft { return leftButtons }
+        return profile.variant == .joyCon2 ? joyCon2RightButtons : rightButtons
     }
 
     /// Buttons available on Left Joy-Con
@@ -299,6 +313,8 @@ struct JoyConButtonMapping {
         case .home:
             let loc = JoyConHIDProtocol.RightButton.home
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
+        case .c:
+            return ButtonLocation(byte: 4, bit: 6)
         case .stickClick:
             let loc = JoyConHIDProtocol.RightButton.rStick
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
@@ -363,7 +379,7 @@ struct JoyConButtonMapping {
             return ButtonLocation(byte: loc.byte, bit: loc.bit)
 
         // Buttons not on Left Joy-Con (face buttons are on Right)
-        case .a, .b, .x, .y, .r, .zr, .plus, .home:
+        case .a, .b, .x, .y, .r, .zr, .plus, .home, .c:
             return nil
         }
     }

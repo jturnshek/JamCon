@@ -22,7 +22,7 @@ struct ButtonsTab: View {
                         JoyConButtonMappingsSection(
                             appState: appState,
                             keyCaptureManager: joyConKeyCaptureManager,
-                            isLeft: isLeft
+                            profile: appState.configurationProfile
                         )
 
                         // Tip about Home button
@@ -129,9 +129,12 @@ private struct ButtonProfileIndicator: View {
     @ObservedObject var appState: AppState
 
     private var helperText: String {
-        appState.configurationProfile.kind.hasSides
-        ? "Button mappings are saved separately for each controller side"
-        : "Button mappings are saved separately per controller type"
+        if appState.configurationProfile.kind == .joyCon {
+            return "Button mappings are saved separately for each Joy-Con generation and side"
+        }
+        return appState.configurationProfile.kind.hasSides
+            ? "Button mappings are saved separately for each controller side"
+            : "Button mappings are saved separately per controller type"
     }
 
     var body: some View {
@@ -158,10 +161,10 @@ private struct ButtonProfileIndicator: View {
 struct JoyConButtonMappingsSection: View {
     @ObservedObject var appState: AppState
     @ObservedObject var keyCaptureManager: JoyConKeyCaptureManager
-    let isLeft: Bool
+    let profile: ControllerProfile
 
     private var mappableButtons: [JoyConLogicalButton] {
-        isLeft ? JoyConLogicalButton.leftButtons : JoyConLogicalButton.rightButtons
+        JoyConLogicalButton.availableButtons(for: profile)
     }
 
     var body: some View {

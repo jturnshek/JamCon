@@ -7,9 +7,13 @@ extension InputEngine {
     // MARK: - Shared gyro scaling
 
     /// Apply the user scale as a multiplier relative to the Sense reference scale so both controllers share the same pipeline.
-    func effectiveGyroScale(for kind: ControllerKind, userScale: Double) -> Double {
+    func effectiveGyroScale(
+        for kind: ControllerKind,
+        userScale: Double,
+        nativeScale: Double? = nil
+    ) -> Double {
         let reference = GyroRemapper.gyroScale(for: .sense)
-        let deviceScale = GyroRemapper.gyroScale(for: kind)
+        let deviceScale = nativeScale ?? GyroRemapper.gyroScale(for: kind)
         let rawMultiplier = reference != 0 ? (userScale / reference) : 1.0
         let userMultiplier = min(4.0, max(0.25, rawMultiplier))  // clamp to a sane range
         return deviceScale * userMultiplier
@@ -27,4 +31,3 @@ extension InputEngine {
         )
     }
 }
-

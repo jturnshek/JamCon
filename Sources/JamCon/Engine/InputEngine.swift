@@ -25,6 +25,7 @@ final class InputEngine: @unchecked Sendable {
     let senseController: SenseController
     let senseBackend: SenseInputDeviceBackend
     let joyConController: JoyConHIDController
+    let joyCon2Backend: JoyCon2BLEInputDeviceBackend
     let g502xController: G502XHIDController
     let backendRegistry: InputDeviceBackendRegistry
     let mouseController: MouseController
@@ -262,6 +263,7 @@ final class InputEngine: @unchecked Sendable {
         senseGameControllerSession: (any SenseGameControllerSessioning)? = nil,
         senseController: SenseController? = nil,
         joyConController: JoyConHIDController? = nil,
+        joyCon2Session: (any JoyCon2BLESessioning)? = nil,
         g502xController: G502XHIDController? = nil
     ) {
         self.settings = settings
@@ -279,10 +281,14 @@ final class InputEngine: @unchecked Sendable {
             gameControllerSession: senseGameControllerSession ?? SenseGameControllerSession()
         )
         self.joyConController = joyConController
+        self.joyCon2Backend = JoyCon2BLEInputDeviceBackend(
+            session: joyCon2Session ?? JoyCon2BLESession()
+        )
         self.g502xController = g502xController
         self.backendRegistry = InputDeviceBackendRegistry(backends: [
             senseBackend,
             joyConController,
+            joyCon2Backend,
             g502xController,
         ])
         // Initialize G502X button state arrays
@@ -444,7 +450,13 @@ final class InputEngine: @unchecked Sendable {
     // MARK: - Controller Selection
 
     /// Enable/disable processing for a specific physical device.
-    func setDeviceManaged(id: String, kind: ControllerKind, isLeft: Bool, managed: Bool) {
+    func setDeviceManaged(
+        id: String,
+        kind: ControllerKind,
+        isLeft: Bool,
+        profileVariant: ControllerProfileVariant = .standard,
+        managed: Bool
+    ) {
         engineQueueSync {
             switch kind {
             case .sense:
@@ -463,7 +475,7 @@ final class InputEngine: @unchecked Sendable {
                 }
 
             case .joyCon:
-                let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft)
+                let profile = ControllerProfile(kind: .joyCon, isLeft: isLeft, variant: profileVariant)
                 if managed {
                     if joyConDevices[id]?.profile != profile {
                         if let existing = joyConDevices[id] {

@@ -10,6 +10,13 @@ final class GyroProcessorTests: XCTestCase {
         XCTAssertGreaterThan(speedAt60Hz, 95)
     }
 
+    func testCursorDistanceDependsOnElapsedTimeNotReportRate() {
+        let distanceAt66Hz = cursorDistance(over: 1, reportRate: 66)
+        let distanceAt133Hz = cursorDistance(over: 1, reportRate: 133)
+
+        XCTAssertEqual(distanceAt66Hz, distanceAt133Hz, accuracy: 0.2)
+    }
+
     func testAutoTuneIgnoresTransportStallAndCapsExtrapolation() throws {
         let processor = GyroProcessor()
         var settings = baseSettings()
@@ -157,6 +164,38 @@ final class GyroProcessorTests: XCTestCase {
         }
         _ = processor.process(rawX: 0, rawY: 100, rawZ: 0, timestamp: duration, settings: settings)
         return processor.lastResponseSample?.accelerationSpeed ?? 0
+    }
+
+    private func cursorDistance(over duration: TimeInterval, reportRate: Double) -> Double {
+        let processor = GyroProcessor()
+        var settings = baseSettings()
+        settings.expectedSampleRate = reportRate
+        settings.sensitivityCap = 1
+
+        var timestamp = 0.0
+        _ = processor.process(rawX: 0, rawY: 0, rawZ: 0, timestamp: timestamp, settings: settings)
+        var distance = 0.0
+        let step = 1.0 / reportRate
+        while timestamp + step < duration {
+            timestamp += step
+            let delta = processor.process(
+                rawX: 0,
+                rawY: 100,
+                rawZ: 0,
+                timestamp: timestamp,
+                settings: settings
+            )
+            distance += Double(delta?.dx ?? 0)
+        }
+        let delta = processor.process(
+            rawX: 0,
+            rawY: 100,
+            rawZ: 0,
+            timestamp: duration,
+            settings: settings
+        )
+        distance += Double(delta?.dx ?? 0)
+        return distance
     }
 
     private func processConstant(

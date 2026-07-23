@@ -36,6 +36,43 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         XCTAssertTrue(registry.backend(for: .joyCon) === joyCon)
     }
 
+    func testRegistryRoutesTwoBackendsForTheSameFamilyByStableDeviceID() {
+        let firstDevice = ControllerInfo(
+            id: "joycon-hid",
+            name: "Joy-Con (L)",
+            productID: JoyConHIDProtocol.leftProductID,
+            kind: .joyCon,
+            handedness: .left
+        )
+        let secondDevice = ControllerInfo(
+            id: "joycon2-ble",
+            name: "Joy-Con 2 (R)",
+            productID: Int(JoyCon2BLEProtocol.rightProductID),
+            kind: .joyCon,
+            handedness: .right
+        )
+        let first = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.joycon.hid", kind: .joyCon),
+            devices: [firstDevice]
+        )
+        let second = FakeInputDeviceBackend(
+            descriptor: descriptor(id: "test.joycon2.ble", kind: .joyCon),
+            devices: [secondDevice]
+        )
+        let registry = InputDeviceBackendRegistry(backends: [first, second])
+
+        XCTAssertEqual(registry.availableDevicesSnapshot(), [firstDevice, secondDevice])
+        XCTAssertTrue(registry.setDeviceManaged(id: secondDevice.id, kind: .joyCon, managed: true))
+        XCTAssertTrue(first.managedCallsSnapshot().isEmpty)
+        XCTAssertEqual(second.managedCallsSnapshot(), [ManagedCall(id: secondDevice.id, managed: true)])
+
+        XCTAssertTrue(registry.setDeviceManaged(id: secondDevice.id, kind: .joyCon, managed: false))
+        XCTAssertEqual(second.managedCallsSnapshot(), [
+            ManagedCall(id: secondDevice.id, managed: true),
+            ManagedCall(id: secondDevice.id, managed: false),
+        ])
+    }
+
     func testRegistryFiltersInvalidDiscoveredDeviceMetadata() {
         let valid = ControllerInfo(
             id: "joycon-1",
@@ -193,6 +230,10 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             frame(backend: backend.backendDescriptor, timestamp: .nan),
             frame(backend: backend.backendDescriptor, receivedTimestamp: .infinity),
             frame(backend: backend.backendDescriptor, inputTimestamp: -.infinity),
+            frame(backend: backend.backendDescriptor, gyroScale: .nan),
+            frame(backend: backend.backendDescriptor, gyroScale: 0),
+            frame(backend: backend.backendDescriptor, motionSampleRate: .infinity),
+            frame(backend: backend.backendDescriptor, motionSampleRate: 0),
             frame(backend: backend.backendDescriptor, motion: .batch([])),
             frame(
                 backend: backend.backendDescriptor,
@@ -330,7 +371,9 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         motion: InputDeviceMotionSamples = .none,
         timestamp: TimeInterval = 10,
         receivedTimestamp: TimeInterval = 10,
-        inputTimestamp: TimeInterval? = nil
+        inputTimestamp: TimeInterval? = nil,
+        gyroScale: Double? = nil,
+        motionSampleRate: Double? = nil
     ) -> InputDeviceFrame {
         InputDeviceFrame(
             backend: backend,
@@ -341,7 +384,9 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             timestamp: timestamp,
             receivedTimestamp: receivedTimestamp,
             inputTimestamp: inputTimestamp,
-            timestampSource: .hostReceipt
+            timestampSource: .hostReceipt,
+            gyroScale: gyroScale,
+            motionSampleRate: motionSampleRate
         )
     }
 }

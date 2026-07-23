@@ -19,7 +19,8 @@ enum GyroRemapper {
         rawY: Int16,
         rawZ: Int16,
         controllerKind: ControllerKind,
-        isLeft: Bool = true
+        isLeft: Bool = true,
+        profileVariant: ControllerProfileVariant = .standard
     ) -> (pitch: Int16, yaw: Int16, roll: Int16) {
         switch controllerKind {
         case .sense:
@@ -30,17 +31,30 @@ enum GyroRemapper {
         case .joyCon:
             // Joy-Con: Axes are rotated compared to Sense
             // Left and Right Joy-Con are physical mirrors of each other
+            let mapped: (pitch: Int16, yaw: Int16, roll: Int16)
             if isLeft {
                 // Left Joy-Con (held sideways with stick at top-left):
                 // HID Y = pitch (up/down), HID Z = yaw (left/right pointing)
                 // Negate pitch to fix inverted up/down motion
-                return (pitch: -rawY, yaw: rawZ, roll: rawX)
+                mapped = (pitch: -rawY, yaw: rawZ, roll: rawX)
             } else {
                 // Right Joy-Con (held sideways with stick at top-right):
                 // The controller is mirrored, so both pitch and yaw need to be inverted
                 // relative to the left Joy-Con mapping
-                return (pitch: rawY, yaw: -rawZ, roll: -rawX)
+                mapped = (pitch: rawY, yaw: -rawZ, roll: -rawX)
             }
+            // Joy-Con 2's reported cursor axes run opposite the original
+            // Joy-Con convention. The right controller's comfortable JamCon
+            // grip is also rotated relative to the original Joy-Con profile:
+            // live isolated-axis measurements put intended vertical motion on
+            // raw X, horizontal on raw Z, and the remaining roll on raw Y.
+            if profileVariant == .joyCon2 {
+                if !isLeft {
+                    return (pitch: rawX, yaw: rawZ, roll: rawY)
+                }
+                return (pitch: -mapped.pitch, yaw: -mapped.yaw, roll: mapped.roll)
+            }
+            return mapped
 
         case .mouse:
             // Mouse has no gyro - return zeros
@@ -77,9 +91,10 @@ enum GyroRemapper {
         pitch: Int16,
         yaw: Int16,
         roll: Int16,
-        controllerKind: ControllerKind
+        controllerKind: ControllerKind,
+        nativeScale: Double? = nil
     ) -> (pitch: Double, yaw: Double, roll: Double) {
-        let scale = gyroScale(for: controllerKind)
+        let scale = nativeScale ?? gyroScale(for: controllerKind)
         return (
             pitch: Double(pitch) * scale,
             yaw: Double(yaw) * scale,
@@ -103,15 +118,30 @@ enum GyroRemapper {
         rawY: Int16,
         rawZ: Int16,
         controllerKind: ControllerKind,
-        isLeft: Bool = true
+        isLeft: Bool = true,
+        profileVariant: ControllerProfileVariant = .standard,
+        nativeScale: Double? = nil
     ) -> (
         raw: (x: Int16, y: Int16, z: Int16),
         remapped: (pitch: Int16, yaw: Int16, roll: Int16),
         normalized: (pitch: Double, yaw: Double, roll: Double)
     ) {
         let raw = (x: rawX, y: rawY, z: rawZ)
-        let remapped = remap(rawX: rawX, rawY: rawY, rawZ: rawZ, controllerKind: controllerKind, isLeft: isLeft)
-        let normalized = normalize(pitch: remapped.pitch, yaw: remapped.yaw, roll: remapped.roll, controllerKind: controllerKind)
+        let remapped = remap(
+            rawX: rawX,
+            rawY: rawY,
+            rawZ: rawZ,
+            controllerKind: controllerKind,
+            isLeft: isLeft,
+            profileVariant: profileVariant
+        )
+        let normalized = normalize(
+            pitch: remapped.pitch,
+            yaw: remapped.yaw,
+            roll: remapped.roll,
+            controllerKind: controllerKind,
+            nativeScale: nativeScale
+        )
 
         return (raw: raw, remapped: remapped, normalized: normalized)
     }
