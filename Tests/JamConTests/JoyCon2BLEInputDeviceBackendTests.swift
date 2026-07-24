@@ -17,6 +17,135 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         XCTAssertTrue(JoyConButtonMapping(isLeft: false).isPressed(.c, in: controls))
     }
 
+    func testCanonicalJoyConDefaultsMirrorOneHandedSemanticsAcrossGenerations() {
+        let backForward = ButtonActions(
+            press: JoyConButtonMappingProfile.browserBack,
+            hold: JoyConButtonMappingProfile.browserForward
+        )
+        for profile in [ControllerProfile.joyConRight, .joyCon2Right] {
+            let mapping = JoyConButtonMappingProfile.defaultProfile(for: profile)
+            XCTAssertEqual(mapping.actions(for: .zr), ButtonActions(press: .mouseClick(.left)))
+            XCTAssertEqual(mapping.actions(for: .r), ButtonActions(press: .mouseClick(.right)))
+            XCTAssertEqual(mapping.actions(for: .plus), ButtonActions(press: .mouseClick(.middle)))
+            XCTAssertEqual(mapping.actions(for: .stickClick), backForward)
+            XCTAssertEqual(
+                mapping.actions(for: .home),
+                ButtonActions(
+                    press: .systemAction(.missionControl),
+                    hold: .systemAction(.playPause)
+                )
+            )
+            XCTAssertEqual(mapping.actions(for: .x), ButtonActions(press: .drag))
+            XCTAssertEqual(mapping.actions(for: .b), ButtonActions(press: .radialMenu))
+        }
+
+        for profile in [ControllerProfile.joyConLeft, .joyCon2Left] {
+            let mapping = JoyConButtonMappingProfile.defaultProfile(for: profile)
+            XCTAssertEqual(mapping.actions(for: .zl), ButtonActions(press: .mouseClick(.left)))
+            XCTAssertEqual(mapping.actions(for: .l), ButtonActions(press: .mouseClick(.right)))
+            XCTAssertEqual(mapping.actions(for: .minus), ButtonActions(press: .mouseClick(.middle)))
+            XCTAssertEqual(mapping.actions(for: .stickClick), backForward)
+            XCTAssertEqual(
+                mapping.actions(for: .capture),
+                ButtonActions(
+                    press: .systemAction(.missionControl),
+                    hold: .systemAction(.playPause)
+                )
+            )
+            XCTAssertEqual(mapping.actions(for: .dpadUp), ButtonActions(press: .drag))
+            XCTAssertEqual(mapping.actions(for: .dpadDown), ButtonActions(press: .radialMenu))
+        }
+
+        XCTAssertEqual(
+            JoyConButtonMappingProfile.defaultProfile(for: .joyCon2Right).actions(for: .c),
+            ButtonActions()
+        )
+        XCTAssertEqual(SettingsStore.InputSettings.defaultJoystickScrollSpeed, 8.0)
+        XCTAssertEqual(SettingsStore.InputSettings.defaultJoystickScrollAcceleration, 3.0)
+        XCTAssertEqual(
+            SettingsStore.InputSettings().joystickScrollSpeed,
+            SettingsStore.InputSettings.defaultJoystickScrollSpeed
+        )
+    }
+
+    func testLegacyJoyConNavigationMigrationChangesOnlyExactStockActions() {
+        var right = JoyConButtonMappingProfile()
+        right.setActions(
+            ButtonActions(press: .systemAction(.playPause)),
+            for: .plus
+        )
+        right.setActions(
+            ButtonActions(press: .mouseClick(.middle)),
+            for: .stickClick
+        )
+        right.setActions(
+            ButtonActions(press: .systemAction(.missionControl)),
+            for: .home
+        )
+        let customRail = ButtonActions(
+            press: .keyPress(KeyCombo(keyCode: 125)),
+            hold: .keyPress(KeyCombo(keyCode: 30, modifiers: [.maskCommand, .maskShift]))
+        )
+        right.setActions(customRail, for: .sl)
+
+        XCTAssertTrue(right.migrateLegacyNavigationDefaults(for: .joyConRight))
+        XCTAssertEqual(right.actions(for: .plus), ButtonActions(press: .mouseClick(.middle)))
+        XCTAssertEqual(
+            right.actions(for: .stickClick),
+            ButtonActions(
+                press: JoyConButtonMappingProfile.browserBack,
+                hold: JoyConButtonMappingProfile.browserForward
+            )
+        )
+        XCTAssertEqual(
+            right.actions(for: .home),
+            ButtonActions(
+                press: .systemAction(.missionControl),
+                hold: .systemAction(.playPause)
+            )
+        )
+        XCTAssertEqual(right.actions(for: .sl), customRail)
+        XCTAssertFalse(right.migrateLegacyNavigationDefaults(for: .joyConRight))
+
+        var left = JoyConButtonMappingProfile()
+        left.setActions(
+            ButtonActions(press: .systemAction(.playPause)),
+            for: .minus
+        )
+        left.setActions(
+            ButtonActions(press: .mouseClick(.middle)),
+            for: .stickClick
+        )
+        left.setActions(
+            ButtonActions(press: .systemAction(.missionControl)),
+            for: .capture
+        )
+
+        XCTAssertTrue(left.migrateLegacyNavigationDefaults(for: .joyConLeft))
+        XCTAssertEqual(left.actions(for: .minus), ButtonActions(press: .mouseClick(.middle)))
+        XCTAssertEqual(
+            left.actions(for: .stickClick),
+            ButtonActions(
+                press: JoyConButtonMappingProfile.browserBack,
+                hold: JoyConButtonMappingProfile.browserForward
+            )
+        )
+        XCTAssertEqual(
+            left.actions(for: .capture),
+            ButtonActions(
+                press: .systemAction(.missionControl),
+                hold: .systemAction(.playPause)
+            )
+        )
+        XCTAssertFalse(left.migrateLegacyNavigationDefaults(for: .joyConLeft))
+
+        var customized = JoyConButtonMappingProfile()
+        let customMenu = ButtonActions(press: .keyPress(KeyCombo(keyCode: 49)))
+        customized.setActions(customMenu, for: .minus)
+        XCTAssertFalse(customized.migrateLegacyNavigationDefaults(for: .joyConLeft))
+        XCTAssertEqual(customized.actions(for: .minus), customMenu)
+    }
+
     func testLegacyEncodedProfileDefaultsToStandardVariant() throws {
         let data = try XCTUnwrap("{\"kind\":\"joyCon\",\"isLeft\":false}".data(using: .utf8))
         let profile = try JSONDecoder().decode(ControllerProfile.self, from: data)

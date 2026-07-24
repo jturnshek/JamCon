@@ -201,8 +201,8 @@ extension AppState {
 
     func resetJoystickSettings() {
         joystickScrollEnabled = true
-        joystickScrollSpeed = 10
-        joystickScrollAcceleration = 3
+        joystickScrollSpeed = SettingsStore.InputSettings.defaultJoystickScrollSpeed
+        joystickScrollAcceleration = SettingsStore.InputSettings.defaultJoystickScrollAcceleration
     }
 
     // MARK: - Convenience Accessors

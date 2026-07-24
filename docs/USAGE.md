@@ -11,6 +11,28 @@
 JamCon connects through the Joy-Con 2 proprietary BLE service; it does not use
 the original Joy-Con HID pairing path.
 
+After the Mac wakes from sleep, the Joy-Con 2 may not resume advertising on its
+own. Hold the controller's sync button until the player lights chase; JamCon
+will reconnect the managed controller without needing to select it again.
+
+### Canonical one-handed Joy-Con controls
+
+Original and second-generation Joy-Cons share the same default control
+semantics. Physical controls are mirrored by side:
+
+| Action | Right Joy-Con | Left Joy-Con |
+| --- | --- | --- |
+| Left click | ZR | ZL |
+| Right click | R | L |
+| Middle click | + | − |
+| Browser Back / Forward | Stick press / hold | Stick press / hold |
+| Mission Control / Play-Pause | Home press / hold | Capture press / hold |
+| Drag | X | D-pad Up |
+| Radial menu | B | D-pad Down |
+
+Browser Back and Forward use the standard macOS `⌘[` and `⌘]` shortcuts.
+Default stick scrolling uses speed `8` and acceleration `3`.
+
 ### Original Joy-Con and PS VR2 Sense
 
 1. Open System Settings > Bluetooth.

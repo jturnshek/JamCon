@@ -58,5 +58,13 @@ schemes:
       config: Debug
       targets:
         - JamConTests
+      preActions:
+        - name: Reset Isolated Test Preferences
+          settingsTarget: JamCon
+          script: |
+            rm -rf "$TEMP_DIR/JamConTestsHome"
+            mkdir -p "$TEMP_DIR/JamConTestsHome/Library/Preferences"
+      environmentVariables:
+        CFFIXED_USER_HOME: "$(TEMP_DIR)/JamConTestsHome"
     archive:
       config: Release

@@ -458,6 +458,12 @@ struct JoyConButtonMappingProfile: Codable, Sendable {
     private(set) var radialMenuMapped: Bool = false
 
     static let userDefaultsKey = "JoyConButtonMappingProfile"
+    static let browserBack = ButtonAction.keyPress(
+        KeyCombo(keyCode: 33, modifiers: .maskCommand)
+    )
+    static let browserForward = ButtonAction.keyPress(
+        KeyCombo(keyCode: 30, modifiers: .maskCommand)
+    )
 
     private enum CodingKeys: String, CodingKey {
         case mappings
@@ -486,25 +492,7 @@ struct JoyConButtonMappingProfile: Codable, Sendable {
     }
 
     static var `default`: Self {
-        var profile = JoyConButtonMappingProfile()
-        // Default mappings for Right Joy-Con
-        // X = Drag (hold to move cursor with gyro)
-        profile.mappings[JoyConLogicalButton.x.rawValue] = ButtonActions(press: .drag)
-        // ZR = Left click
-        profile.mappings[JoyConLogicalButton.zr.rawValue] = ButtonActions(press: .mouseClick(.left))
-        // R = Right click
-        profile.mappings[JoyConLogicalButton.r.rawValue] = ButtonActions(press: .mouseClick(.right))
-        // L = Scroll mode (if available via grip)
-        profile.mappings[JoyConLogicalButton.l.rawValue] = ButtonActions(press: .scroll)
-        // A = Middle click
-        profile.mappings[JoyConLogicalButton.a.rawValue] = ButtonActions(press: .mouseClick(.middle))
-        // Plus = Play/Pause
-        profile.mappings[JoyConLogicalButton.plus.rawValue] = ButtonActions(press: .systemAction(.playPause))
-        // Home = Mission Control
-        profile.mappings[JoyConLogicalButton.home.rawValue] = ButtonActions(press: .systemAction(.missionControl))
-        profile.rebuildActionsCache()
-        profile.recomputeMappingFlags()
-        return profile
+        defaultProfile(for: .joyConRight)
     }
 
     func actions(for button: JoyConLogicalButton) -> ButtonActions {
@@ -587,7 +575,7 @@ struct JoyConButtonMappingProfile: Codable, Sendable {
 
     /// Default profile for a specific controller side
     static func defaultProfile(for profile: ControllerProfile) -> Self {
-        guard profile.kind == .joyCon else { return .default }
+        guard profile.kind == .joyCon else { return JoyConButtonMappingProfile() }
 
         var buttonProfile = JoyConButtonMappingProfile()
         if profile.isLeft {
@@ -601,10 +589,18 @@ struct JoyConButtonMappingProfile: Codable, Sendable {
             buttonProfile.mappings[JoyConLogicalButton.l.rawValue] = ButtonActions(press: .mouseClick(.right))
             buttonProfile.mappings[JoyConLogicalButton.zl.rawValue] = ButtonActions(press: .mouseClick(.left))
             // System buttons
-            buttonProfile.mappings[JoyConLogicalButton.minus.rawValue] = ButtonActions(press: .systemAction(.playPause))
-            buttonProfile.mappings[JoyConLogicalButton.capture.rawValue] = ButtonActions(press: .systemAction(.missionControl))
+            buttonProfile.mappings[JoyConLogicalButton.minus.rawValue] = ButtonActions(
+                press: .mouseClick(.middle)
+            )
+            buttonProfile.mappings[JoyConLogicalButton.capture.rawValue] = ButtonActions(
+                press: .systemAction(.missionControl),
+                hold: .systemAction(.playPause)
+            )
             // Stick
-            buttonProfile.mappings[JoyConLogicalButton.stickClick.rawValue] = ButtonActions(press: .mouseClick(.middle))
+            buttonProfile.mappings[JoyConLogicalButton.stickClick.rawValue] = ButtonActions(
+                press: browserBack,
+                hold: browserForward
+            )
             // Side rail buttons
             buttonProfile.mappings[JoyConLogicalButton.sl.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 126)))  // Up arrow
             buttonProfile.mappings[JoyConLogicalButton.sr.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 125)))  // Down arrow
@@ -619,10 +615,18 @@ struct JoyConButtonMappingProfile: Codable, Sendable {
             buttonProfile.mappings[JoyConLogicalButton.r.rawValue] = ButtonActions(press: .mouseClick(.right))
             buttonProfile.mappings[JoyConLogicalButton.zr.rawValue] = ButtonActions(press: .mouseClick(.left))
             // System buttons
-            buttonProfile.mappings[JoyConLogicalButton.plus.rawValue] = ButtonActions(press: .systemAction(.playPause))
-            buttonProfile.mappings[JoyConLogicalButton.home.rawValue] = ButtonActions(press: .systemAction(.missionControl))
+            buttonProfile.mappings[JoyConLogicalButton.plus.rawValue] = ButtonActions(
+                press: .mouseClick(.middle)
+            )
+            buttonProfile.mappings[JoyConLogicalButton.home.rawValue] = ButtonActions(
+                press: .systemAction(.missionControl),
+                hold: .systemAction(.playPause)
+            )
             // Stick
-            buttonProfile.mappings[JoyConLogicalButton.stickClick.rawValue] = ButtonActions(press: .mouseClick(.middle))
+            buttonProfile.mappings[JoyConLogicalButton.stickClick.rawValue] = ButtonActions(
+                press: browserBack,
+                hold: browserForward
+            )
             // Side rail buttons
             buttonProfile.mappings[JoyConLogicalButton.sl.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 125)))  // Down arrow
             buttonProfile.mappings[JoyConLogicalButton.sr.rawValue] = ButtonActions(press: .keyPress(KeyCombo(keyCode: 126)))  // Up arrow
@@ -630,6 +634,47 @@ struct JoyConButtonMappingProfile: Codable, Sendable {
         buttonProfile.rebuildActionsCache()
         buttonProfile.recomputeMappingFlags()
         return buttonProfile
+    }
+
+    /// Upgrade only the exact legacy stock navigation actions. This preserves
+    /// custom mappings while aligning existing Joy-Con profiles with the
+    /// canonical one-handed layout used by Joy-Con 2.
+    @discardableResult
+    mutating func migrateLegacyNavigationDefaults(for profile: ControllerProfile) -> Bool {
+        guard profile.kind == .joyCon else { return false }
+
+        var changed = false
+        let menuButton: JoyConLogicalButton = profile.isLeft ? .minus : .plus
+        let systemButton: JoyConLogicalButton = profile.isLeft ? .capture : .home
+
+        let legacyMenu = ButtonActions(press: .systemAction(.playPause))
+        if actions(for: menuButton) == legacyMenu {
+            setActions(ButtonActions(press: .mouseClick(.middle)), for: menuButton)
+            changed = true
+        }
+
+        let legacyStick = ButtonActions(press: .mouseClick(.middle))
+        if actions(for: .stickClick) == legacyStick {
+            setActions(
+                ButtonActions(press: Self.browserBack, hold: Self.browserForward),
+                for: .stickClick
+            )
+            changed = true
+        }
+
+        let legacySystem = ButtonActions(press: .systemAction(.missionControl))
+        if actions(for: systemButton) == legacySystem {
+            setActions(
+                ButtonActions(
+                    press: .systemAction(.missionControl),
+                    hold: .systemAction(.playPause)
+                ),
+                for: systemButton
+            )
+            changed = true
+        }
+
+        return changed
     }
 
     private mutating func rebuildActionsCache() {

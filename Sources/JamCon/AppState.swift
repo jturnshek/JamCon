@@ -249,7 +249,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    @Published var joystickScrollSpeed: Double = 10.0 {
+    @Published var joystickScrollSpeed: Double =
+        SettingsStore.InputSettings.defaultJoystickScrollSpeed {
         didSet {
             guard !isApplyingLoadedSettings else { return }
             settingsStore.update { $0.joystickScrollSpeed = joystickScrollSpeed }

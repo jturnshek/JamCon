@@ -32,6 +32,12 @@ Joy-Con 2 uses a proprietary BLE service and command protocol. It does not
 depend on the original Joy-Con HID backend or share the original Joy-Con's
 persisted button profile.
 
+The source defaults mirror the production-tested right-hand profile: ZR/R are
+left/right click, Plus is middle click, stick press/hold is browser
+Back/Forward, Home press/hold is Mission Control/Play-Pause, X is drag, B opens
+the radial menu, and SL/SR are Down/Up. The C button is intentionally unmapped.
+Equivalent actions use the corresponding physical controls on left Joy-Cons.
+
 ## Identity and GATT transport
 
 Nintendo manufacturer data embeds the USB vendor and product IDs:

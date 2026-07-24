@@ -10,6 +10,9 @@ final class SettingsStore: @unchecked Sendable {
 
     /// All settings needed by the input engine
     struct InputSettings: Sendable {
+        static let defaultJoystickScrollSpeed = 8.0
+        static let defaultJoystickScrollAcceleration = 3.0
+
         var isEnabled: Bool = true
 
         // MARK: - Per-Type Gyro Settings
@@ -35,8 +38,8 @@ final class SettingsStore: @unchecked Sendable {
 
         // MARK: - Global Joystick Settings
         var joystickScrollEnabled: Bool = true
-        var joystickScrollSpeed: Double = 10.0
-        var joystickScrollAcceleration: Double = 3.0
+        var joystickScrollSpeed: Double = defaultJoystickScrollSpeed
+        var joystickScrollAcceleration: Double = defaultJoystickScrollAcceleration
 
         // MARK: - Global Radial Menu
         var radialMenuConfiguration: RadialMenuConfiguration = .load()
@@ -58,7 +61,7 @@ final class SettingsStore: @unchecked Sendable {
         // MARK: - Persistence
 
         private static let settingsVersionKey = "settings.version"
-        private static let currentVersion = 3
+        private static let currentVersion = 4
 
         static func loadFromDefaults() -> InputSettings {
             var settings = InputSettings()
@@ -128,9 +131,13 @@ final class SettingsStore: @unchecked Sendable {
                 settings.joystickScrollEnabled = true
             }
             let savedSpeed = UserDefaults.standard.double(forKey: "joystick.scrollSpeed")
-            settings.joystickScrollSpeed = savedSpeed > 0 ? savedSpeed : 10.0
+            settings.joystickScrollSpeed = savedSpeed > 0
+                ? savedSpeed
+                : defaultJoystickScrollSpeed
             let savedAccel = UserDefaults.standard.double(forKey: "joystick.scrollAcceleration")
-            settings.joystickScrollAcceleration = savedAccel > 0 ? savedAccel : 3.0
+            settings.joystickScrollAcceleration = savedAccel > 0
+                ? savedAccel
+                : defaultJoystickScrollAcceleration
 
             // Load global radial menu
             settings.radialMenuConfiguration = .load()
@@ -183,6 +190,22 @@ final class SettingsStore: @unchecked Sendable {
                 // For Joy-Con, create side-specific defaults
                 JoyConButtonMappingProfile.defaultProfile(for: .joyConLeft).save(for: .joyConLeft)
                 legacyJoyCon.save(for: .joyConRight)
+            }
+
+            if version < 4 {
+                for profile in [
+                    ControllerProfile.joyConLeft, .joyConRight,
+                    .joyCon2Left, .joyCon2Right,
+                ] where JoyConButtonMappingProfile.hasPerProfileSettings(for: profile) {
+                    var mapping = JoyConButtonMappingProfile.load(for: profile)
+                    if mapping.migrateLegacyNavigationDefaults(for: profile) {
+                        mapping.save(for: profile)
+                    }
+                }
+
+                // Removed with the Joy-Con 2 investigation UI. Production has
+                // one transport profile and no longer reads this preference.
+                defaults.removeObject(forKey: "joyCon2.inputMode")
             }
         }
     }
