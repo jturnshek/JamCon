@@ -10,11 +10,10 @@ enum JoyCon2BLEReportRate: UInt16, CaseIterable, Sendable {
         Data([UInt8(rawValue & 0xFF), UInt8(rawValue >> 8)])
     }
 
-    /// Bluetooth LE connection intervals are expressed in 1.25 ms frames.
-    /// Six frames is the standards-compliant minimum and can carry one 133 Hz
-    /// notification per connection event; twelve frames provides the matching
-    /// 66 Hz fallback.
-    var connectionIntervalFrames: UInt16 {
+    /// Opaque values accepted by CoreBluetooth's initial-connect overrides.
+    /// Bluetooth profile logs show that value 6 negotiates a 15 ms link on
+    /// macOS; these are not HCI interval units despite the option-key names.
+    var coreBluetoothIntervalOverride: UInt16 {
         switch self {
         case .hz133: 6
         case .hz66: 12
@@ -30,12 +29,12 @@ enum JoyCon2BLEConnectionPolicy: Int, CaseIterable, Sendable {
     case standardLowLatency
     case compatible
 
-    var intervalFrames: UInt16? {
+    var coreBluetoothIntervalOverride: UInt16? {
         switch self {
         case .highPerformance:
-            JoyCon2BLEReportRate.hz133.connectionIntervalFrames
+            JoyCon2BLEReportRate.hz133.coreBluetoothIntervalOverride
         case .standardLowLatency:
-            JoyCon2BLEReportRate.hz66.connectionIntervalFrames
+            JoyCon2BLEReportRate.hz66.coreBluetoothIntervalOverride
         case .compatible:
             nil
         }
@@ -109,16 +108,16 @@ enum JoyCon2BLEProtocol {
     static let inputReportID: UInt32 = 0x05
     static let minimumInputLength = 0x3C
     /// Requesting 133 Hz is required to make the common decoded stream deliver
-    /// at 66 Hz on the tested Joy-Con 2/macOS combination. The controller
-    /// currently emits one common report every other 7.5 ms connection event.
+    /// at 66 Hz on the tested Joy-Con 2/macOS combination. Bluetooth profile
+    /// logs confirm a 15 ms negotiated link and one common report per event.
     static let preferredReportRate = JoyCon2BLEReportRate.hz133
     static let productionReportRate = JoyCon2BLEReportRate.hz66
     static let fallbackReportRate = JoyCon2BLEReportRate.hz66
-    static let gyroScale = 360.0 / 48_000.0
-    /// Joy-Con 2 profile normalization retained independently of transport
-    /// cadence. Higher report rates improve latency and smoothness, but should
-    /// not silently change the physical distance produced by a given motion.
-    static let cursorSensitivityMultiplier = 2.0
+    /// ICM-42670-P conversion at the controller's approximately ±2,000
+    /// degrees/second range. SDL and everything-imu independently use the
+    /// equivalent 34.8 radians/second full-scale coefficient. A controlled
+    /// 360-degree rotation validated this within normal hand-test error.
+    static let gyroScale = 34.8 * 180.0 / (Double.pi * Double(Int16.max))
 
     static let serviceUUID = "AB7DE9BE-89FE-49AD-828F-118F09DF7FD0"
     static let inputUUID = "AB7DE9BE-89FE-49AD-828F-118F09DF7FD2"

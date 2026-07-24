@@ -118,9 +118,6 @@ extension InputEngine {
             userScale: userScale,
             nativeScale: report.gyroScale
         )
-        if profile.variant == .joyCon2 {
-            gyroSettings.sensitivity *= JoyCon2BLEProtocol.cursorSensitivityMultiplier
-        }
         gyroSettings.expectedSampleRate = report.motionSampleRate ?? 66.0
         gyroSettings.biasMotionThreshold = 30.0 // Joy-Con has lower noise floor; tighten bias capture
         if let (dx, dy) = device.gyroProcessor.process(

@@ -120,18 +120,28 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         XCTAssertEqual(JoyCon2BLEProtocol.enableFeatures[8], 0x07)
         XCTAssertEqual(JoyCon2BLEProtocol.preferredReportRate, .hz133)
         XCTAssertEqual(JoyCon2BLEProtocol.productionReportRate, .hz66)
-        XCTAssertEqual(JoyCon2BLEProtocol.cursorSensitivityMultiplier, 2.0)
+        XCTAssertEqual(
+            JoyCon2BLEProtocol.gyroScale,
+            0.060_850_646_292_161_775,
+            accuracy: 0.000_000_001
+        )
         XCTAssertEqual(
             JoyCon2BLEProtocol.reportRateDescriptorUUID,
             "679D5510-5A24-4DEE-9557-95DF80486ECB"
         )
         XCTAssertEqual(JoyCon2BLEReportRate.hz133.descriptorValue, Data([0x85, 0x00]))
         XCTAssertEqual(JoyCon2BLEReportRate.hz66.descriptorValue, Data([0x42, 0x00]))
-        XCTAssertEqual(JoyCon2BLEReportRate.hz133.connectionIntervalFrames, 6)
-        XCTAssertEqual(JoyCon2BLEReportRate.hz66.connectionIntervalFrames, 12)
-        XCTAssertEqual(JoyCon2BLEConnectionPolicy.highPerformance.intervalFrames, 6)
-        XCTAssertEqual(JoyCon2BLEConnectionPolicy.standardLowLatency.intervalFrames, 12)
-        XCTAssertNil(JoyCon2BLEConnectionPolicy.compatible.intervalFrames)
+        XCTAssertEqual(JoyCon2BLEReportRate.hz133.coreBluetoothIntervalOverride, 6)
+        XCTAssertEqual(JoyCon2BLEReportRate.hz66.coreBluetoothIntervalOverride, 12)
+        XCTAssertEqual(
+            JoyCon2BLEConnectionPolicy.highPerformance.coreBluetoothIntervalOverride,
+            6
+        )
+        XCTAssertEqual(
+            JoyCon2BLEConnectionPolicy.standardLowLatency.coreBluetoothIntervalOverride,
+            12
+        )
+        XCTAssertNil(JoyCon2BLEConnectionPolicy.compatible.coreBluetoothIntervalOverride)
     }
 
     func testCadenceEstimatorAdaptsBetweenSupportedRatesAndIgnoresStalls() {

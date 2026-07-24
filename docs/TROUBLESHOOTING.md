@@ -16,6 +16,11 @@ Hold the controller completely still for 1-2 seconds. JamCon auto-calibrates whe
 2. Re-pair using the controller pairing sequence.
 3. Ensure no other device is trying to connect to it.
 
+For Joy-Con 2, hold SYNC until the player lights chase and keep JamCon's Devices
+screen open. Joy-Con 2 uses JamCon's custom BLE connection rather than the
+original Joy-Con HID path. Avoid repeatedly reconnecting it in rapid succession:
+the controller can enter a temporary radio cooldown after failed attempts.
+
 ## Collect recent diagnostics
 
 JamCon keeps a bounded rotating diagnostic log at

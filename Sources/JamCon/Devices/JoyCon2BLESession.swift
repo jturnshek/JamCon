@@ -135,25 +135,23 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
             CBConnectPeripheralOptionNotifyOnNotificationKey: true,
             CBConnectPeripheralOptionStartDelayKey: 0,
         ]
-        if let intervalFrames = policy.intervalFrames {
+        if let intervalOverride = policy.coreBluetoothIntervalOverride {
             // Nintendo does not issue the standard peripheral-side parameter
-            // update. Ask bluetoothd for an exact standards-compliant interval
-            // during initial negotiation, before notifications become active.
+            // update. Apply the measured initial-connect override before
+            // notifications become active.
             options["kCBConnectOptionRequiresLowLatency"] = true
             options["kCBConnectOptionLatencyCritical"] = true
-            options["kCBConnectOptionOverrideMinCIFrames"] = intervalFrames
-            options["kCBConnectOptionOverrideMaxCIFrames"] = intervalFrames
+            options["kCBConnectOptionOverrideMinCIFrames"] = intervalOverride
+            options["kCBConnectOptionOverrideMaxCIFrames"] = intervalOverride
         }
 
         JamLog.info(.joyCon, "Requesting Joy-Con 2 Bluetooth connection: \(context.device.name)")
         central.connect(context.peripheral, options: options)
-        if let intervalFrames = policy.intervalFrames {
-            let intervalMilliseconds = Double(intervalFrames) * 1.25
+        if let intervalOverride = policy.coreBluetoothIntervalOverride {
             JamLog.info(
                 .joyCon,
-                "Joy-Con 2 requested explicit Bluetooth interval: "
-                    + "\(String(format: "%.2f", intervalMilliseconds))ms "
-                    + "(\(intervalFrames) frames, \(policy.logDescription))"
+                "Joy-Con 2 requested CoreBluetooth CI override "
+                    + "\(intervalOverride) (\(policy.logDescription))"
             )
         } else {
             JamLog.info(
@@ -702,12 +700,10 @@ extension JoyCon2BLESession: CBPeripheralDelegate {
             .joyCon,
             "Joy-Con 2 requested report rate: \(Int(reportRate.hertz)) Hz"
         )
-        // Report 0x08 and the common report are mutually exclusive on the
-        // right Joy-Con 2 firmware tested on macOS. Probing 0x08 suppressed
-        // every common notification even though both characteristics reported
-        // an active subscription. Its delivered cadence was still 33 Hz and
-        // its 40-byte motion block is packed, so keep JamCon on the decoded
-        // common stream.
+        // Native report 0x08 and the common report are mutually exclusive on
+        // the tested firmware. The native 40-byte motion block is packed and
+        // has no validated decoder, so production always uses common report
+        // 0x05 for controls and motion.
         subscribeToInput(context)
     }
 

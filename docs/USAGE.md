@@ -2,6 +2,17 @@
 
 ## Pairing
 
+### Joy-Con 2
+
+1. Open JamCon's Devices screen.
+2. Hold the sync button until the player lights chase.
+3. Select the discovered Joy-Con 2 as a managed device.
+
+JamCon connects through the Joy-Con 2 proprietary BLE service; it does not use
+the original Joy-Con HID pairing path.
+
+### Original Joy-Con and PS VR2 Sense
+
 1. Open System Settings > Bluetooth.
 2. Put your controller in pairing mode:
    - Joy-Con: hold the sync button on the rail until the lights flash.
