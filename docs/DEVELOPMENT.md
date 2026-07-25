@@ -1,5 +1,8 @@
 # Development
 
+JamCon has no hosted CI or remote build pipeline. Builds, tests, static
+analysis, signing, and installation run on the developer's local Mac.
+
 ## Prerequisites
 
 - Xcode 16+

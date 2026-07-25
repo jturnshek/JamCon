@@ -20,18 +20,23 @@ It includes a custom Joy-Con HID implementation, low-latency gyro mouse control,
 - Bluetooth
 - Accessibility permission for input control
 
-## Install
+## Install from source
 
-### Homebrew (recommended)
+JamCon does not use hosted build or release automation. Clone the repository
+and build it locally:
 
 ```bash
-brew tap jturnshek/tap
-brew install --cask jamcon
+git clone https://github.com/jturnshek/JamCon
+cd JamCon
+brew install xcodegen
+xcodegen generate
+./dev.sh
 ```
 
-### Direct download
-
-Download the latest `JamCon-<version>.dmg` from the GitHub Releases page and drag the app to `/Applications`.
+The build requires Xcode 16 or later and a Developer ID Application or Apple
+Development signing identity. `dev.sh` creates a Release build, installs it at
+`/Applications/JamCon.app`, and launches it with a stable signature so macOS
+Accessibility permission survives subsequent local rebuilds.
 
 ## Quick start
 
@@ -41,14 +46,8 @@ Download the latest `JamCon-<version>.dmg` from the GitHub Releases page and dra
 
 ## Development
 
-```bash
-git clone https://github.com/jturnshek/JamCon
-cd JamCon
-xcodegen generate
-./dev.sh
-```
-
-See docs/DEVELOPMENT.md for full setup details.
+See docs/DEVELOPMENT.md for build, test, signing, and diagnostic details. All
+build and validation processes run on the developer's local Mac.
 
 ## Documentation
 

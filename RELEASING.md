@@ -1,6 +1,12 @@
-# Releasing JamCon
+# Local release packaging
 
-JamCon is distributed via GitHub Releases + a Homebrew Cask. Builds are **Apple Silicon (arm64) only**.
+JamCon does not use GitHub Actions or another hosted build service. All build,
+signing, notarization, packaging, and validation steps run on a maintainer's
+local Mac. Regular users should clone the repository and follow the
+source-install instructions in `README.md`.
+
+The optional process below produces **Apple Silicon (arm64) only** artifacts
+when a maintainer deliberately needs local release packaging.
 
 ## Prerequisites
 
