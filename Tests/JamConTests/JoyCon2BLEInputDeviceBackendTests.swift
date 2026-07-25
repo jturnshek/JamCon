@@ -236,6 +236,165 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         XCTAssertEqual(identity?.productID, JoyCon2BLEProtocol.leftProductID)
     }
 
+    func testPlaceholderBluetoothNameFallsBackToJoyConIdentity() {
+        XCTAssertEqual(
+            JoyCon2BLEProtocol.userFacingDeviceName(
+                peripheralName: "DeviceName",
+                advertisedName: nil,
+                handedness: .right
+            ),
+            "Joy-Con 2 (R)"
+        )
+        XCTAssertEqual(
+            JoyCon2BLEProtocol.userFacingDeviceName(
+                peripheralName: "DeviceName",
+                advertisedName: "My Joy-Con",
+                handedness: .right
+            ),
+            "My Joy-Con"
+        )
+
+        let placeholder = ControllerInfo(
+            id: "right",
+            name: "DeviceName",
+            productID: Int(JoyCon2BLEProtocol.rightProductID),
+            kind: .joyCon,
+            handedness: .right,
+            profileVariant: .joyCon2
+        )
+        let redundantFallback = ControllerInfo(
+            id: "left",
+            name: "Joy-Con 2 (L)",
+            productID: Int(JoyCon2BLEProtocol.leftProductID),
+            kind: .joyCon,
+            handedness: .left,
+            profileVariant: .joyCon2
+        )
+
+        XCTAssertEqual(placeholder.displayName, "Joy-Con 2 Right")
+        XCTAssertNil(placeholder.meaningfulTransportName)
+        XCTAssertNil(redundantFallback.meaningfulTransportName)
+
+        let mouse = ControllerInfo(
+            id: "mouse",
+            name: "USB Receiver",
+            productID: 0,
+            kind: .mouse,
+            handedness: .none
+        )
+        XCTAssertNil(mouse.meaningfulTransportName)
+    }
+
+    func testFactoryStickCalibrationReadCommandAndResponse() throws {
+        let expected = InputDeviceAnalogStickCalibration(
+            centerX: 2050,
+            centerY: 2040,
+            positiveRangeX: 1500,
+            positiveRangeY: 1600,
+            negativeRangeX: 1400,
+            negativeRangeY: 1300
+        )
+        let command = JoyCon2BLEProtocol.readPrimaryStickFactoryCalibration
+        XCTAssertEqual(command[8], 9)
+        XCTAssertEqual(Array(command[12...15]), [0xA8, 0x30, 0x01, 0x00])
+
+        var response = Data(repeating: 0, count: 25)
+        response[0] = command[0]
+        response[1] = 0x01
+        response[3] = command[3]
+        response[8] = 9
+        response[12...15] = command[12...15]
+        writePackedPair(expected.centerX, expected.centerY, to: &response, at: 16)
+        writePackedPair(expected.positiveRangeX, expected.positiveRangeY, to: &response, at: 19)
+        writePackedPair(expected.negativeRangeX, expected.negativeRangeY, to: &response, at: 22)
+
+        XCTAssertEqual(
+            JoyCon2BLEProtocol.decodeStickCalibrationResponse(response),
+            expected
+        )
+
+        response[12] &+= 1
+        XCTAssertNil(JoyCon2BLEProtocol.decodeStickCalibrationResponse(response))
+    }
+
+    func testLongHeldScrollPositionCannotWalkStickCenter() {
+        var mapping = JoyConButtonMapping(isLeft: false)
+        var timestamp = 0.0
+
+        for _ in 0..<45 {
+            mapping.calibration.updateAutoCalibration(
+                rawX: 2050,
+                rawY: 2040,
+                timestamp: timestamp
+            )
+            timestamp += 1.0 / 66.0
+        }
+
+        XCTAssertTrue(mapping.calibration.isCalibrated)
+        let learnedCenterX = mapping.calibration.centerX
+        let learnedCenterY = mapping.calibration.centerY
+
+        var heldReport = [UInt8](repeating: 0, count: JoyConHIDProtocol.reportLength)
+        writePackedStick(x: 2300, y: 2040, to: &heldReport, at: JoyConHIDProtocol.Offset.rightStickStart)
+        for _ in 0..<(66 * 60 * 5) {
+            mapping.calibration.updateAutoCalibration(
+                rawX: 2300,
+                rawY: 2040,
+                timestamp: timestamp
+            )
+            timestamp += 1.0 / 66.0
+        }
+
+        XCTAssertEqual(mapping.calibration.centerX, learnedCenterX, accuracy: 0.001)
+        XCTAssertEqual(mapping.calibration.centerY, learnedCenterY, accuracy: 0.001)
+        XCTAssertGreaterThan(mapping.joystickPosition(in: heldReport).x, 148)
+
+        var releasedReport = [UInt8](repeating: 0, count: JoyConHIDProtocol.reportLength)
+        writePackedStick(x: 2050, y: 2040, to: &releasedReport, at: JoyConHIDProtocol.Offset.rightStickStart)
+        XCTAssertEqual(mapping.joystickPosition(in: releasedReport).x, 128)
+        XCTAssertEqual(mapping.joystickPosition(in: releasedReport).y, 128)
+    }
+
+    func testManualResetRequiresFactoryNeutralBeforeStickOutputResumes() {
+        let hardware = InputDeviceAnalogStickCalibration(
+            centerX: 2050,
+            centerY: 2040,
+            positiveRangeX: 1500,
+            positiveRangeY: 1600,
+            negativeRangeX: 1400,
+            negativeRangeY: 1300
+        )
+        var calibration = JoyConStickCalibration()
+        calibration.applyHardwareCalibration(hardware)
+        XCTAssertTrue(calibration.isCalibrated)
+
+        calibration.reset(requireNeutralValidation: true)
+        calibration.applyHardwareCalibration(hardware)
+        XCTAssertFalse(calibration.isCalibrated)
+
+        var timestamp = 0.0
+        for _ in 0..<(66 * 60 * 5) {
+            calibration.updateAutoCalibration(
+                rawX: 2300,
+                rawY: 2040,
+                timestamp: timestamp
+            )
+            timestamp += 1.0 / 66.0
+        }
+        XCTAssertFalse(calibration.isCalibrated)
+        XCTAssertEqual(calibration.centerX, Double(hardware.centerX))
+
+        for _ in 0..<45 {
+            calibration.updateAutoCalibration(
+                rawX: hardware.centerX,
+                rawY: hardware.centerY,
+                timestamp: timestamp
+            )
+            timestamp += 1.0 / 66.0
+        }
+        XCTAssertTrue(calibration.isCalibrated)
+    }
+
     func testInitializationUsesOnlyRequiredFeaturesAndPrefersFastestRate() {
         XCTAssertEqual(
             Array(JoyCon2BLEProtocol.setPlayerOneLED),
@@ -358,7 +517,15 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
 
         XCTAssertTrue(harness.setDeviceManaged(id: device.id, kind: .joyCon, managed: true))
         XCTAssertEqual(session.connectCallsSnapshot(), [device.id])
-        session.emitReady(deviceID: device.id)
+        let stickCalibration = InputDeviceAnalogStickCalibration(
+            centerX: 2050,
+            centerY: 2040,
+            positiveRangeX: 1500,
+            positiveRangeY: 1600,
+            negativeRangeX: 1400,
+            negativeRangeY: 1300
+        )
+        session.emitReady(deviceID: device.id, stickCalibration: stickCalibration)
         XCTAssertEqual(harness.connectionEventsSnapshot().map(\.connected), [true])
 
         var report = [UInt8](repeating: 0, count: 0x3C)
@@ -374,10 +541,27 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         XCTAssertEqual(frame.motion.latest?.gyroY, 120)
         XCTAssertEqual(frame.gyroScale, JoyCon2BLEProtocol.gyroScale)
         XCTAssertEqual(frame.motionSampleRate, JoyCon2BLEProtocol.productionReportRate.hertz)
+        XCTAssertEqual(frame.analogStickCalibration, stickCalibration)
+
+        XCTAssertTrue(backend.restartDevice(id: device.id))
+        XCTAssertEqual(session.reinitializeCallsSnapshot(), [device.id])
+        XCTAssertTrue(session.disconnectCallsSnapshot().isEmpty)
+        XCTAssertEqual(harness.connectionEventsSnapshot().map(\.connected), [true, false])
+
+        session.emitInput(deviceID: device.id, bytes: report, timestamp: 43)
+        XCTAssertEqual(harness.inputFramesSnapshot().count, 1)
+
+        session.emitReady(deviceID: device.id, stickCalibration: stickCalibration)
+        session.emitInput(deviceID: device.id, bytes: report, timestamp: 44)
+        XCTAssertEqual(harness.connectionEventsSnapshot().map(\.connected), [true, false, true])
+        XCTAssertEqual(harness.inputFramesSnapshot().count, 2)
 
         XCTAssertTrue(harness.setDeviceManaged(id: device.id, kind: .joyCon, managed: false))
         XCTAssertEqual(session.disconnectCallsSnapshot(), [device.id])
-        XCTAssertEqual(harness.connectionEventsSnapshot().map(\.connected), [true, false])
+        XCTAssertEqual(
+            harness.connectionEventsSnapshot().map(\.connected),
+            [true, false, true, false]
+        )
         harness.stop()
     }
 
@@ -386,6 +570,28 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         bytes[offset] = UInt8(raw & 0xFF)
         bytes[offset + 1] = UInt8(raw >> 8)
     }
+
+    private func writePackedPair(
+        _ first: UInt16,
+        _ second: UInt16,
+        to bytes: inout Data,
+        at offset: Int
+    ) {
+        bytes[offset] = UInt8(first & 0xFF)
+        bytes[offset + 1] = UInt8((first >> 8) & 0x0F) | UInt8((second & 0x0F) << 4)
+        bytes[offset + 2] = UInt8((second >> 4) & 0xFF)
+    }
+
+    private func writePackedStick(
+        x: UInt16,
+        y: UInt16,
+        to bytes: inout [UInt8],
+        at offset: Int
+    ) {
+        bytes[offset] = UInt8(x & 0xFF)
+        bytes[offset + 1] = UInt8((x >> 8) & 0x0F) | UInt8((y & 0x0F) << 4)
+        bytes[offset + 2] = UInt8((y >> 4) & 0xFF)
+    }
 }
 
 private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Sendable {
@@ -393,6 +599,7 @@ private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Send
     private var handlers: JoyCon2BLESessionHandlers?
     private var connectCalls: [String] = []
     private var disconnectCalls: [String] = []
+    private var reinitializeCalls: [String] = []
 
     func start(handlers: JoyCon2BLESessionHandlers) -> Bool {
         locked { self.handlers = handlers }
@@ -411,6 +618,10 @@ private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Send
         locked { disconnectCalls.append(deviceID) }
     }
 
+    func reinitialize(deviceID: String) {
+        locked { reinitializeCalls.append(deviceID) }
+    }
+
     func connectCallsSnapshot() -> [String] {
         locked { connectCalls }
     }
@@ -419,12 +630,19 @@ private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Send
         locked { disconnectCalls }
     }
 
+    func reinitializeCallsSnapshot() -> [String] {
+        locked { reinitializeCalls }
+    }
+
     func emitDiscovered(_ device: JoyCon2BLEDevice) {
         locked { handlers }?.discovered(device)
     }
 
-    func emitReady(deviceID: String) {
-        locked { handlers }?.ready(deviceID)
+    func emitReady(
+        deviceID: String,
+        stickCalibration: InputDeviceAnalogStickCalibration? = nil
+    ) {
+        locked { handlers }?.ready(deviceID, stickCalibration)
     }
 
     func emitInput(deviceID: String, bytes: [UInt8], timestamp: TimeInterval) {

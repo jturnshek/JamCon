@@ -173,4 +173,47 @@ struct ControllerInfo: Identifiable, Equatable, Sendable {
     var side: String {
         handedness.displayName
     }
+
+    /// Stable UI identity. Transport names can be generic placeholders (for
+    /// example CoreBluetooth's literal "DeviceName"), so profile identity is
+    /// always the primary label.
+    var displayName: String {
+        ControllerProfile(from: self).displayName
+    }
+
+    var transportDescription: String {
+        switch kind {
+        case .sense:
+            return "Game Controller"
+        case .joyCon:
+            return profileVariant == .joyCon2 ? "Bluetooth LE" : "Bluetooth HID"
+        case .mouse:
+            return "USB Receiver"
+        }
+    }
+
+    var meaningfulTransportName: String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.lowercased()
+        let profileAliases: Set<String>
+        if kind == .joyCon {
+            let family = profileVariant == .joyCon2 ? "joy-con 2" : "joy-con"
+            let side = isLeft ? "l" : "r"
+            profileAliases = [
+                "\(family) (\(side))",
+                "\(family) \(side)",
+                "\(family) \(handedness.displayName.lowercased())",
+            ]
+        } else {
+            profileAliases = []
+        }
+        guard !trimmed.isEmpty,
+              normalized != "devicename",
+              normalized != "device name",
+              normalized != "unknown",
+              normalized != displayName.lowercased(),
+              normalized != transportDescription.lowercased(),
+              !profileAliases.contains(normalized) else { return nil }
+        return trimmed
+    }
 }

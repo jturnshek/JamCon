@@ -6,6 +6,25 @@ import QuartzCore
 /// All CoreBluetooth objects and mutable transport state are confined to
 /// `JamCon.JoyCon2.BLE`; callbacks leave the queue only through Sendable values.
 final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendable {
+    private enum CommandPurpose: Equatable {
+        case acknowledgement
+        case primaryStickFactoryCalibration
+    }
+
+    private struct InitializationCommand {
+        let payload: Data
+        let purpose: CommandPurpose
+        let isRequired: Bool
+
+        static func required(_ payload: Data) -> InitializationCommand {
+            InitializationCommand(
+                payload: payload,
+                purpose: .acknowledgement,
+                isRequired: true
+            )
+        }
+    }
+
     private final class Context: @unchecked Sendable {
         var device: JoyCon2BLEDevice
         var peripheral: CBPeripheral
@@ -16,8 +35,8 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         var inputDescriptorDiscoveryStarted = false
         var inputDescriptorsDiscovered = false
         var responseNotificationRequested = false
-        var commands: [Data] = []
-        var currentCommand: Data?
+        var commands: [InitializationCommand] = []
+        var currentCommand: InitializationCommand?
         var currentCommandAttempt = 0
         var commandWaitingForWriteReady = false
         var commandGeneration = 0
@@ -25,11 +44,13 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         var currentReportRate: JoyCon2BLEReportRate?
         var reportRateGeneration = 0
         var initializationStarted = false
+        var reinitializingInPlace = false
         var ready = false
         var connectionGeneration = 0
         var connectionPolicyIndex = 0
         var retryNotBefore: TimeInterval = 0
         var reconnectScheduled = false
+        var stickCalibration: InputDeviceAnalogStickCalibration?
 
         init(device: JoyCon2BLEDevice, peripheral: CBPeripheral) {
             self.device = device
@@ -110,6 +131,31 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
             if context.peripheral.state != .disconnected {
                 self.central.cancelPeripheralConnection(context.peripheral)
             }
+        }
+    }
+
+    func reinitialize(deviceID: String) {
+        queue.async { [weak self] in
+            guard let self,
+                  self.started,
+                  self.desiredDeviceIDs.contains(deviceID),
+                  let context = self.contextsByID[deviceID] else { return }
+
+            guard context.peripheral.state == .connected,
+                  context.command != nil,
+                  context.response?.isNotifying == true,
+                  context.input != nil,
+                  context.inputDescriptorsDiscovered else {
+                self.fallbackToReconnectForReset(context)
+                return
+            }
+
+            self.prepareInPlaceReinitialization(context)
+            JamLog.info(
+                .joyCon,
+                "Reinitializing Joy-Con 2 over the existing Bluetooth connection: \(context.device.name)"
+            )
+            self.beginInitialization(context)
         }
     }
 
@@ -230,9 +276,14 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         context.initializationStarted = true
         JamLog.info(.joyCon, "Initializing Joy-Con 2 input: \(context.device.name)")
         context.commands = [
-            JoyCon2BLEProtocol.setFeatureMask,
-            JoyCon2BLEProtocol.enableFeatures,
-            JoyCon2BLEProtocol.setPlayerOneLED,
+            .required(JoyCon2BLEProtocol.setFeatureMask),
+            .required(JoyCon2BLEProtocol.enableFeatures),
+            InitializationCommand(
+                payload: JoyCon2BLEProtocol.readPrimaryStickFactoryCalibration,
+                purpose: .primaryStickFactoryCalibration,
+                isRequired: false
+            ),
+            .required(JoyCon2BLEProtocol.setPlayerOneLED),
         ]
         sendNextCommand(context)
     }
@@ -268,7 +319,7 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         let writeType: CBCharacteristicWriteType = characteristic.properties.contains(.writeWithoutResponse)
             ? .withoutResponse
             : .withResponse
-        context.peripheral.writeValue(command, for: characteristic, type: writeType)
+        context.peripheral.writeValue(command.payload, for: characteristic, type: writeType)
 
         // The GATT write response (when present) only confirms transport. The
         // controller's response notification is the semantic acknowledgment.
@@ -292,8 +343,14 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
                 guard let self, let context else { return }
                 self.sendCurrentCommand(context)
             }
-        } else {
+        } else if context.currentCommand?.isRequired == true {
             failInitialization(context, reason: reason)
+        } else {
+            JamLog.error(
+                .joyCon,
+                "Joy-Con 2 optional initialization \(reason); continuing without factory stick calibration"
+            )
+            completeCurrentCommand(context)
         }
     }
 
@@ -312,7 +369,10 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
 
     private func handleCommandResponse(_ response: Data, context: Context) {
         guard let command = context.currentCommand else { return }
-        guard let succeeded = JoyCon2BLEProtocol.commandResponseSucceeded(response, for: command) else {
+        guard let succeeded = JoyCon2BLEProtocol.commandResponseSucceeded(
+            response,
+            for: command.payload
+        ) else {
             let hex = response.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
             JamLog.errorThrottled(
                 .joyCon,
@@ -325,6 +385,19 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         guard succeeded else {
             retryCurrentCommand(context, reason: "controller rejected command")
             return
+        }
+
+        if command.purpose == .primaryStickFactoryCalibration {
+            guard let calibration = JoyCon2BLEProtocol.decodeStickCalibrationResponse(response) else {
+                retryCurrentCommand(context, reason: "returned malformed factory stick calibration")
+                return
+            }
+            context.stickCalibration = calibration
+            JamLog.info(
+                .joyCon,
+                "Joy-Con 2 factory stick calibration loaded "
+                    + "(center=\(calibration.centerX),\(calibration.centerY))"
+            )
         }
         completeCurrentCommand(context)
     }
@@ -392,21 +465,77 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
 
     private func failInitialization(_ context: Context, reason: String) {
         JamLog.error(.joyCon, "Joy-Con 2 initialization failed: \(reason)")
-        context.retryNotBefore = max(context.retryNotBefore, CACurrentMediaTime() + 30)
+        let wasInPlaceReset = context.reinitializingInPlace
+        context.reinitializingInPlace = false
+        let retryDelay: TimeInterval = wasInPlaceReset ? 5 : 30
+        context.retryNotBefore = max(
+            context.retryNotBefore,
+            CACurrentMediaTime() + retryDelay
+        )
+        if wasInPlaceReset {
+            JamLog.error(
+                .joyCon,
+                "Joy-Con 2 in-place reset failed; falling back to a Bluetooth reconnect"
+            )
+        }
         if context.peripheral.state != .disconnected {
             central.cancelPeripheralConnection(context.peripheral)
+        } else {
+            scheduleReconnect(context, delay: retryDelay)
         }
     }
 
     private func markReady(_ context: Context) {
         guard !context.ready else { return }
+        let completedInPlaceReset = context.reinitializingInPlace
+        context.reinitializingInPlace = false
         context.ready = true
         // Every future reconnect starts with the proven production path. The
         // fallbacks only apply while an individual connection attempt is
         // failing.
         context.connectionPolicyIndex = 0
         context.connectionGeneration += 1
-        handlers?.ready(context.device.id)
+        if completedInPlaceReset {
+            JamLog.info(
+                .joyCon,
+                "Joy-Con 2 in-place reset completed without disconnecting Bluetooth"
+            )
+        }
+        handlers?.ready(context.device.id, context.stickCalibration)
+    }
+
+    private func prepareInPlaceReinitialization(_ context: Context) {
+        context.commands.removeAll(keepingCapacity: true)
+        context.currentCommand = nil
+        context.currentCommandAttempt = 0
+        context.commandWaitingForWriteReady = false
+        context.commandGeneration += 1
+        context.reportRateCandidates.removeAll(keepingCapacity: true)
+        context.currentReportRate = nil
+        context.reportRateGeneration += 1
+        context.initializationStarted = false
+        context.reinitializingInPlace = true
+        context.ready = false
+        context.stickCalibration = nil
+        context.connectionGeneration += 1
+    }
+
+    private func fallbackToReconnectForReset(_ context: Context) {
+        JamLog.error(
+            .joyCon,
+            "Joy-Con 2 cannot reset in place because its live GATT session is incomplete; "
+                + "falling back to a Bluetooth reconnect"
+        )
+        context.reinitializingInPlace = false
+        context.retryNotBefore = 0
+        switch context.peripheral.state {
+        case .disconnected:
+            requestConnection(context)
+        case .connected, .connecting, .disconnecting:
+            central.cancelPeripheralConnection(context.peripheral)
+        @unknown default:
+            central.cancelPeripheralConnection(context.peripheral)
+        }
     }
 
     private func resetConnectionState(_ context: Context) {
@@ -426,7 +555,9 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         context.currentReportRate = nil
         context.reportRateGeneration += 1
         context.initializationStarted = false
+        context.reinitializingInPlace = false
         context.ready = false
+        context.stickCalibration = nil
     }
 }
 
@@ -461,11 +592,14 @@ extension JoyCon2BLESession: CBCentralManagerDelegate {
               let handedness = JoyCon2BLEProtocol.handedness(productID: identity.productID) else { return }
 
         let id = deviceID(for: peripheral)
-        let defaultName = handedness == .left ? "Joy-Con 2 (L)" : "Joy-Con 2 (R)"
         let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let device = JoyCon2BLEDevice(
             id: id,
-            name: peripheral.name ?? localName ?? defaultName,
+            name: JoyCon2BLEProtocol.userFacingDeviceName(
+                peripheralName: peripheral.name,
+                advertisedName: localName,
+                handedness: handedness
+            ),
             productID: identity.productID,
             handedness: handedness
         )
@@ -656,6 +790,7 @@ extension JoyCon2BLESession: CBPeripheralDelegate {
               let context = context(for: peripheral),
               let data = characteristic.value else { return }
         if characteristic.uuid == inputUUID {
+            guard context.ready else { return }
             handlers?.input(context.device.id, Array(data), CACurrentMediaTime())
         } else if characteristic.uuid == responseUUID {
             handleCommandResponse(data, context: context)

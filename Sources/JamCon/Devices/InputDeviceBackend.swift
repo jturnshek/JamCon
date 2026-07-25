@@ -95,6 +95,17 @@ enum InputDeviceMotionSamples: Equatable, Sendable {
     }
 }
 
+/// Hardware-provided analog-stick calibration normalized across transports.
+/// Ranges are distances from the neutral point rather than absolute endpoints.
+struct InputDeviceAnalogStickCalibration: Equatable, Sendable {
+    let centerX: UInt16
+    let centerY: UInt16
+    let positiveRangeX: UInt16
+    let positiveRangeY: UInt16
+    let negativeRangeX: UInt16
+    let negativeRangeY: UInt16
+}
+
 /// Common high-frequency handoff from every device adapter to the engine.
 /// Raw bytes remain available for device-specific control mapping and bounded
 /// diagnostics, while identity, timing, and motion have one shared contract.
@@ -113,6 +124,8 @@ struct InputDeviceFrame: Equatable, Sendable {
     /// Motion cadence currently delivered by the transport. This may differ
     /// from the rate requested from the device after BLE negotiation.
     let motionSampleRate: Double?
+    /// Optional factory/user calibration supplied by the physical device.
+    let analogStickCalibration: InputDeviceAnalogStickCalibration?
 
     var length: Int { bytes.count }
 
@@ -127,7 +140,8 @@ struct InputDeviceFrame: Equatable, Sendable {
         inputTimestamp: TimeInterval?,
         timestampSource: InputTimestampSource,
         gyroScale: Double? = nil,
-        motionSampleRate: Double? = nil
+        motionSampleRate: Double? = nil,
+        analogStickCalibration: InputDeviceAnalogStickCalibration? = nil
     ) {
         self.backend = backend
         self.deviceID = deviceID
@@ -140,6 +154,7 @@ struct InputDeviceFrame: Equatable, Sendable {
         self.timestampSource = timestampSource
         self.gyroScale = gyroScale
         self.motionSampleRate = motionSampleRate
+        self.analogStickCalibration = analogStickCalibration
     }
 }
 
@@ -283,9 +298,23 @@ protocol InputDeviceBackend: AnyObject, Sendable {
     func availableDevicesSnapshot() -> [ControllerInfo]
     var isConnected: Bool { get }
     func setDeviceManaged(id: String, managed: Bool)
+    @discardableResult
+    func restartDevice(id: String) -> Bool
 
     /// Replaces the backend's lifecycle observers. Configure before start.
     func setEventHandlers(_ handlers: InputDeviceBackendEventHandlers)
+}
+
+extension InputDeviceBackend {
+    /// Default transport restart for backends without an in-place reset.
+    /// Concrete backends can preserve their physical connection by overriding
+    /// this requirement.
+    @discardableResult
+    func restartDevice(id: String) -> Bool {
+        setDeviceManaged(id: id, managed: false)
+        setDeviceManaged(id: id, managed: true)
+        return true
+    }
 }
 
 /// Owns the common lifecycle/discovery/management surface for all device
@@ -449,12 +478,7 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
         managed: Bool
     ) -> Bool {
         let key = "\(kind.rawValue):\(id)"
-        let candidates = backendsByKind[kind] ?? []
-        let rememberedID = ownershipLock.withLock { $0[key] }
-        let backend = rememberedID.flatMap { backendsByID[$0] }
-            ?? candidates.first(where: { candidate in
-                candidate.availableDevicesSnapshot().contains(where: { $0.id == id })
-            })
+        let backend = resolveBackend(id: id, kind: kind)
         guard let backend else { return false }
         backend.setDeviceManaged(id: id, managed: managed)
         ownershipLock.withLock { owners in
@@ -465,6 +489,30 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
             }
         }
         return true
+    }
+
+    /// Soft-restarts one device through its existing backend without removing
+    /// Bluetooth pairing or changing the user's persisted managed selection.
+    @discardableResult
+    func restartDevice(id: String, kind: ControllerKind) -> Bool {
+        let key = "\(kind.rawValue):\(id)"
+        guard let backend = resolveBackend(id: id, kind: kind) else { return false }
+        guard backend.restartDevice(id: id) else { return false }
+        ownershipLock.withLock { $0[key] = backend.backendDescriptor.id }
+        return true
+    }
+
+    private func resolveBackend(
+        id: String,
+        kind: ControllerKind
+    ) -> (any InputDeviceBackend)? {
+        let key = "\(kind.rawValue):\(id)"
+        let candidates = backendsByKind[kind] ?? []
+        let rememberedID = ownershipLock.withLock { $0[key] }
+        return rememberedID.flatMap { backendsByID[$0] }
+            ?? candidates.first(where: { candidate in
+                candidate.availableDevicesSnapshot().contains(where: { $0.id == id })
+            })
     }
 
     private func isAcceptingEvents(from backendID: InputDeviceBackendID) -> Bool {

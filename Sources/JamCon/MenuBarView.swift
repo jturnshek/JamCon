@@ -27,6 +27,15 @@ struct MenuBarView: View {
                 Divider()
             }
 
+            Button {
+                appState.resetDevice()
+            } label: {
+                Label(appState.resetDeviceMenuTitle, systemImage: "arrow.clockwise")
+            }
+            .disabled(!appState.canResetDevice)
+
+            Divider()
+
             Button("Settings…", action: openSettings)
 
             Divider()

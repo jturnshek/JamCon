@@ -62,82 +62,97 @@ private struct ControllerCard: View {
         }
     }
 
-    private var subtitleText: String {
-        ControllerProfile(from: controller).displayName
+    private var detailText: String {
+        if let transportName = controller.meaningfulTransportName {
+            return "\(controller.transportDescription) · \(transportName)"
+        }
+        return controller.transportDescription
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Selection indicator
-            Image(systemName: isManaged ? "checkmark.circle.fill" : "circle")
-                .font(.title2)
-                .foregroundColor(isManaged ? .green : .secondary.opacity(0.4))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isManaged ? "checkmark.circle.fill" : "circle")
+                    .font(.title2)
+                    .foregroundColor(isManaged ? .green : .secondary.opacity(0.4))
 
-            // Controller icon
-            Image(systemName: iconName)
-                .font(.title2)
-                .foregroundColor(isManaged ? .blue : .secondary)
+                Image(systemName: iconName)
+                    .font(.title2)
+                    .foregroundColor(isManaged ? .blue : .secondary)
 
-            // Controller info
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(controller.name)
-                        .font(.headline)
-                        .foregroundColor(isManaged ? .primary : .secondary)
-                    if isManaged {
-                        Text("Managed")
-                            .font(.caption2)
-                            .fontWeight(.medium)
-                            .foregroundColor(.green)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.15))
-                            .cornerRadius(4)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 7) {
+                        Text(controller.displayName)
+                            .font(.headline)
+                            .foregroundColor(isManaged ? .primary : .secondary)
+
+                        if isManaged {
+                            Text("Managed")
+                                .font(.caption2.weight(.medium))
+                                .foregroundColor(.green)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.green.opacity(0.15))
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
                     }
+
+                    Text(detailText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+
+                Spacer(minLength: 8)
             }
 
-            Spacer()
+            Divider()
+                .opacity(0.6)
 
-            // Action button
-            HStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Toggle(
-                    "Managed",
+                    "Manage this device",
                     isOn: Binding(
                         get: { isManaged },
                         set: { appState.setDeviceManaged(controller, managed: $0) }
                     )
                 )
                 .toggleStyle(.switch)
-                .font(.caption)
+                .font(.subheadline)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    appState.resetDevice(controller)
+                } label: {
+                    Label("Reset Device", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .disabled(!isManaged)
 
                 NavigationLink {
                     DeviceDebugView(appState: appState, controller: controller)
                 } label: {
-                    Text("Live Debug")
+                    Label("Live Debug", systemImage: "waveform.path.ecg")
                 }
                 .buttonStyle(.bordered)
                 .disabled(!isManaged)
             }
         }
-        .padding()
+        .padding(16)
         .background(
             isManaged
             ? Color.green.opacity(0.08)
             : Color.secondary.opacity(0.05)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 12)
                 .stroke(
                     isManaged
                     ? Color.green.opacity(0.3)
-                    : Color.clear,
-                    lineWidth: 2
+                    : Color.secondary.opacity(0.08),
+                    lineWidth: isManaged ? 2 : 1
                 )
         )
-        .cornerRadius(10)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

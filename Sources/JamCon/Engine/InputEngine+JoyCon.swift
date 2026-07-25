@@ -71,7 +71,11 @@ extension InputEngine {
         let buttonProfile: JoyConButtonMappingProfile = s.joyConButtonMappings[profile] ?? .defaultProfile(for: profile)
         let cursorEnabled = s.cursorControlEnabledByProfile[profile] ?? true
 
-        // Continuous auto-calibration: updates center when stick is stationary
+        if let hardwareCalibration = report.analogStickCalibration {
+            device.mapping.calibration.applyHardwareCalibration(hardwareCalibration)
+        }
+
+        // Bounded neutral correction around the connection/factory anchor.
         let raw = device.mapping.joystickPositionRaw(in: controlBytes)
         device.mapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
 
@@ -144,7 +148,9 @@ extension InputEngine {
         }
 
         // 3. Process joystick scroll (if enabled)
-        if s.joystickScrollEnabled, cursorEnabled {
+        if s.joystickScrollEnabled,
+           cursorEnabled,
+           device.mapping.calibration.isCalibrated {
             processJoyConJoystickScroll(bytes: controlBytes, mapping: device.mapping, settings: s)
         }
 

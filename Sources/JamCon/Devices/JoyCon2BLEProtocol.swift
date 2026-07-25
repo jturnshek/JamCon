@@ -137,6 +137,12 @@ enum JoyCon2BLEProtocol {
         featureMask, 0x00, 0x00, 0x00,
     ])
 
+    /// Every standalone Joy-Con 2 stores its primary physical stick
+    /// calibration in this factory-memory record. In the common input report,
+    /// a right Joy-Con still places that primary stick in the right-stick slot.
+    static let primaryStickFactoryCalibrationAddress: UInt32 = 0x0001_30A8
+    static let stickCalibrationLength: UInt8 = 9
+
     /// Select player one and stop the pairing-light chase. Joy-Con 2 uses an
     /// eight-byte LED payload; the low nibble selects the four player LEDs.
     static let setPlayerOneLED = Data([
@@ -162,6 +168,74 @@ enum JoyCon2BLEProtocol {
         case rightProductID: .right
         default: nil
         }
+    }
+
+    static func userFacingDeviceName(
+        peripheralName: String?,
+        advertisedName: String?,
+        handedness: ControllerHandedness
+    ) -> String {
+        for candidate in [peripheralName, advertisedName] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let normalized = trimmed.lowercased()
+            guard !trimmed.isEmpty,
+                  normalized != "devicename",
+                  normalized != "device name",
+                  normalized != "unknown" else { continue }
+            return trimmed
+        }
+        return handedness == .left ? "Joy-Con 2 (L)" : "Joy-Con 2 (R)"
+    }
+
+    static func readMemoryCommand(address: UInt32, length: UInt8) -> Data {
+        Data([
+            0x02, 0x91, 0x01, 0x04, 0x00, 0x08, 0x00, 0x00,
+            length, 0x7E, 0x00, 0x00,
+            UInt8(address & 0xFF),
+            UInt8((address >> 8) & 0xFF),
+            UInt8((address >> 16) & 0xFF),
+            UInt8((address >> 24) & 0xFF),
+        ])
+    }
+
+    static var readPrimaryStickFactoryCalibration: Data {
+        readMemoryCommand(
+            address: primaryStickFactoryCalibrationAddress,
+            length: stickCalibrationLength
+        )
+    }
+
+    static func decodeStickCalibrationResponse(
+        _ response: Data,
+        expectedAddress: UInt32 = primaryStickFactoryCalibrationAddress
+    ) -> InputDeviceAnalogStickCalibration? {
+        guard response.count >= 16 + Int(stickCalibrationLength),
+              response[8] >= stickCalibrationLength,
+              uint32LE(response, at: 12) == expectedAddress else { return nil }
+
+        let data = Array(response[16..<(16 + Int(stickCalibrationLength))])
+        func unpack(_ offset: Int) -> (UInt16, UInt16) {
+            let byte0 = UInt16(data[offset])
+            let byte1 = UInt16(data[offset + 1])
+            let byte2 = UInt16(data[offset + 2])
+            return (
+                byte0 | ((byte1 & 0x0F) << 8),
+                (byte1 >> 4) | (byte2 << 4)
+            )
+        }
+
+        let center = unpack(0)
+        let positive = unpack(3)
+        let negative = unpack(6)
+        let calibration = InputDeviceAnalogStickCalibration(
+            centerX: center.0,
+            centerY: center.1,
+            positiveRangeX: positive.0,
+            positiveRangeY: positive.1,
+            negativeRangeX: negative.0,
+            negativeRangeY: negative.1
+        )
+        return isPlausible(calibration) ? calibration : nil
     }
 
     /// CoreBluetooth's manufacturer payload includes Nintendo's company data.
@@ -212,6 +286,31 @@ enum JoyCon2BLEProtocol {
     private static func uint16LE(_ data: Data, at offset: Int) -> UInt16 {
         let index = data.startIndex.advanced(by: offset)
         return UInt16(data[index]) | (UInt16(data[index + 1]) << 8)
+    }
+
+    private static func uint32LE(_ data: Data, at offset: Int) -> UInt32 {
+        let index = data.startIndex.advanced(by: offset)
+        return UInt32(data[index])
+            | (UInt32(data[index + 1]) << 8)
+            | (UInt32(data[index + 2]) << 16)
+            | (UInt32(data[index + 3]) << 24)
+    }
+
+    private static func isPlausible(_ calibration: InputDeviceAnalogStickCalibration) -> Bool {
+        let centers = [calibration.centerX, calibration.centerY]
+        let ranges = [
+            calibration.positiveRangeX,
+            calibration.positiveRangeY,
+            calibration.negativeRangeX,
+            calibration.negativeRangeY,
+        ]
+        guard centers.allSatisfy({ $0 > 0 && $0 < 4095 }),
+              ranges.allSatisfy({ $0 >= 200 && $0 <= 4095 }) else { return false }
+
+        return Int(calibration.centerX) + Int(calibration.positiveRangeX) <= 4095
+            && Int(calibration.centerY) + Int(calibration.positiveRangeY) <= 4095
+            && Int(calibration.centerX) - Int(calibration.negativeRangeX) >= 0
+            && Int(calibration.centerY) - Int(calibration.negativeRangeY) >= 0
     }
 
     private static func int16LE(_ bytes: [UInt8], at offset: Int) -> Int16 {

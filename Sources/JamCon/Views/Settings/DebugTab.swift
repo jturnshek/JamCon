@@ -79,6 +79,7 @@ struct DeviceDebugView: View {
                         JoyConDebugView(
                             telemetry: telemetry,
                             isLeft: controller.isLeft,
+                            profileVariant: controller.profileVariant,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
                             decaySeconds: decaySeconds,
@@ -189,6 +190,7 @@ struct DebugTab: View {
                         JoyConDebugView(
                             telemetry: telemetry,
                             isLeft: isLeft,
+                            profileVariant: appState.configurationProfile.variant,
                             bytesPerRow: bytesPerRow,
                             totalBytes: totalBytes,
                             decaySeconds: decaySeconds,

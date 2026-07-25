@@ -127,6 +127,10 @@ struct JoyConStickCalibration {
     var centerY: Double = 2048.0
     var sampleCount: Int = 0
     var isCalibrated: Bool = false
+    private(set) var anchorCenterX: Double = 2048.0
+    private(set) var anchorCenterY: Double = 2048.0
+    private(set) var hardwareCalibration: InputDeviceAnalogStickCalibration?
+    private var requiresNeutralValidation = false
 
     // Track actual stick range (updated continuously as stick moves)
     var minX: Double = 2048.0
@@ -149,7 +153,11 @@ struct JoyConStickCalibration {
     static let autoCalibMinSamples: Int = 30
     static let autoCalibCooldown: TimeInterval = 2.0     // Don't recalibrate too often
     static let autoCalibMaxStdDev: Double = 20.0         // Max std dev in raw units (~0.5% of range)
-    static let autoCalibMotionThreshold: Double = 200.0  // Motion that cancels accumulation
+    /// A stable value is eligible for neutral correction only while it is
+    /// already inside the raw neutral area around the immutable anchor.
+    /// Comparing against the anchor, rather than the last learned center,
+    /// prevents repeated long-held deflections from walking calibration.
+    static let neutralCaptureRadius: Double = 150.0
     static let minEffectiveRange: Double = 400.0         // Minimum range to avoid division issues
 
     /// Effective range from center for X axis (dynamically calculated)
@@ -166,21 +174,25 @@ struct JoyConStickCalibration {
         return max(rangeNeg, rangePos, Self.minEffectiveRange)
     }
 
-    /// Continuous auto-calibration: updates center when stick is stationary, always tracks range
+    /// Bounded neutral correction around an immutable connection/factory
+    /// anchor. A long-held scrolling position is never eligible.
     mutating func updateAutoCalibration(rawX: UInt16, rawY: UInt16, timestamp: TimeInterval) {
         let x = Double(rawX)
         let y = Double(rawY)
 
-        // Always track min/max to learn the stick's actual range
-        minX = min(minX, x)
-        maxX = max(maxX, x)
-        minY = min(minY, y)
-        maxY = max(maxY, y)
+        // Factory ranges are authoritative. Original Joy-Cons without a
+        // hardware record retain the existing dynamic range learning.
+        if hardwareCalibration == nil {
+            minX = min(minX, x)
+            maxX = max(maxX, x)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+        }
 
-        // If stick moved significantly from current center, reset center accumulation
-        let deltaX = abs(x - centerX)
-        let deltaY = abs(y - centerY)
-        if deltaX > Self.autoCalibMotionThreshold || deltaY > Self.autoCalibMotionThreshold {
+        let anchorDeltaX = abs(x - anchorCenterX)
+        let anchorDeltaY = abs(y - anchorCenterY)
+        if anchorDeltaX > Self.neutralCaptureRadius
+            || anchorDeltaY > Self.neutralCaptureRadius {
             resetAutoCalibAccumulator()
             return
         }
@@ -211,15 +223,35 @@ struct JoyConStickCalibration {
         let stdX = sqrt(varX)
         let stdY = sqrt(varY)
 
-        // If variance is low enough, update center
+        // Samples were constrained around the immutable anchor before
+        // accumulation, so this update cannot walk farther on each cycle.
         if stdX < Self.autoCalibMaxStdDev && stdY < Self.autoCalibMaxStdDev {
             centerX = avgX
             centerY = avgY
             isCalibrated = true
+            requiresNeutralValidation = false
             lastAutoCalibUpdate = timestamp
         }
 
         resetAutoCalibAccumulator()
+    }
+
+    mutating func applyHardwareCalibration(_ calibration: InputDeviceAnalogStickCalibration) {
+        guard hardwareCalibration != calibration else { return }
+
+        let shouldWaitForNeutral = requiresNeutralValidation
+        hardwareCalibration = calibration
+        anchorCenterX = Double(calibration.centerX)
+        anchorCenterY = Double(calibration.centerY)
+        centerX = anchorCenterX
+        centerY = anchorCenterY
+        minX = centerX - Double(calibration.negativeRangeX)
+        maxX = centerX + Double(calibration.positiveRangeX)
+        minY = centerY - Double(calibration.negativeRangeY)
+        maxY = centerY + Double(calibration.positiveRangeY)
+        isCalibrated = !shouldWaitForNeutral
+        resetAutoCalibAccumulator()
+        lastAutoCalibUpdate = nil
     }
 
     private mutating func resetAutoCalibAccumulator() {
@@ -231,16 +263,22 @@ struct JoyConStickCalibration {
         autoCalibCount = 0
     }
 
-    /// Reset calibration (e.g., on reconnect)
-    mutating func reset() {
+    /// Reset calibration. A user-requested recovery waits for a fresh neutral
+    /// window before stick output resumes; normal connection setup can trust a
+    /// valid hardware record immediately.
+    mutating func reset(requireNeutralValidation: Bool = false) {
         centerX = 2048.0
         centerY = 2048.0
+        anchorCenterX = 2048.0
+        anchorCenterY = 2048.0
         sampleCount = 0
         isCalibrated = false
         minX = 2048.0
         maxX = 2048.0
         minY = 2048.0
         maxY = 2048.0
+        hardwareCalibration = nil
+        requiresNeutralValidation = requireNeutralValidation
         resetAutoCalibAccumulator()
         lastAutoCalibUpdate = nil
     }
@@ -387,7 +425,7 @@ struct JoyConButtonMapping {
     // MARK: - Joystick Position
 
     /// Deadzone radius in raw 12-bit units (applies around calibrated center)
-    static let deadzoneRadius: Double = 150.0
+    static let deadzoneRadius = JoyConStickCalibration.neutralCaptureRadius
 
     /// Read joystick position from report bytes
     /// Joy-Con sticks are 12-bit values packed into 3 bytes

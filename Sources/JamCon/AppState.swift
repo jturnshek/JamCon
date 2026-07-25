@@ -477,7 +477,7 @@ final class AppState: ObservableObject {
         isLeftController = displayDevice.isLeft
 
         if managedAvailable.count == 1 {
-            controllerName = displayDevice.kind.hasSides ? "\(displayDevice.name) (\(displayDevice.side))" : displayDevice.name
+            controllerName = displayDevice.displayName
         } else {
             controllerName = "Managing \(managedAvailable.count) devices"
         }
@@ -857,6 +857,39 @@ final class AppState: ObservableObject {
             await MainActor.run {
                 statusMessage = "Calibrated!"
             }
+        }
+    }
+
+    private var resettableManagedControllers: [ControllerInfo] {
+        availableControllers.filter {
+            managedDeviceKeys.contains($0.managementKey)
+        }
+    }
+
+    var canResetDevice: Bool {
+        !resettableManagedControllers.isEmpty
+    }
+
+    var resetDeviceMenuTitle: String {
+        resettableManagedControllers.count > 1 ? "Reset Managed Devices" : "Reset Device"
+    }
+
+    func resetDevice(_ controller: ControllerInfo? = nil) {
+        let targets = controller.map { [$0] } ?? resettableManagedControllers
+        let resetCount = targets.reduce(into: 0) { count, target in
+            if engine.resetDevice(id: target.id, kind: target.kind) {
+                count += 1
+            }
+        }
+
+        if let controller, resetCount == 1 {
+            statusMessage = "Resetting \(controller.displayName)…"
+        } else if resetCount > 0 {
+            statusMessage = resetCount == 1
+                ? "Resetting device…"
+                : "Resetting \(resetCount) devices…"
+        } else {
+            statusMessage = "No managed device to reset"
         }
     }
 }

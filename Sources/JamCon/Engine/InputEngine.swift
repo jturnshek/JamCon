@@ -124,6 +124,7 @@ final class InputEngine: @unchecked Sendable {
         var mode = GyroModeState()
         let gyroProcessor = GyroProcessor()
         var hasPrimedButtonState: Bool = false
+        var requiresNeutralAfterReconnect = false
 
         var mapping: JoyConButtonMapping
         var buttonStates: [Bool]
@@ -550,6 +551,38 @@ final class InputEngine: @unchecked Sendable {
         }
     }
 
+    /// Soft-restart one managed device without changing persistent management
+    /// or system pairing. Backends may reinitialize over their existing
+    /// transport session, with close/reopen retained as a fallback.
+    @discardableResult
+    func resetDevice(id: String, kind: ControllerKind) -> Bool {
+        engineQueueSync {
+            switch kind {
+            case .sense:
+                guard let device = senseDevices[id] else { return false }
+                resetSenseTransientState(device)
+
+            case .joyCon:
+                guard let device = joyConDevices[id] else { return false }
+                resetJoyConTransientState(device)
+                device.requiresNeutralAfterReconnect = true
+                device.mapping.calibration.reset(requireNeutralValidation: true)
+
+            case .mouse:
+                guard selectedMouseID == id else { return false }
+                resetG502XButtonStateBaseline()
+                actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .mouse, id: id))
+            }
+
+            guard backendRegistry.restartDevice(id: id, kind: kind) else {
+                JamLog.error(.engine, "Could not reset unmanaged or unavailable device \(kind.rawValue):\(id)")
+                return false
+            }
+            JamLog.info(.engine, "Reset device transport: \(kind.rawValue):\(id)")
+            return true
+        }
+    }
+
     // MARK: - Callbacks Setup
 
     private func setupCallbacks() {
@@ -619,7 +652,10 @@ final class InputEngine: @unchecked Sendable {
                 if let device = joyConDevices[id] {
                     resetJoyConTransientState(device)
                     if event.connected {
-                        device.mapping.calibration.reset()
+                        device.mapping.calibration.reset(
+                            requireNeutralValidation: device.requiresNeutralAfterReconnect
+                        )
+                        device.requiresNeutralAfterReconnect = false
                     }
                 }
                 if !event.connected {

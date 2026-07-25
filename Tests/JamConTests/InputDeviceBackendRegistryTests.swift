@@ -71,6 +71,15 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             ManagedCall(id: secondDevice.id, managed: true),
             ManagedCall(id: secondDevice.id, managed: false),
         ])
+
+        XCTAssertTrue(registry.restartDevice(id: secondDevice.id, kind: .joyCon))
+        XCTAssertEqual(second.managedCallsSnapshot(), [
+            ManagedCall(id: secondDevice.id, managed: true),
+            ManagedCall(id: secondDevice.id, managed: false),
+            ManagedCall(id: secondDevice.id, managed: false),
+            ManagedCall(id: secondDevice.id, managed: true),
+        ])
+        XCTAssertTrue(first.managedCallsSnapshot().isEmpty)
     }
 
     func testRegistryFiltersInvalidDiscoveredDeviceMetadata() {

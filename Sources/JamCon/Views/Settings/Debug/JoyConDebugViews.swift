@@ -6,6 +6,7 @@ import QuartzCore
 struct JoyConDebugView: View {
     @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
+    let profileVariant: ControllerProfileVariant
     let bytesPerRow: Int
     let totalBytes: Int
     let decaySeconds: Double
@@ -14,6 +15,11 @@ struct JoyConDebugView: View {
     // Joystick start byte differs by controller side
     private var joystickStartByte: Int {
         isLeft ? JoyConHIDProtocol.Offset.leftStickStart : JoyConHIDProtocol.Offset.rightStickStart
+    }
+
+    private var controlBytes: [UInt8] {
+        guard profileVariant == .joyCon2 else { return telemetry.reportBytes }
+        return JoyCon2BLEProtocol.controlBytes(from: telemetry.reportBytes) ?? []
     }
 
     var body: some View {
@@ -31,6 +37,8 @@ struct JoyConDebugView: View {
                 JoyConQuickRows(
                     telemetry: telemetry,
                     isLeft: isLeft,
+                    profileVariant: profileVariant,
+                    controlBytes: controlBytes,
                     currentTime: currentTime
                 )
 
@@ -38,7 +46,7 @@ struct JoyConDebugView: View {
                     xByte: joystickStartByte,
                     yByte: joystickStartByte + 1,
                     useJoyConPacking: true,
-                    reportBytes: telemetry.reportBytes
+                    reportBytes: controlBytes
                 )
 
                 DebugRawReportSection(
@@ -113,10 +121,15 @@ struct CalibrationDebugView: View {
 struct JoyConQuickRows: View {
     @ObservedObject var telemetry: DebugTelemetryState
     let isLeft: Bool
+    let profileVariant: ControllerProfileVariant
+    let controlBytes: [UInt8]
     let currentTime: Date
 
-    private let motionBytes = Array(36...47)  // Hypothesis: latest IMU sample block
     private let batteryBytes = [2]            // Battery nibble (upper)
+
+    private var motionBytes: [Int] {
+        profileVariant == .joyCon2 ? Array(48...59) : Array(36...47)
+    }
 
     // Button bytes differ by controller side
     private var buttonBytes: [Int] {
@@ -128,13 +141,51 @@ struct JoyConQuickRows: View {
         isLeft ? [6, 7, 8] : [9, 10, 11]  // Left stick at 6-8, Right stick at 9-11
     }
 
+    private var decodedButtonSourceOffset: Int {
+        profileVariant == .joyCon2 ? 1 : 0
+    }
+
+    private var decodedStickSourceOffset: Int {
+        profileVariant == .joyCon2 ? 4 : 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            JoyConRow(title: "Motion (hypothesis: bytes 36-47)", bytes: motionBytes, telemetry: telemetry, currentTime: currentTime)
-            JoyConRow(title: "Buttons (\(isLeft ? "Left: bytes 4-5" : "Right: bytes 3-4"))", bytes: buttonBytes, telemetry: telemetry, currentTime: currentTime)
-            JoyConRow(title: "Joystick (\(isLeft ? "Left: bytes 6-8" : "Right: bytes 9-11"))", bytes: joystickBytes, telemetry: telemetry, currentTime: currentTime)
-            JoyConRow(title: "Battery", bytes: batteryBytes, telemetry: telemetry, currentTime: currentTime)
-            JoyConButtonTester(telemetry: telemetry, isLeft: isLeft, currentTime: currentTime)
+            JoyConRow(
+                title: "Motion (latest IMU: raw bytes \(motionBytes.first ?? 0)-\(motionBytes.last ?? 0))",
+                bytes: motionBytes,
+                reportBytes: telemetry.reportBytes,
+                telemetry: telemetry,
+                currentTime: currentTime
+            )
+            JoyConRow(
+                title: "Buttons (\(isLeft ? "Left: decoded bytes 4-5" : "Right: decoded bytes 3-4"))",
+                bytes: buttonBytes,
+                reportBytes: controlBytes,
+                telemetry: telemetry,
+                sourceByteOffset: decodedButtonSourceOffset,
+                currentTime: currentTime
+            )
+            JoyConRow(
+                title: "Joystick (\(isLeft ? "Left: decoded bytes 6-8" : "Right: decoded bytes 9-11"))",
+                bytes: joystickBytes,
+                reportBytes: controlBytes,
+                telemetry: telemetry,
+                sourceByteOffset: decodedStickSourceOffset,
+                currentTime: currentTime
+            )
+            JoyConRow(
+                title: "Battery",
+                bytes: batteryBytes,
+                reportBytes: telemetry.reportBytes,
+                telemetry: telemetry,
+                currentTime: currentTime
+            )
+            JoyConButtonTester(
+                reportBytes: controlBytes,
+                isLeft: isLeft,
+                isDecoded: profileVariant == .joyCon2
+            )
         }
         .padding()
         .background(Color.secondary.opacity(0.03))
@@ -143,9 +194,9 @@ struct JoyConQuickRows: View {
 }
 
 private struct JoyConButtonTester: View {
-    @ObservedObject var telemetry: DebugTelemetryState
+    let reportBytes: [UInt8]
     let isLeft: Bool
-    let currentTime: Date
+    let isDecoded: Bool
 
     private struct JoyConButtonEntry: Identifiable {
         let id = UUID()
@@ -192,8 +243,13 @@ private struct JoyConButtonTester: View {
     }
 
     private func isPressed(_ entry: JoyConButtonEntry) -> Bool {
-        let value = telemetry.safeReportByte(entry.byte)
+        let value = safeReportByte(entry.byte)
         return (value & entry.mask) != 0
+    }
+
+    private func safeReportByte(_ index: Int) -> UInt8 {
+        guard reportBytes.indices.contains(index) else { return 0 }
+        return reportBytes[index]
     }
 
     var body: some View {
@@ -220,18 +276,18 @@ private struct JoyConButtonTester: View {
 
             // Also show raw byte values for debugging
             VStack(alignment: .leading, spacing: 4) {
-                Text("Raw Button Bytes")
+                Text(isDecoded ? "Decoded Button Bytes" : "Raw Button Bytes")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 if isLeft {
-                    Text(String(format: "Byte 4: 0x%02X (%@)", telemetry.safeReportByte(4), byteToBinary(telemetry.safeReportByte(4))))
+                    Text(String(format: "Byte 4: 0x%02X (%@)", safeReportByte(4), byteToBinary(safeReportByte(4))))
                         .font(.system(size: 11, design: .monospaced))
-                    Text(String(format: "Byte 5: 0x%02X (%@)", telemetry.safeReportByte(5), byteToBinary(telemetry.safeReportByte(5))))
+                    Text(String(format: "Byte 5: 0x%02X (%@)", safeReportByte(5), byteToBinary(safeReportByte(5))))
                         .font(.system(size: 11, design: .monospaced))
                 } else {
-                    Text(String(format: "Byte 3: 0x%02X (%@)", telemetry.safeReportByte(3), byteToBinary(telemetry.safeReportByte(3))))
+                    Text(String(format: "Byte 3: 0x%02X (%@)", safeReportByte(3), byteToBinary(safeReportByte(3))))
                         .font(.system(size: 11, design: .monospaced))
-                    Text(String(format: "Byte 4: 0x%02X (%@)", telemetry.safeReportByte(4), byteToBinary(telemetry.safeReportByte(4))))
+                    Text(String(format: "Byte 4: 0x%02X (%@)", safeReportByte(4), byteToBinary(safeReportByte(4))))
                         .font(.system(size: 11, design: .monospaced))
                 }
             }
@@ -248,7 +304,9 @@ private struct JoyConButtonTester: View {
 private struct JoyConRow: View {
     let title: String
     let bytes: [Int]
+    let reportBytes: [UInt8]
     @ObservedObject var telemetry: DebugTelemetryState
+    var sourceByteOffset: Int = 0
     let currentTime: Date
 
     var body: some View {
@@ -259,13 +317,18 @@ private struct JoyConRow: View {
             HStack(spacing: 4) {
                 ForEach(bytes, id: \.self) { i in
                     ByteCell(
-                        value: telemetry.safeReportByte(i),
+                        value: safeReportByte(i),
                         index: i,
-                        color: colorForByte(i)
+                        color: colorForByte(i + sourceByteOffset)
                     )
                 }
             }
         }
+    }
+
+    private func safeReportByte(_ index: Int) -> UInt8 {
+        guard reportBytes.indices.contains(index) else { return 0 }
+        return reportBytes[index]
     }
 
     private func colorForByte(_ index: Int) -> Color {
