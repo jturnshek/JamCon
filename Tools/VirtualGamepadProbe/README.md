@@ -50,16 +50,21 @@ The probe publishes a controller named `JamCon Virtual Gamepad Probe` and
 cycles through deterministic half-second phases covering neutral state, both
 signs of every stick axis, all face positions, shoulders, stick clicks,
 diagonal D-pad values, triggers, and menu buttons. It records CoreHID dispatch
-duration and does not connect to or modify a physical controller.
+duration, schedules reports on fixed 8 ms deadlines, and fails if its achieved
+rate is below 110 reports per second. It does not connect to or modify a
+physical controller.
 
 The observer filters raw HID by the probe VID/PID, ignores unrelated Game
-Controllers, records exact element ranges and button observations, and exits
-successfully only when it sees exactly one JamCon controller with both signs of
-all stick and D-pad axes, the full range of both triggers, and every emitted
-face, shoulder, stick-click, and menu button. A successful run ends with:
+Controllers, installs a raw input-report callback, and advances through the
+eight expected phases only when the entire Game Controller state exactly
+matches. It exits successfully only when it sees exactly one matching HID
+device, at least 110 valid 14-byte input reports per second for at least three
+seconds, no report gap above 50 ms, exactly one JamCon Game Controller, and
+every phase in order with the expected axis directions and button positions.
+A successful run ends with:
 
 ```text
-PASS: virtual gamepad satisfied HID and Game Controller loopback checks
+PASS: virtual gamepad satisfied exact HID cadence and Game Controller semantic mapping checks
 ```
 
 ## Result on July 25, 2026
@@ -102,8 +107,10 @@ The output path is viable only if:
 
 1. IOKit enumerates the virtual gamepad and receives changing values.
 2. Game Controller enumerates it as an extended gamepad and receives values.
-3. Sustained 125 Hz dispatch has no drops or meaningful timing spikes.
-4. Every emitted button, axis, hat, and trigger value arrives unchanged.
+3. The raw-HID observer measures at least 110 reports per second over at least
+   three seconds, with no gap above 50 ms.
+4. Every complete semantic phase arrives in order with exact button identity,
+   stick/D-pad direction, trigger state, and neutral state.
 
 If Apple does not make the application entitlement available, the supported
 software alternative is a DriverKit virtual-HID system extension. That route

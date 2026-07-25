@@ -229,8 +229,8 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
         try container.encode(radialMovementScale, forKey: .radialMovementScale)
     }
 
-    /// Default 4-direction arrow key menu
-    static var arrowKeys: RadialMenuConfiguration {
+    /// Production default captured from the proven day-to-day configuration.
+    static var `default`: RadialMenuConfiguration {
         RadialMenuConfiguration(
             name: "Arrow Keys",
             items: [
@@ -254,8 +254,73 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
                     icon: "arrow.left",
                     action: .keyPress(KeyCombo(keyCode: 123))  // Left arrow
                 ),
-            ]
+            ],
+            deadzoneSize: 30,
+            innerRingSize: 35,
+            innerRingRotation: 45,
+            outerRingEnabled: true,
+            outerRingItems: [
+                RadialMenuItem(
+                    label: "1",
+                    action: .systemAction(.missionControl)
+                ),
+                RadialMenuItem(
+                    label: "2",
+                    action: .keyPress(KeyCombo(
+                        keyCode: 17,
+                        modifiers: .maskCommand
+                    ))
+                ),
+                RadialMenuItem(
+                    label: "3",
+                    action: .keyPress(KeyCombo(
+                        keyCode: 123,
+                        modifiers: .maskControl
+                    ))
+                ),
+                RadialMenuItem(
+                    label: "4",
+                    action: .keyPress(KeyCombo(
+                        keyCode: 48,
+                        modifiers: .maskShift
+                    ))
+                ),
+                RadialMenuItem(
+                    label: "New",
+                    action: .keyPress(KeyCombo(
+                        keyCode: 13,
+                        modifiers: .maskCommand
+                    ))
+                ),
+                RadialMenuItem(
+                    label: "New",
+                    action: .systemAction(.playPause)
+                ),
+                RadialMenuItem(
+                    label: "New",
+                    action: .keyPress(KeyCombo(
+                        keyCode: 124,
+                        modifiers: .maskControl
+                    ))
+                ),
+                RadialMenuItem(
+                    label: "New",
+                    action: .keyPress(KeyCombo(
+                        keyCode: 17,
+                        modifiers: [.maskCommand, .maskShift]
+                    ))
+                ),
+            ],
+            outerRingSize: 50,
+            outerRingRotation: 22.5,
+            radialMovementScale: 2
         )
+    }
+
+    /// Kept as a source-compatible name for callers that predate the outer
+    /// production ring.
+    static var arrowKeys: RadialMenuConfiguration {
+        .default
     }
 
     // MARK: - Mutating Methods
@@ -296,16 +361,45 @@ struct RadialMenuConfiguration: Codable, Equatable, Identifiable, Sendable {
 extension RadialMenuConfiguration {
     static let storageKey = "JamConRadialMenuConfiguration"
 
-    static func load() -> RadialMenuConfiguration {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+    static func load(defaults: UserDefaults = .standard) -> RadialMenuConfiguration {
+        guard let data = defaults.data(forKey: storageKey),
               let config = try? JSONDecoder().decode(RadialMenuConfiguration.self, from: data)
-        else { return .arrowKeys }
+        else { return .default }
+        guard !config.isLegacyStockDefault else {
+            let migrated = RadialMenuConfiguration.default
+            migrated.save(defaults: defaults)
+            return migrated
+        }
         return config
     }
 
-    func save() {
+    func save(defaults: UserDefaults = .standard) {
         if let data = try? JSONEncoder().encode(self) {
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            defaults.set(data, forKey: Self.storageKey)
         }
+    }
+
+    private var isLegacyStockDefault: Bool {
+        let legacyItems: [(String, String, RadialMenuAction)] = [
+            ("Up", "arrow.up", .keyPress(KeyCombo(keyCode: 126))),
+            ("Right", "arrow.right", .keyPress(KeyCombo(keyCode: 124))),
+            ("Down", "arrow.down", .keyPress(KeyCombo(keyCode: 125))),
+            ("Left", "arrow.left", .keyPress(KeyCombo(keyCode: 123))),
+        ]
+        return name == "Arrow Keys"
+            && items.count == legacyItems.count
+            && zip(items, legacyItems).allSatisfy { item, legacy in
+                item.label == legacy.0
+                    && item.icon == legacy.1
+                    && item.action == legacy.2
+            }
+            && deadzoneSize == 50
+            && innerRingSize == 50
+            && innerRingRotation == 0
+            && !outerRingEnabled
+            && outerRingItems.isEmpty
+            && outerRingSize == 50
+            && outerRingRotation == 0
+            && radialMovementScale == 2
     }
 }

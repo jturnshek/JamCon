@@ -301,17 +301,18 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             )
         }
 
-        guard let motion = JoyCon2BLEProtocol.decodeMotion(bytes) else {
+        let motion = JoyCon2BLEProtocol.decodeMotion(bytes)
+        if motion == nil {
             // A single zero-filled report is normal while the controller turns
-            // its IMU on. Keep it visible in diagnostics without presenting a
-            // successful connection as an error.
+            // its IMU on. Buttons and sticks are still valid, so preserve the
+            // frame for linked-gamepad mode while cursor policy can ignore the
+            // absent motion sample.
             JamLog.debugThrottled(
                 .joyCon,
                 key: "joycon2.input.missing-motion.\(deviceID)",
                 interval: 2,
-                "Dropping Joy-Con 2 report without live IMU data (length=\(bytes.count))"
+                "Joy-Con 2 report has controls but no live IMU data (length=\(bytes.count))"
             )
-            return
         }
 
         output.handlers.inputFrame(InputDeviceFrame(
@@ -319,7 +320,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             deviceID: deviceID,
             reportID: JoyCon2BLEProtocol.inputReportID,
             bytes: bytes,
-            motion: .single(motion),
+            motion: motion.map(InputDeviceMotionSamples.single) ?? .none,
             timestamp: receivedTimestamp,
             receivedTimestamp: receivedTimestamp,
             inputTimestamp: nil,

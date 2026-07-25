@@ -32,6 +32,13 @@ gamepad pipeline. Their normal JamCon cursor, scrolling, button mappings, and
 radial-menu actions do not also fire. Turning the mode off restores normal
 JamCon behavior.
 
+The first production version exposes sticks, buttons, D-pad, and triggers.
+Game-requested rumble and controller battery state are not yet bridged through
+the virtual device. The physical Joy-Cons do provide motion, which remains
+available to JamCon's cursor pipeline when linked mode is off; linked mode does
+not yet expose that gyro/accelerometer data onward to games as virtual
+controller motion.
+
 ## Control layout
 
 | Virtual control | Physical control |
@@ -52,20 +59,26 @@ Stick values go directly from calibrated 12-bit physical input to signed
 deadzone. Joy-Con 2 supplies its factory record during BLE setup; original
 Joy-Cons load the corresponding record through Nintendo's SPI-read
 subcommand. A fixed conservative range is used until that reply arrives.
-After Reset Device, axes remain neutral until a fresh neutral window validates
-the center, while buttons continue working. There is no intermediate 8-bit
-cursor representation. Nintendo's upward-positive stick Y is inverted once
-for the raw HID convention; the acceptance observer records the final Game
-Controller direction explicitly.
+Original Joy-Cons retry the factory-calibration request up to three times
+before retaining the conservative fallback. After Reset Device, axes remain
+neutral until a fresh neutral window validates the center, while buttons
+continue working. Joy-Con 2 control-only reports are also retained if an IMU
+sample is temporarily absent, so the gamepad path does not lose buttons or
+sticks with motion. There is no intermediate 8-bit cursor representation.
+Nintendo's upward-positive stick Y is inverted once for the raw HID
+convention; the acceptance observer verifies the final Game Controller
+direction explicitly.
 
 Each physical input event immediately combines with the newest fresh state
 from the other half. Two independently reporting 66 Hz controllers can
 therefore produce up to roughly 132 combined-state updates per second; JamCon
 does not add a resampling timer. The asynchronous CoreHID writer coalesces
-obsolete analog-only reports instead of building latency, while retaining an
-ordered bounded queue for button, hat, and trigger transitions. Creation or
-dispatch failures are latched instead of retried at input frequency; the
-Devices screen offers an explicit **Try Again** action.
+obsolete analog-only reports instead of building latency. Reports enter one
+ordered asynchronous stream, and a bounded queue retains button, hat, and
+trigger transitions in submission order. Creation or dispatch failures are
+latched instead of retried at input frequency; the Devices screen offers an
+explicit **Try Again** action. Selecting a different half after a failure is
+also an explicit retry.
 
 ## Enable after Apple approval
 
@@ -92,7 +105,10 @@ After Apple confirms approval:
    code signature and its embedded provisioning profile authorize
    `com.apple.developer.hid.virtual.device`. It does not replace the working
    app in `/Applications` unless both checks pass.
-4. Open Devices, select the saved pair, and enable the gamepad toggle.
+4. Because the approved build uses a different development signature, macOS
+   may require JamCon to be enabled again under **System Settings > Privacy &
+   Security > Accessibility**. Do that if JamCon's cursor actions stop working.
+5. Open Devices, select the saved pair, and enable the gamepad toggle.
 
 `Resources/JamCon.VirtualHID.entitlements` is the opt-in entitlement file.
 `Resources/JamCon.entitlements`, `project.yml`, and `dev.sh` deliberately
@@ -116,9 +132,16 @@ Then:
 
 1. Run `build/VirtualGamepadProbe/VirtualGamepadObserver 60`.
 2. Enable the linked pair in JamCon.
-3. Move both sticks and press every control during the 60-second window.
-4. Confirm the observer reports exactly one `0xCAFE:0x0001` HID device and one
-   JamCon Game Controller, prints exact element values, and ends with `PASS`.
+3. Follow each `acceptance.next` prompt in order, holding the complete
+   combination until its matching line appears:
+   neutral; physical B + left stick right/up; physical A + left stick
+   left/down; physical Y + L + right stick right/up; physical X + R + right
+   stick left/down; both stick clicks + D-pad up/right + ZL/ZR; minus + plus +
+   Home + D-pad down/left; final neutral.
+4. Confirm the observer reports exactly one `0xCAFE:0x0001` HID device, at
+   least 110 valid 14-byte input reports per second over at least three
+   seconds, no report gap above 50 ms, exactly one JamCon Game Controller, all
+   eight exact semantic phases, and ends with `PASS`.
 5. Confirm a representative game sees one extended gamepad and that stick
    direction, range, face-button position, D-pad diagonals, shoulders,
    triggers, silent-half neutralization, and reconnect behavior all feel

@@ -138,8 +138,8 @@ private struct LinkedGamepadCard: View {
             } else {
                 Text(
                     "When active, these controllers feed the gamepad directly instead of "
-                        + "JamCon’s cursor and button mappings. The virtual gamepad appears "
-                        + "automatically whenever both controllers are online."
+                        + "JamCon’s cursor and button mappings. The virtual controller stays "
+                        + "present and sends neutral input until both controllers are online."
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)

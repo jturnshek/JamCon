@@ -355,6 +355,35 @@ final class VirtualGamepadTests: XCTestCase {
         ).digitalSignature)
     }
 
+    func testOutputCoordinatorDeliversRapidDigitalEdgesInSubmissionOrder() async {
+        let sink = RecordingVirtualGamepadSink(sendDelay: .milliseconds(20))
+        let coordinator = VirtualGamepadOutputCoordinator(
+            factory: VirtualGamepadReportSinkFactory { sink }
+        )
+        coordinator.activate()
+        let activated = await eventually { await sink.activationCount == 1 }
+        XCTAssertTrue(activated)
+
+        let expected = (1...12).map { sequence in
+            VirtualGamepadHIDReport(state: VirtualGamepadState(
+                buttons: sequence.isMultiple(of: 2) ? [] : [.button(.south)]
+            ))
+        }
+        for (index, report) in expected.enumerated() {
+            coordinator.submit(report, sequence: UInt64(index + 1))
+        }
+
+        let allDelivered = await eventually(timeout: .seconds(3)) {
+            await sink.reports.count == expected.count
+        }
+        XCTAssertTrue(allDelivered)
+        let deliveredSignatures = await sink.deliveredDigitalSignatures()
+        XCTAssertEqual(
+            deliveredSignatures,
+            expected.map(\.digitalSignature)
+        )
+    }
+
     func testOldDrainCannotStartConcurrentWorkInANewerGeneration() async {
         let first = RecordingVirtualGamepadSink(sendDelay: .milliseconds(200))
         let second = RecordingVirtualGamepadSink(sendDelay: .milliseconds(400))
@@ -473,7 +502,14 @@ final class VirtualGamepadTests: XCTestCase {
             ))
         }
 
-        let didPublish = await eventually { await sink.lastReport != nil }
+        let didPublish = await eventually {
+            guard let report = await sink.lastReport else { return false }
+            return report.bytes[3] == VirtualGamepadHat.north.rawValue
+                && (UInt16(report.bytes[1]) | (UInt16(report.bytes[2]) << 8)) & (1 << 1) != 0
+                && Int16(
+                    bitPattern: UInt16(report.bytes[4]) | (UInt16(report.bytes[5]) << 8)
+                ) < 0
+        }
         XCTAssertTrue(didPublish)
         let lastReport = await sink.lastReport
         let report = try XCTUnwrap(lastReport)
@@ -598,7 +634,7 @@ final class VirtualGamepadTests: XCTestCase {
         engine.stop()
     }
 
-    func testPersistentActivationFailureIsLatchedUntilConfigurationChanges() async {
+    func testPersistentActivationFailureIsLatchedUntilExplicitRetry() async {
         let attempts = VirtualGamepadActivationAttemptCounter()
         let coordinator = VirtualGamepadOutputCoordinator(
             factory: VirtualGamepadReportSinkFactory {
@@ -633,6 +669,52 @@ final class VirtualGamepadTests: XCTestCase {
         engine.retryLinkedGamepadOutput()
         let explicitRetryRan = await eventually { await attempts.count == 2 }
         XCTAssertTrue(explicitRetryRan)
+        engine.stop()
+    }
+
+    func testChangingPairAfterActivationFailureRestartsOutput() async {
+        let attempts = VirtualGamepadActivationAttemptCounter()
+        let recoveredSink = RecordingVirtualGamepadSink()
+        let coordinator = VirtualGamepadOutputCoordinator(
+            factory: VirtualGamepadReportSinkFactory {
+                let attempt = await attempts.increment()
+                if attempt == 1 {
+                    throw VirtualGamepadTestError.expectedFailure
+                }
+                return recoveredSink
+            }
+        )
+        let engine = configuredLinkedEngine(coordinator: coordinator)
+        let failed = await eventually {
+            engine.engineQueue.sync {
+                if case .failed = engine.virtualGamepadRuntimeStatus {
+                    return true
+                }
+                return false
+            }
+        }
+        XCTAssertTrue(failed)
+
+        var changedConfiguration = engine.engineQueue.sync {
+            engine.linkedGamepadConfiguration
+        }
+        changedConfiguration.right = LinkedJoyConSelection(controller: controller(
+            id: "replacement-right",
+            handedness: .right,
+            variant: .joyCon2
+        ))
+        engine.setLinkedGamepadConfiguration(changedConfiguration)
+
+        let restarted = await eventually {
+            await recoveredSink.activationCount == 1
+        }
+        XCTAssertTrue(restarted)
+        let statusRecovered = await eventually {
+            engine.engineQueue.sync {
+                engine.virtualGamepadRuntimeStatus == .waitingForControllers
+            }
+        }
+        XCTAssertTrue(statusRecovered)
         engine.stop()
     }
 
@@ -953,8 +1035,10 @@ private actor VirtualGamepadSinkPool {
 private actor VirtualGamepadActivationAttemptCounter {
     private(set) var count = 0
 
-    func increment() {
+    @discardableResult
+    func increment() -> Int {
         count += 1
+        return count
     }
 }
 

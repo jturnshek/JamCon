@@ -43,12 +43,19 @@ extension InputEngine {
             case (false, true):
                 startLinkedGamepadRuntime()
             case (true, true):
-                linkedGamepadComposer = LinkedJoyConGamepadComposer()
-                virtualGamepadInputsAreFresh = false
-                publishLinkedGamepadState(VirtualGamepadState())
-                updateVirtualGamepadRuntimeStatus(
-                    virtualGamepadOutputIsActive ? .waitingForControllers : .activating
-                )
+                if virtualGamepadFailureLatched || !virtualGamepadActivationRequested {
+                    // Selecting a different physical half is an explicit
+                    // recovery action. Restart instead of replacing the
+                    // visible failure with an activation that never runs.
+                    startLinkedGamepadRuntime()
+                } else {
+                    linkedGamepadComposer = LinkedJoyConGamepadComposer()
+                    virtualGamepadInputsAreFresh = false
+                    publishLinkedGamepadState(VirtualGamepadState())
+                    updateVirtualGamepadRuntimeStatus(
+                        virtualGamepadOutputIsActive ? .waitingForControllers : .activating
+                    )
+                }
             }
         }
     }

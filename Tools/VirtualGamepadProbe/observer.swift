@@ -5,6 +5,11 @@ import IOKit.hid
 private enum ProbeIdentity {
     static let vendorID = 0xCAFE
     static let productID = 0x0001
+    static let reportID: UInt32 = 0x01
+    static let reportLength = 14
+    static let minimumReportRate = 110.0
+    static let minimumRateObservationDuration = 3.0
+    static let maximumReportGap = 0.05
 }
 
 private struct ObservedRange {
@@ -30,25 +35,156 @@ private struct ObservedRange {
     }
 }
 
+private struct ExpectedGameControllerPhase {
+    let description: String
+    var leftX: Float = 0
+    var leftY: Float = 0
+    var rightX: Float = 0
+    var rightY: Float = 0
+    var dpadX: Float = 0
+    var dpadY: Float = 0
+    var leftTrigger: Float = 0
+    var rightTrigger: Float = 0
+    var pressedButtons: Set<String> = []
+
+    static let all: [Self] = [
+        Self(description: "neutral"),
+        Self(
+            description: "virtual A (physical B) + left stick right/up",
+            leftX: 1,
+            leftY: 1,
+            pressedButtons: ["a"]
+        ),
+        Self(
+            description: "virtual B (physical A) + left stick left/down",
+            leftX: -1,
+            leftY: -1,
+            pressedButtons: ["b"]
+        ),
+        Self(
+            description: "virtual X (physical Y) + L1 + right stick right/up",
+            rightX: 1,
+            rightY: 1,
+            pressedButtons: ["x", "l1"]
+        ),
+        Self(
+            description: "virtual Y (physical X) + R1 + right stick left/down",
+            rightX: -1,
+            rightY: -1,
+            pressedButtons: ["y", "r1"]
+        ),
+        Self(
+            description: "both stick clicks + D-pad up/right + ZL/ZR",
+            dpadX: 1,
+            dpadY: 1,
+            leftTrigger: 1,
+            rightTrigger: 1,
+            pressedButtons: ["l3", "r3"]
+        ),
+        Self(
+            description: "minus + plus + Home + D-pad down/left",
+            dpadX: -1,
+            dpadY: -1,
+            pressedButtons: ["options", "menu", "home"]
+        ),
+        Self(description: "final neutral"),
+    ]
+}
+
+private struct GameControllerSnapshot {
+    let leftX: Float
+    let leftY: Float
+    let rightX: Float
+    let rightY: Float
+    let dpadX: Float
+    let dpadY: Float
+    let leftTrigger: Float
+    let rightTrigger: Float
+    let pressedButtons: Set<String>
+
+    func matches(_ expected: ExpectedGameControllerPhase) -> Bool {
+        Self.matchesAxis(leftX, expected.leftX)
+            && Self.matchesAxis(leftY, expected.leftY)
+            && Self.matchesAxis(rightX, expected.rightX)
+            && Self.matchesAxis(rightY, expected.rightY)
+            && Self.matchesAxis(dpadX, expected.dpadX)
+            && Self.matchesAxis(dpadY, expected.dpadY)
+            && Self.matchesTrigger(leftTrigger, expected.leftTrigger)
+            && Self.matchesTrigger(rightTrigger, expected.rightTrigger)
+            && pressedButtons == expected.pressedButtons
+    }
+
+    private static func matchesAxis(_ actual: Float, _ expected: Float) -> Bool {
+        if expected == 0 {
+            return abs(actual) < 0.15
+        }
+        return actual * expected > 0.9
+    }
+
+    private static func matchesTrigger(_ actual: Float, _ expected: Float) -> Bool {
+        expected == 0 ? actual < 0.1 : actual > 0.9
+    }
+}
+
+private final class HIDReportRegistration {
+    let device: IOHIDDevice
+    let buffer: UnsafeMutablePointer<UInt8>
+    let capacity: Int
+
+    init(device: IOHIDDevice, capacity: Int) {
+        self.device = device
+        self.capacity = capacity
+        buffer = .allocate(capacity: capacity)
+        buffer.initialize(repeating: 0, count: capacity)
+    }
+
+    deinit {
+        buffer.deinitialize(count: capacity)
+        buffer.deallocate()
+    }
+}
+
 private final class ObservationState: @unchecked Sendable {
     private let lock = NSLock()
     private var hidDeviceNames: Set<String> = []
+    private var hidReportRegistrations: [HIDReportRegistration] = []
     private var gameControllerIDs: Set<ObjectIdentifier> = []
     private var hidValueCount = 0
+    private var hidReportCount = 0
+    private var firstHIDReportTimestamp: TimeInterval?
+    private var lastHIDReportTimestamp: TimeInterval?
+    private var maximumHIDReportGap: TimeInterval = 0
     private var gameControllerValueCount = 0
     private var hidElements: [String: (minimum: Int, maximum: Int)] = [:]
     private var gameControllerAxes: [String: ObservedRange] = [:]
     private var observedGameControllerButtons: Set<String> = []
+    private var matchedPhaseCount = 0
     private var lastDetailedLogTimestamp: TimeInterval = 0
 
     func recordHIDDevice(_ device: IOHIDDevice) {
         let product = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString)
             .map { String(describing: $0) } ?? "unknown"
-        lock.withLock {
-            if hidDeviceNames.insert(product).inserted {
-                print("hid.connected product=\"\(product)\"")
-            }
+        let maximumReportSize = (
+            IOHIDDeviceGetProperty(device, kIOHIDMaxInputReportSizeKey as CFString)
+                as? NSNumber
+        )?.intValue ?? 64
+        let registration = HIDReportRegistration(
+            device: device,
+            capacity: max(64, maximumReportSize)
+        )
+        let deviceNumber = lock.withLock {
+            hidDeviceNames.insert(product)
+            hidReportRegistrations.append(registration)
+            return hidReportRegistrations.count
         }
+        IOHIDDeviceRegisterInputReportCallback(
+            device,
+            registration.buffer,
+            registration.capacity,
+            hidReportReceived,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+        print("hid.connected number=\(deviceNumber) product=\"\(product)\"")
     }
 
     func recordHIDValue(_ value: IOHIDValue) {
@@ -64,6 +200,34 @@ private final class ObservationState: @unchecked Sendable {
                 min(previous?.minimum ?? integerValue, integerValue),
                 max(previous?.maximum ?? integerValue, integerValue)
             )
+        }
+    }
+
+    func recordHIDReport(
+        result: IOReturn,
+        type: IOHIDReportType,
+        reportID: UInt32,
+        length: Int,
+        timestamp: TimeInterval
+    ) {
+        guard result == kIOReturnSuccess,
+              type == kIOHIDReportTypeInput,
+              reportID == ProbeIdentity.reportID,
+              length == ProbeIdentity.reportLength else {
+            return
+        }
+        lock.withLock {
+            hidReportCount += 1
+            if firstHIDReportTimestamp == nil {
+                firstHIDReportTimestamp = timestamp
+            }
+            if let lastHIDReportTimestamp {
+                maximumHIDReportGap = max(
+                    maximumHIDReportGap,
+                    timestamp - lastHIDReportTimestamp
+                )
+            }
+            lastHIDReportTimestamp = timestamp
         }
     }
 
@@ -120,7 +284,21 @@ private final class ObservationState: @unchecked Sendable {
             ("options", gamepad.buttonOptions?.isPressed == true),
             ("home", gamepad.buttonHome?.isPressed == true),
         ]
-        let shouldLog = lock.withLock {
+        let pressedButtons = Set(buttons.compactMap { name, pressed in
+            pressed ? name : nil
+        })
+        let snapshot = GameControllerSnapshot(
+            leftX: gamepad.leftThumbstick.xAxis.value,
+            leftY: gamepad.leftThumbstick.yAxis.value,
+            rightX: gamepad.rightThumbstick.xAxis.value,
+            rightY: gamepad.rightThumbstick.yAxis.value,
+            dpadX: gamepad.dpad.xAxis.value,
+            dpadY: gamepad.dpad.yAxis.value,
+            leftTrigger: gamepad.leftTrigger.value,
+            rightTrigger: gamepad.rightTrigger.value,
+            pressedButtons: pressedButtons
+        )
+        let update = lock.withLock { () -> (shouldLog: Bool, matchedPhase: Int?) in
             gameControllerValueCount += 1
             for (name, value) in axisValues {
                 var range = gameControllerAxes[name] ?? ObservedRange()
@@ -130,12 +308,33 @@ private final class ObservationState: @unchecked Sendable {
             for (name, pressed) in buttons where pressed {
                 observedGameControllerButtons.insert(name)
             }
+            var matchedPhase: Int?
+            if matchedPhaseCount < ExpectedGameControllerPhase.all.count,
+               snapshot.matches(ExpectedGameControllerPhase.all[matchedPhaseCount]) {
+                matchedPhase = matchedPhaseCount
+                matchedPhaseCount += 1
+            }
             let now = Date.timeIntervalSinceReferenceDate
-            guard now - lastDetailedLogTimestamp >= 0.1 else { return false }
-            lastDetailedLogTimestamp = now
-            return true
+            let shouldLog = now - lastDetailedLogTimestamp >= 0.1
+            if shouldLog {
+                lastDetailedLogTimestamp = now
+            }
+            return (shouldLog, matchedPhase)
         }
-        if let element, shouldLog {
+        if let matchedPhase = update.matchedPhase {
+            print(
+                "acceptance.phase=\(matchedPhase) matched=\""
+                    + "\(ExpectedGameControllerPhase.all[matchedPhase].description)\""
+            )
+            let nextPhase = matchedPhase + 1
+            if nextPhase < ExpectedGameControllerPhase.all.count {
+                print(
+                    "acceptance.next=\(nextPhase) expected=\""
+                        + "\(ExpectedGameControllerPhase.all[nextPhase].description)\""
+                )
+            }
+        }
+        if let element, update.shouldLog {
             print(
                 "gamecontroller.changed element=\"\(element.debugDescription)\" "
                     + snapshotDescription(gamepad)
@@ -145,11 +344,18 @@ private final class ObservationState: @unchecked Sendable {
 
     func summary() -> String {
         lock.withLock {
-            "hid.devices=\(hidDeviceNames.count) "
+            let reportDuration = hidReportObservationDuration
+            let reportRate = observedHIDReportRate
+            return "hid.devices=\(hidReportRegistrations.count) "
                 + "hid.values=\(hidValueCount) "
                 + "hid.elements=\(hidElements.count) "
+                + "hid.reports=\(hidReportCount) "
+                + "hid.reportDuration=\(String(format: "%.2f", reportDuration))s "
+                + "hid.reportRate=\(String(format: "%.1f", reportRate))/s "
+                + "hid.maxGap=\(String(format: "%.2f", maximumHIDReportGap * 1_000))ms "
                 + "gamecontroller.devices=\(gameControllerIDs.count) "
                 + "gamecontroller.values=\(gameControllerValueCount) "
+                + "phases=\(matchedPhaseCount)/\(ExpectedGameControllerPhase.all.count) "
                 + "lx=\(gameControllerAxes["lx"]?.description ?? "n/a") "
                 + "ly=\(gameControllerAxes["ly"]?.description ?? "n/a") "
                 + "rx=\(gameControllerAxes["rx"]?.description ?? "n/a") "
@@ -164,25 +370,27 @@ private final class ObservationState: @unchecked Sendable {
 
     func acceptancePassed() -> Bool {
         lock.withLock {
-            let requiredButtons: Set<String> = [
-                "a", "b", "x", "y",
-                "l1", "r1", "l3", "r3",
-                "menu", "options", "home",
-            ]
-            return hidDeviceNames.count == 1
+            hidReportRegistrations.count == 1
                 && hidValueCount > 0
+                && hidReportObservationDuration >= ProbeIdentity.minimumRateObservationDuration
+                && observedHIDReportRate >= ProbeIdentity.minimumReportRate
+                && maximumHIDReportGap <= ProbeIdentity.maximumReportGap
                 && gameControllerIDs.count == 1
                 && gameControllerValueCount > 0
-                && gameControllerAxes["lx"]?.hasBothSigns == true
-                && gameControllerAxes["ly"]?.hasBothSigns == true
-                && gameControllerAxes["rx"]?.hasBothSigns == true
-                && gameControllerAxes["ry"]?.hasBothSigns == true
-                && gameControllerAxes["dpadX"]?.hasBothSigns == true
-                && gameControllerAxes["dpadY"]?.hasBothSigns == true
-                && gameControllerAxes["lt"]?.hasFullTriggerRange == true
-                && gameControllerAxes["rt"]?.hasFullTriggerRange == true
-                && requiredButtons.isSubset(of: observedGameControllerButtons)
+                && matchedPhaseCount == ExpectedGameControllerPhase.all.count
         }
+    }
+
+    private var hidReportObservationDuration: TimeInterval {
+        guard let firstHIDReportTimestamp,
+              let lastHIDReportTimestamp else { return 0 }
+        return max(0, lastHIDReportTimestamp - firstHIDReportTimestamp)
+    }
+
+    private var observedHIDReportRate: Double {
+        let duration = hidReportObservationDuration
+        guard hidReportCount > 1, duration > 0 else { return 0 }
+        return Double(hidReportCount - 1) / duration
     }
 
     private func snapshotDescription(_ gamepad: GCExtendedGamepad) -> String {
@@ -203,6 +411,27 @@ private final class ObservationState: @unchecked Sendable {
             gamepad.buttonY.isPressed ? 1 : 0
         )
     }
+}
+
+private let hidReportReceived: IOHIDReportCallback = {
+    context,
+    result,
+    _,
+    type,
+    reportID,
+    _,
+    reportLength in
+    guard let context else {
+        return
+    }
+    let state = Unmanaged<ObservationState>.fromOpaque(context).takeUnretainedValue()
+    state.recordHIDReport(
+        result: result,
+        type: type,
+        reportID: reportID,
+        length: reportLength,
+        timestamp: ProcessInfo.processInfo.systemUptime
+    )
 }
 
 private let hidDeviceMatched: IOHIDDeviceCallback = { context, _, _, device in
@@ -268,7 +497,12 @@ private enum VirtualGamepadObserver {
         print(
             "observing vid=0x\(String(ProbeIdentity.vendorID, radix: 16)) "
                 + "pid=0x\(String(ProbeIdentity.productID, radix: 16)) "
-                + "duration=\(String(format: "%.1f", durationSeconds))s"
+                + "duration=\(String(format: "%.1f", durationSeconds))s "
+                + "minimumRate=\(String(format: "%.1f", ProbeIdentity.minimumReportRate))/s"
+        )
+        print(
+            "acceptance.next=0 expected=\""
+                + "\(ExpectedGameControllerPhase.all[0].description)\""
         )
 
         let deadline = Date().addingTimeInterval(durationSeconds)
@@ -292,10 +526,18 @@ private enum VirtualGamepadObserver {
         print("complete \(state.summary())")
         guard state.acceptancePassed() else {
             FileHandle.standardError.write(
-                Data("FAIL: virtual gamepad did not satisfy the loopback checks\n".utf8)
+                Data(
+                    (
+                        "FAIL: virtual gamepad did not satisfy exact semantic "
+                            + "mapping and report-rate checks\n"
+                    ).utf8
+                )
             )
             Foundation.exit(EXIT_FAILURE)
         }
-        print("PASS: virtual gamepad satisfied HID and Game Controller loopback checks")
+        print(
+            "PASS: virtual gamepad satisfied exact HID cadence and "
+                + "Game Controller semantic mapping checks"
+        )
     }
 }

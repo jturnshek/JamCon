@@ -53,6 +53,8 @@ struct DiscoveredJoyCon: Identifiable, Equatable, Sendable {
 /// objects are confined to the injected transport and its dedicated HID thread.
 final class JoyConHIDController: @unchecked Sendable {
     private static let deactivationRetentionSeconds: TimeInterval = 30.0
+    private static let calibrationRequestMaxAttempts = 3
+    private static let calibrationRetryDelay: TimeInterval = 0.25
 
     private enum LifecycleState {
         case stopped
@@ -107,6 +109,9 @@ final class JoyConHIDController: @unchecked Sendable {
         var packetTimingTracker = JoyConPacketTimingTracker()
         var transportAggregator = JoyConTransportAggregator()
         var stickCalibration = JoyConHIDProtocol.conservativeStickCalibration
+        var calibrationRequestAttempts = 0
+        var calibrationRetryWorkItem: DispatchWorkItem?
+        var hasLoadedFactoryCalibration = false
 
         init(controller: DiscoveredJoyCon, registration: any HIDInputRegistration) {
             self.controller = controller
@@ -508,13 +513,7 @@ final class JoyConHIDController: @unchecked Sendable {
         sendSubcommand(.setInputMode, data: [JoyCon.InputMode.standardFull.rawValue], to: active)
         sendSubcommand(.enableVibration, data: [0x01], to: active)
         sendSubcommand(.setPlayerLights, data: [0x01], to: active)
-        sendSubcommand(
-            .readSPI,
-            data: JoyConHIDProtocol.factoryStickCalibrationReadPayload(
-                isLeft: currentController.handedness == .left
-            ),
-            to: active
-        )
+        requestFactoryStickCalibration(for: active)
 
         let displayName = "\(currentController.name) (\(currentController.side))"
         onConnectionChange?(true, displayName, currentController.id)
@@ -542,6 +541,8 @@ final class JoyConHIDController: @unchecked Sendable {
 
     private func close(_ active: ActiveController) {
         assertOnHIDThread()
+        active.calibrationRetryWorkItem?.cancel()
+        active.calibrationRetryWorkItem = nil
         if case let .failure(error) = transport.closeInput(active.registration) {
             JamLog.errorThrottled(
                 .joyCon,
@@ -658,6 +659,9 @@ final class JoyConHIDController: @unchecked Sendable {
                 return nil
             }
             active.stickCalibration = calibration
+            active.hasLoadedFactoryCalibration = true
+            active.calibrationRetryWorkItem?.cancel()
+            active.calibrationRetryWorkItem = nil
             return calibration
         }
         guard let loaded else { return }
@@ -665,6 +669,53 @@ final class JoyConHIDController: @unchecked Sendable {
             .joyCon,
             "Original Joy-Con factory stick calibration loaded "
                 + "(center=\(loaded.centerX),\(loaded.centerY))"
+        )
+    }
+
+    private func requestFactoryStickCalibration(for active: ActiveController) {
+        assertOnHIDThread()
+        guard !active.hasLoadedFactoryCalibration,
+              active.calibrationRequestAttempts < Self.calibrationRequestMaxAttempts else {
+            return
+        }
+
+        active.calibrationRequestAttempts += 1
+        sendSubcommand(
+            .readSPI,
+            data: JoyConHIDProtocol.factoryStickCalibrationReadPayload(
+                isLeft: active.controller.handedness == .left
+            ),
+            to: active
+        )
+
+        active.calibrationRetryWorkItem?.cancel()
+        let controllerID = active.controller.id
+        let retry = DispatchWorkItem { [weak self, weak active] in
+            guard let self, let active else { return }
+            self.performHIDOperation { [weak self, weak active] in
+                guard let self, let active else { return }
+                let isCurrent = self.stateLock.withLock {
+                    $0.activeControllers[controllerID] === active
+                }
+                guard isCurrent, !active.hasLoadedFactoryCalibration else { return }
+
+                if active.calibrationRequestAttempts < Self.calibrationRequestMaxAttempts {
+                    self.requestFactoryStickCalibration(for: active)
+                } else {
+                    active.calibrationRetryWorkItem = nil
+                    JamLog.error(
+                        .joyCon,
+                        "Original Joy-Con factory stick calibration did not answer after "
+                            + "\(Self.calibrationRequestMaxAttempts) attempts; "
+                            + "using conservative fallback"
+                    )
+                }
+            }
+        }
+        active.calibrationRetryWorkItem = retry
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(
+            deadline: .now() + Self.calibrationRetryDelay,
+            execute: retry
         )
     }
 

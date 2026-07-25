@@ -93,6 +93,9 @@ open -a /Applications/JamCon.app
 sleep 2
 if pgrep -x JamCon > /dev/null; then
     echo "Done. JamCon is running with Apple-authorized Virtual HID."
+    echo "If cursor actions no longer work, re-enable JamCon in:"
+    echo "System Settings > Privacy & Security > Accessibility"
+    echo "The approved development signature may require renewed permission."
 else
     echo "JamCon did not remain running. Check Console and $BUILD_LOG."
     exit 1

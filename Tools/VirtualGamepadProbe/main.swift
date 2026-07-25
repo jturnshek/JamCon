@@ -4,6 +4,7 @@ import Foundation
 private enum ProbeError: LocalizedError {
     case virtualDeviceCreationFailed
     case unsupportedOperatingSystem
+    case insufficientReportRate(Double)
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +12,8 @@ private enum ProbeError: LocalizedError {
             "CoreHID refused to create the virtual gamepad. Verify the signed entitlement."
         case .unsupportedOperatingSystem:
             "The virtual gamepad probe requires macOS 15 or later."
+        case let .insufficientReportRate(rate):
+            "The virtual gamepad probe emitted only \(String(format: "%.1f", rate)) reports/s."
         }
     }
 }
@@ -75,7 +78,10 @@ private enum VirtualGamepadProbe {
 
         let durationSeconds = CommandLine.arguments.dropFirst().first
             .flatMap(Double.init) ?? 60
-        let start = ContinuousClock.now
+        let clock = ContinuousClock()
+        let start = clock.now
+        let reportInterval = Duration.milliseconds(8)
+        var nextReportDeadline = start
         var nextSummary = start.advanced(by: .seconds(1))
         var frame = 0
         var dispatchCount = 0
@@ -90,7 +96,7 @@ private enum VirtualGamepadProbe {
                 + "reportBytes=\(VirtualGamepadHIDDescriptor.reportLength)"
         )
 
-        while start.duration(to: .now) < .seconds(durationSeconds) {
+        while start.duration(to: clock.now) < .seconds(durationSeconds) {
             let phase = (frame / 63) % 8
             if phase != lastPhase {
                 lastPhase = phase
@@ -109,25 +115,48 @@ private enum VirtualGamepadProbe {
             maximumDispatchNanoseconds = max(maximumDispatchNanoseconds, dispatchNanoseconds)
 
             frame += 1
-            if ContinuousClock.now >= nextSummary {
+            if clock.now >= nextSummary {
                 let averageMicroseconds = Double(totalDispatchNanoseconds)
                     / Double(max(dispatchCount, 1)) / 1_000
                 let maximumMicroseconds = Double(maximumDispatchNanoseconds) / 1_000
+                let elapsedSeconds = max(
+                    0.001,
+                    Self.seconds(start.duration(to: clock.now))
+                )
                 print(
-                    "frames=\(dispatchCount) dispatch.avg=\(String(format: "%.2f", averageMicroseconds))us "
+                    "frames=\(dispatchCount) rate="
+                        + "\(String(format: "%.1f", Double(dispatchCount) / elapsedSeconds))/s "
+                        + "dispatch.avg=\(String(format: "%.2f", averageMicroseconds))us "
                         + "dispatch.max=\(String(format: "%.2f", maximumMicroseconds))us"
                 )
                 nextSummary = nextSummary.advanced(by: .seconds(1))
             }
-            try await Task.sleep(for: .milliseconds(8))
+            nextReportDeadline = nextReportDeadline.advanced(by: reportInterval)
+            if clock.now < nextReportDeadline {
+                try await clock.sleep(until: nextReportDeadline)
+            }
         }
 
         try await device.dispatchInputReport(
             data: VirtualGamepadHIDReport(state: VirtualGamepadState()).data,
             timestamp: SuspendingClock.now
         )
-        print("complete frames=\(dispatchCount)")
+        let elapsedSeconds = max(0.001, Self.seconds(start.duration(to: clock.now)))
+        let achievedRate = Double(dispatchCount) / elapsedSeconds
+        print(
+            "complete frames=\(dispatchCount) "
+                + "rate=\(String(format: "%.1f", achievedRate))/s"
+        )
+        guard achievedRate >= 110 else {
+            throw ProbeError.insufficientReportRate(achievedRate)
+        }
         _ = delegate
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds)
+            + Double(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     private static func state(for phase: Int) -> VirtualGamepadState {
@@ -178,12 +207,12 @@ private enum VirtualGamepadProbe {
     private static func phaseDescription(_ phase: Int) -> String {
         switch phase {
         case 0: "neutral"
-        case 1: "south + left stick right/down in raw HID"
-        case 2: "east + left stick left/up in raw HID"
-        case 3: "west + L1 + right stick right/down in raw HID"
-        case 4: "north + R1 + right stick left/up in raw HID"
-        case 5: "stick clicks + northeast D-pad + triggers"
-        case 6: "select + start + home + southwest D-pad"
+        case 1: "A + left stick right/up in Game Controller"
+        case 2: "B + left stick left/down in Game Controller"
+        case 3: "X + L1 + right stick right/up in Game Controller"
+        case 4: "Y + R1 + right stick left/down in Game Controller"
+        case 5: "L3 + R3 + northeast D-pad + both triggers"
+        case 6: "Options + Menu + Home + southwest D-pad"
         default: "neutral"
         }
     }

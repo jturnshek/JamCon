@@ -41,15 +41,42 @@ enum VirtualGamepadOutputStatus: Equatable, Sendable {
 }
 
 /// Low-latency asynchronous output pump. InputEngine assigns monotonically
-/// increasing sequence numbers, so reports remain ordered even if Swift tasks
-/// reach this actor out of order. Analog-only updates coalesce while CoreHID is
-/// dispatching, but digital transitions retain ordered checkpoints.
+/// increasing sequence numbers. A single AsyncStream consumer preserves that
+/// ingress order without allocating an unstructured Task for every report.
+/// Analog-only updates coalesce while CoreHID is dispatching, but digital
+/// transitions retain ordered checkpoints.
 final class VirtualGamepadOutputCoordinator: @unchecked Sendable {
+    private struct SubmittedReport: Sendable {
+        let report: VirtualGamepadHIDReport
+        let sequence: UInt64
+        let generation: UInt64
+    }
+
     private let worker: Worker
     private let lifecycleGeneration = OSAllocatedUnfairLock(initialState: UInt64(0))
+    private let submissionContinuation: AsyncStream<SubmittedReport>.Continuation
+    private let submissionTask: Task<Void, Never>
 
     init(factory: VirtualGamepadReportSinkFactory = .live) {
-        worker = Worker(factory: factory)
+        let worker = Worker(factory: factory)
+        let (submissions, continuation) = AsyncStream<SubmittedReport>.makeStream()
+        self.worker = worker
+        submissionContinuation = continuation
+        submissionTask = Task {
+            for await submission in submissions {
+                guard !Task.isCancelled else { return }
+                await worker.submit(
+                    submission.report,
+                    sequence: submission.sequence,
+                    generation: submission.generation
+                )
+            }
+        }
+    }
+
+    deinit {
+        submissionContinuation.finish()
+        submissionTask.cancel()
     }
 
     func setStatusHandler(
@@ -72,9 +99,11 @@ final class VirtualGamepadOutputCoordinator: @unchecked Sendable {
 
     func submit(_ report: VirtualGamepadHIDReport, sequence: UInt64) {
         let generation = lifecycleGeneration.withLock { $0 }
-        Task {
-            await worker.submit(report, sequence: sequence, generation: generation)
-        }
+        submissionContinuation.yield(SubmittedReport(
+            report: report,
+            sequence: sequence,
+            generation: generation
+        ))
     }
 
     func deactivate() {

@@ -18,8 +18,11 @@ After a managed device is opened, JamCon sends output report `0x01` subcommands 
 2. `0x03 0x30` — select standard full input mode
 3. `0x48 0x01` — enable vibration
 4. `0x30 0x01` — set player light 1
+5. `0x10` — read the side-specific nine-byte factory stick calibration record
 
-The four reports use packet counters 0 through 3 and a neutral rumble payload.
+The setup reports use incrementing packet counters and a neutral rumble
+payload. If the calibration reply is lost, JamCon retries that request up to
+three times at 250 ms intervals, then keeps the conservative fallback range.
 
 ## Report Structure
 

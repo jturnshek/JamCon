@@ -222,6 +222,74 @@ final class JoyConControllerLifecycleTests: XCTestCase {
         controller.stop()
     }
 
+    func testFactoryCalibrationRequestRetriesAndStopsAfterReply() {
+        let device = FakeJoyConHIDDevice(label: "right")
+        let transport = FakeJoyConHIDTransport(
+            devices: [device: properties(serial: "joy-right")]
+        )
+        let controller = JoyConHIDController(transport: transport)
+
+        XCTAssertTrue(controller.start())
+        controller.setControllerManaged(id: "joy-right", managed: true)
+        XCTAssertTrue(transport.flush())
+        XCTAssertTrue(waitUntil {
+            transport.outputReports.filter { $0.data.count > 10 && $0.data[10] == 0x10 }.count >= 2
+        })
+
+        transport.emit(
+            deviceLabel: "right",
+            reportID: 0x21,
+            bytes: factoryCalibrationReply()
+        )
+        XCTAssertTrue(transport.flush())
+        let requestCountAfterReply = transport.outputReports.filter {
+            $0.data.count > 10 && $0.data[10] == 0x10
+        }.count
+
+        let retryWindowElapsed = expectation(description: "calibration retry window elapsed")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) {
+            retryWindowElapsed.fulfill()
+        }
+        wait(for: [retryWindowElapsed], timeout: 1)
+        XCTAssertEqual(
+            transport.outputReports.filter {
+                $0.data.count > 10 && $0.data[10] == 0x10
+            }.count,
+            requestCountAfterReply
+        )
+        controller.stop()
+    }
+
+    func testFactoryCalibrationRequestStopsAfterThreeUnansweredAttempts() {
+        let device = FakeJoyConHIDDevice(label: "right")
+        let transport = FakeJoyConHIDTransport(
+            devices: [device: properties(serial: "joy-right")]
+        )
+        let controller = JoyConHIDController(transport: transport)
+
+        XCTAssertTrue(controller.start())
+        controller.setControllerManaged(id: "joy-right", managed: true)
+        XCTAssertTrue(transport.flush())
+        XCTAssertTrue(waitUntil {
+            transport.outputReports.filter {
+                $0.data.count > 10 && $0.data[10] == 0x10
+            }.count == 3
+        })
+
+        let retryWindowElapsed = expectation(description: "final retry window elapsed")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) {
+            retryWindowElapsed.fulfill()
+        }
+        wait(for: [retryWindowElapsed], timeout: 1)
+        XCTAssertEqual(
+            transport.outputReports.filter {
+                $0.data.count > 10 && $0.data[10] == 0x10
+            }.count,
+            3
+        )
+        controller.stop()
+    }
+
     private func properties(
         serial: String?,
         productID: Int = JoyConHIDProtocol.rightProductID,
@@ -247,6 +315,33 @@ final class JoyConControllerLifecycleTests: XCTestCase {
         bytes[offset + 1] = UInt8((pair.0 >> 8) & 0x0F)
             | UInt8((pair.1 & 0x0F) << 4)
         bytes[offset + 2] = UInt8(truncatingIfNeeded: pair.1 >> 4)
+    }
+
+    private func factoryCalibrationReply() -> [UInt8] {
+        var reply = [UInt8](repeating: 0, count: 29)
+        reply[0] = UInt8(JoyConHIDProtocol.subcommandReplyReportID)
+        reply[13] = 0x90
+        reply[14] = JoyConHIDProtocol.spiReadSubcommand
+        reply.replaceSubrange(15...18, with: [0x46, 0x60, 0x00, 0x00])
+        reply[19] = 9
+        writePackedPair((2_000, 2_100), to: &reply, at: 20)
+        writePackedPair((1_500, 1_400), to: &reply, at: 23)
+        writePackedPair((1_600, 1_500), to: &reply, at: 26)
+        return reply
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 1,
+        condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
     }
 }
 

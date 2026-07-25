@@ -565,6 +565,37 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         harness.stop()
     }
 
+    func testBackendForwardsControlsWhenIMUDataIsTemporarilyUnavailable() throws {
+        let session = FakeJoyCon2BLESession()
+        let backend = JoyCon2BLEInputDeviceBackend(session: session)
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
+
+        let device = JoyCon2BLEDevice(
+            id: "joycon2.ble:control-only",
+            name: "Joy-Con 2 (R)",
+            productID: JoyCon2BLEProtocol.rightProductID,
+            handedness: .right
+        )
+        session.emitDiscovered(device)
+        XCTAssertTrue(harness.setDeviceManaged(id: device.id, kind: .joyCon, managed: true))
+        session.emitReady(deviceID: device.id, stickCalibration: nil)
+
+        var report = [UInt8](repeating: 0, count: 0x3C)
+        report[4] = 0x08 // A
+        writePackedStick(x: 2_100, y: 2_000, to: &report, at: 13)
+        session.emitInput(deviceID: device.id, bytes: report, timestamp: 42)
+
+        let frame = try XCTUnwrap(harness.inputFramesSnapshot().first)
+        XCTAssertNil(frame.motion.latest)
+        XCTAssertEqual(frame.bytes[4], 0x08)
+        XCTAssertEqual(
+            JoyCon2BLEProtocol.controlBytes(from: frame.bytes)?[3],
+            0x08
+        )
+        harness.stop()
+    }
+
     private func writeInt16(_ value: Int16, to bytes: inout [UInt8], at offset: Int) {
         let raw = UInt16(bitPattern: value)
         bytes[offset] = UInt8(raw & 0xFF)

@@ -29,6 +29,10 @@
 - InputDeviceBackendRegistry: ordered owner of the active backends. InputEngine uses it for start/stop, device enumeration, management routing, aggregate connection state, lifecycle callbacks, and validated input-frame delivery. The registry only forwards callbacks while its lifecycle is running, so teardown callbacks cannot revive stopped engine state.
 - SenseInputDeviceBackend: owns the complete Sense adapter by combining IOKit identity discovery with Apple's Game Controller session and resolving native left/right input to stable managed-device IDs.
 - JoyConHIDController and G502XHIDController: complete direct-HID backends with device-specific lifecycle, managed-device policy, setup, decoding, and common-frame emission. They revalidate queued activations and only open explicitly managed devices.
+- JoyCon2BLEInputDeviceBackend: Joy-Con 2 BLE lifecycle and setup. It forwards
+  valid buttons and sticks even when a report temporarily lacks an IMU sample,
+  allowing motion-independent consumers such as linked-gamepad mode to remain
+  live.
 - SenseController: IOKit discovery and stable identity component owned by SenseInputDeviceBackend. It never opens raw Sense input.
 - SenseGameControllerSession: owns Sense motion, buttons, stick, and battery input through Apple's background Game Controller APIs, activates native motion when required, and records aggregate callback health.
 - IOKitSenseHIDTransport: Sense discovery and stable physical identity only. JamCon intentionally does not open Sense HID devices because either raw-open mode terminates their Bluetooth session on macOS.
@@ -43,9 +47,10 @@
   activation intent.
 - LinkedJoyConGamepadComposer: timestamped latest-half state composer that maps
   two physical layouts to one standard gamepad and rejects stale input.
-- VirtualGamepadOutputCoordinator: generation-ordered asynchronous CoreHID
-  output that coalesces analog-only updates, preserves bounded digital
-  transitions, and cannot stall InputEngine's queue.
+- VirtualGamepadOutputCoordinator: one ordered AsyncStream ingress and a
+  generation-aware asynchronous CoreHID worker. It coalesces analog-only
+  updates, preserves bounded digital transitions in submission order, and
+  cannot stall InputEngine's queue.
 
 Device transport handles, backend descriptors, common frames, decoded reports, settings snapshots, and mapping profiles are `Sendable`. Raw IOKit and framework references and callback buffers remain inside the concrete backends; adapters immediately copy callback bytes into owned storage. Controller start/stop is serialized, failed startup is retryable, managed selections survive backend restarts and reconnects, and shutdown closes each active input registration exactly once. Deterministic fake transports, native sessions, and registry backends cover those lifecycle contracts without connected hardware.
 

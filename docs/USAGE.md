@@ -68,6 +68,11 @@ Open the menu bar icon and expand Button Mappings:
 
 Each button can be assigned to only one override mode (Clutch/Scroll/Radial Menu).
 
+The default radial menu uses arrow keys on its inner ring. Its outer ring
+contains Mission Control, New Tab, previous Space, reverse Tab, Close
+Window/Tab, Play/Pause, next Space, and Reopen Closed Tab. **Reset to Default**
+restores this complete two-ring layout.
+
 ## Multiple devices
 
 JamCon lets you manage multiple supported devices at once:
@@ -89,6 +94,12 @@ The virtual controller stays present while a selected half reconnects. JamCon
 publishes neutral input after a short report timeout, then resumes only when
 both halves are fresh, preventing a silent controller from leaving a stuck
 stick or button.
+
+Linked-gamepad mode currently exposes standard sticks, buttons, D-pad, and
+triggers. Rumble requested by a game and virtual battery state are not
+forwarded. Physical Joy-Con motion still powers JamCon's cursor mode, but
+linked mode does not yet expose gyro/accelerometer data onward to games as
+virtual controller motion.
 
 See [Linked Joy-Con Virtual Gamepad](VIRTUAL_GAMEPAD.md) for the control layout,
 reconnect behavior, performance design, current entitlement status, and

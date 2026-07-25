@@ -110,7 +110,7 @@ struct RadialMenuTab: View {
                         Spacer()
 
                         Button("Reset to Default") {
-                            appState.radialMenuConfiguration = .arrowKeys
+                            appState.radialMenuConfiguration = .default
                         }
                         .font(.caption)
                         .foregroundColor(.secondary)

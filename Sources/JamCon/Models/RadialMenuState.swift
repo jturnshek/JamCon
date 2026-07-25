@@ -47,7 +47,7 @@ class RadialMenuState: ObservableObject {
     @Published var selectedRing: MenuRing = .none
 
     /// The active menu configuration
-    @Published var activeConfiguration: RadialMenuConfiguration = .arrowKeys
+    @Published var activeConfiguration: RadialMenuConfiguration = .default
 
     /// Ghost cursor position relative to menu center
     @Published var ghostPosition: CGPoint = .zero
