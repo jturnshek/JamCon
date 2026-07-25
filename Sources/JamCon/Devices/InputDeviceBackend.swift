@@ -561,7 +561,8 @@ extension JoyConHIDController: InputDeviceBackend {
                 timestamp: report.timestamp,
                 receivedTimestamp: report.receivedTimestamp,
                 inputTimestamp: report.inputTimestamp,
-                timestampSource: report.timestampSource
+                timestampSource: report.timestampSource,
+                analogStickCalibration: report.analogStickCalibration
             ))
         }
     }

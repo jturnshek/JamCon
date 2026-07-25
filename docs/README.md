@@ -1,6 +1,7 @@
 # Documentation
 
 - Usage: docs/USAGE.md
+- Linked Joy-Con virtual gamepad: docs/VIRTUAL_GAMEPAD.md
 - Development: docs/DEVELOPMENT.md
 - Architecture: docs/ARCHITECTURE.md
 - Troubleshooting: docs/TROUBLESHOOTING.md

@@ -31,6 +31,7 @@ final class InputEngine: @unchecked Sendable {
     let mouseController: MouseController
     let actionExecutor: ActionExecutor
     let holdScheduler: HoldScheduling
+    let virtualGamepadOutput: VirtualGamepadOutputCoordinator
 
     // MARK: - Threading
 
@@ -38,14 +39,14 @@ final class InputEngine: @unchecked Sendable {
     let engineQueue = DispatchQueue(label: "JamCon.engineQueue", qos: .userInitiated)
     private let engineQueueKey = DispatchSpecificKey<Void>()
 
-    private func engineQueueSync<T>(_ work: () -> T) -> T {
+    func engineQueueSync<T>(_ work: () -> T) -> T {
         if DispatchQueue.getSpecific(key: engineQueueKey) != nil {
             return work()
         }
         return engineQueue.sync(execute: work)
     }
 
-    private func engineQueueAsync(_ work: @escaping @Sendable () -> Void) {
+    func engineQueueAsync(_ work: @escaping @Sendable () -> Void) {
         engineQueue.async(execute: work)
     }
 
@@ -161,6 +162,18 @@ final class InputEngine: @unchecked Sendable {
     private var batteryLevels: [ManagedDeviceKey: Int] = [:]
     var radialMenuOwner: ManagedDeviceKey?
 
+    // Linked Joy-Con virtual gamepad state. All mutations stay on engineQueue;
+    // CoreHID delivery is handed to a latest-wins asynchronous coordinator.
+    var linkedGamepadConfiguration = LinkedGamepadConfiguration()
+    var linkedGamepadComposer = LinkedJoyConGamepadComposer()
+    var virtualGamepadReportSequence: UInt64 = 0
+    var virtualGamepadActivationRequested = false
+    var virtualGamepadOutputIsActive = false
+    var virtualGamepadInputsAreFresh = false
+    var virtualGamepadFailureLatched = false
+    var linkedGamepadWatchdog: DispatchSourceTimer?
+    var virtualGamepadRuntimeStatus: VirtualGamepadRuntimeStatus = .disabled
+
     // Cached button mappings (avoid allocation on hot path)
     let leftMapping = SenseButtonMapping(isLeft: true)
     let rightMapping = SenseButtonMapping(isLeft: false)
@@ -204,8 +217,14 @@ final class InputEngine: @unchecked Sendable {
     // MARK: - Connection Callbacks (for UI to update controller list)
 
     var onControllerListChanged: (() -> Void)?
-    var onConnectionChanged: ((_ connected: Bool, _ name: String?, _ kind: ControllerKind) -> Void)?
+    var onConnectionChanged: ((
+        _ connected: Bool,
+        _ name: String?,
+        _ kind: ControllerKind,
+        _ deviceID: String?
+    ) -> Void)?
     var onBatteryLevelChanged: ((_ level: Int) -> Void)?
+    var onVirtualGamepadStatusChanged: ((_ status: VirtualGamepadRuntimeStatus) -> Void)?
 
     // MARK: - Battery Level (thread-safe, polled by UI)
 
@@ -265,7 +284,8 @@ final class InputEngine: @unchecked Sendable {
         senseController: SenseController? = nil,
         joyConController: JoyConHIDController? = nil,
         joyCon2Session: (any JoyCon2BLESessioning)? = nil,
-        g502xController: G502XHIDController? = nil
+        g502xController: G502XHIDController? = nil,
+        virtualGamepadOutput: VirtualGamepadOutputCoordinator? = nil
     ) {
         self.settings = settings
         self.debugBuffer = debugBuffer
@@ -276,6 +296,7 @@ final class InputEngine: @unchecked Sendable {
         self.mouseController = mouseController
         self.actionExecutor = actionExecutor ?? ActionExecutor(mouseController: mouseController)
         self.holdScheduler = holdScheduler
+        self.virtualGamepadOutput = virtualGamepadOutput ?? VirtualGamepadOutputCoordinator()
         self.senseController = senseController
         self.senseBackend = SenseInputDeviceBackend(
             discovery: senseController,
@@ -299,6 +320,11 @@ final class InputEngine: @unchecked Sendable {
         self.g502xButtonPressStates = Array(repeating: nil, count: g502xButtonCount)
         self.g502xHoldTimers = Array(repeating: nil, count: g502xButtonCount)
         engineQueue.setSpecific(key: engineQueueKey, value: ())
+        self.virtualGamepadOutput.setStatusHandler { [weak self] status in
+            self?.engineQueueAsync { [weak self] in
+                self?.handleVirtualGamepadOutputStatus(status)
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -358,6 +384,7 @@ final class InputEngine: @unchecked Sendable {
             joyConDevices.removeAll(keepingCapacity: true)
             batteryLevels.removeAll(keepingCapacity: true)
             selectedMouseID = nil
+            resetLinkedGamepadRuntime(status: .disabled)
 
             return true
         }
@@ -370,7 +397,15 @@ final class InputEngine: @unchecked Sendable {
     /// Apply the global output toggle synchronously so a key or mouse button can
     /// never remain down while subsequent physical release reports are ignored.
     func setInputEnabled(_ enabled: Bool) {
-        guard !enabled else {
+        if enabled {
+            engineQueueSync {
+                if linkedGamepadConfiguration.isEnabled,
+                   linkedGamepadConfiguration.isComplete,
+                   !virtualGamepadActivationRequested,
+                   !virtualGamepadFailureLatched {
+                    startLinkedGamepadRuntime()
+                }
+            }
             JamLog.info(.engine, "Input enabled")
             return
         }
@@ -397,6 +432,7 @@ final class InputEngine: @unchecked Sendable {
             mouseMode = GyroModeState()
             actionExecutor.releaseAll()
             mouseController.forceShowCursor()
+            resetLinkedGamepadRuntime(status: .disabled)
         }
         JamLog.info(.engine, "Input disabled; synthetic outputs released")
     }
@@ -487,6 +523,7 @@ final class InputEngine: @unchecked Sendable {
                     backendRegistry.setDeviceManaged(id: id, kind: kind, managed: true)
                 } else {
                     backendRegistry.setDeviceManaged(id: id, kind: kind, managed: false)
+                    handleLinkedJoyConUnavailable(deviceID: id)
                     removeJoyConDevice(id: id)
                 }
 
@@ -661,6 +698,7 @@ final class InputEngine: @unchecked Sendable {
                 if !event.connected {
                     clearBatteryLevel(for: key)
                     cancelRadialMenuIfOwned(by: key)
+                    handleLinkedJoyConUnavailable(deviceID: id)
                 }
             }
 
@@ -671,7 +709,7 @@ final class InputEngine: @unchecked Sendable {
             }
         }
 
-        onConnectionChanged?(event.connected, event.deviceName, kind)
+        onConnectionChanged?(event.connected, event.deviceName, kind, event.deviceID)
     }
 
     func resetSenseTransientState(_ device: SenseDeviceState) {
@@ -701,7 +739,7 @@ final class InputEngine: @unchecked Sendable {
         actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .sense, id: device.id))
     }
 
-    private func resetJoyConTransientState(_ device: JoyConDeviceState) {
+    func resetJoyConTransientState(_ device: JoyConDeviceState) {
         for idx in device.holdTimers.indices {
             device.holdTimers[idx]?.cancel()
             device.holdTimers[idx] = nil

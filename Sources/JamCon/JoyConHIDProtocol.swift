@@ -9,6 +9,24 @@ enum JoyConHIDProtocol {
 
     // Input report
     static let inputReportID: UInt32 = 0x30
+    static let subcommandReplyReportID: UInt32 = 0x21
+    static let spiReadSubcommand: UInt8 = 0x10
+    static let factoryStickCalibrationLength: UInt8 = 9
+    static let leftFactoryStickCalibrationAddress: UInt32 = 0x0000_603D
+    static let rightFactoryStickCalibrationAddress: UInt32 = 0x0000_6046
+
+    /// A fixed, deliberately conservative range used immediately if the
+    /// controller has not answered the factory-memory request yet. Unlike the
+    /// old live-extrema learning, this never turns the user's newest position
+    /// into a moving full-scale endpoint.
+    static let conservativeStickCalibration = InputDeviceAnalogStickCalibration(
+        centerX: 2_048,
+        centerY: 2_048,
+        positiveRangeX: 1_600,
+        positiveRangeY: 1_600,
+        negativeRangeX: 1_600,
+        negativeRangeY: 1_600
+    )
 
     // MARK: - IMU Constants
 
@@ -61,6 +79,99 @@ enum JoyConHIDProtocol {
         static let gyroYHigh: Int = latestSample + 9
         static let gyroZLow: Int = latestSample + 10
         static let gyroZHigh: Int = latestSample + 11
+    }
+
+    static func factoryStickCalibrationAddress(isLeft: Bool) -> UInt32 {
+        isLeft ? leftFactoryStickCalibrationAddress : rightFactoryStickCalibrationAddress
+    }
+
+    static func factoryStickCalibrationReadPayload(isLeft: Bool) -> [UInt8] {
+        let address = factoryStickCalibrationAddress(isLeft: isLeft)
+        return [
+            UInt8(address & 0xFF),
+            UInt8((address >> 8) & 0xFF),
+            UInt8((address >> 16) & 0xFF),
+            UInt8((address >> 24) & 0xFF),
+            factoryStickCalibrationLength,
+        ]
+    }
+
+    /// Decodes the 0x21 reply to subcommand 0x10. Nintendo stores the same
+    /// packed values in different orders for left and right Joy-Cons.
+    static func decodeFactoryStickCalibrationReply(
+        _ bytes: [UInt8],
+        isLeft: Bool
+    ) -> InputDeviceAnalogStickCalibration? {
+        let dataOffset = 20
+        guard bytes.count >= dataOffset + Int(factoryStickCalibrationLength),
+              UInt32(bytes[0]) == subcommandReplyReportID,
+              bytes[13] & 0x80 != 0,
+              bytes[14] == spiReadSubcommand,
+              uint32LE(bytes, at: 15) == factoryStickCalibrationAddress(isLeft: isLeft),
+              bytes[19] >= factoryStickCalibrationLength else {
+            return nil
+        }
+
+        let data = Array(bytes[dataOffset..<(dataOffset + Int(factoryStickCalibrationLength))])
+        func unpack(_ offset: Int) -> (UInt16, UInt16) {
+            let byte0 = UInt16(data[offset])
+            let byte1 = UInt16(data[offset + 1])
+            let byte2 = UInt16(data[offset + 2])
+            return (
+                byte0 | ((byte1 & 0x0F) << 8),
+                (byte1 >> 4) | (byte2 << 4)
+            )
+        }
+
+        let center: (UInt16, UInt16)
+        let positive: (UInt16, UInt16)
+        let negative: (UInt16, UInt16)
+        if isLeft {
+            positive = unpack(0)
+            center = unpack(3)
+            negative = unpack(6)
+        } else {
+            center = unpack(0)
+            negative = unpack(3)
+            positive = unpack(6)
+        }
+
+        let calibration = InputDeviceAnalogStickCalibration(
+            centerX: center.0,
+            centerY: center.1,
+            positiveRangeX: positive.0,
+            positiveRangeY: positive.1,
+            negativeRangeX: negative.0,
+            negativeRangeY: negative.1
+        )
+        return isPlausible(calibration) ? calibration : nil
+    }
+
+    private static func uint32LE(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        UInt32(bytes[offset])
+            | (UInt32(bytes[offset + 1]) << 8)
+            | (UInt32(bytes[offset + 2]) << 16)
+            | (UInt32(bytes[offset + 3]) << 24)
+    }
+
+    private static func isPlausible(
+        _ calibration: InputDeviceAnalogStickCalibration
+    ) -> Bool {
+        let centers = [calibration.centerX, calibration.centerY]
+        let ranges = [
+            calibration.positiveRangeX,
+            calibration.positiveRangeY,
+            calibration.negativeRangeX,
+            calibration.negativeRangeY,
+        ]
+        guard centers.allSatisfy({ $0 > 0 && $0 < 4_095 }),
+              ranges.allSatisfy({ $0 >= 200 && $0 <= 4_095 }) else {
+            return false
+        }
+        return Int(calibration.centerX) + Int(calibration.positiveRangeX) <= 4_095
+            && Int(calibration.centerY) + Int(calibration.positiveRangeY) <= 4_095
+            && Int(calibration.centerX) - Int(calibration.negativeRangeX) >= 0
+            && Int(calibration.centerY) - Int(calibration.negativeRangeY) >= 0
     }
 
     // MARK: - Button Mappings

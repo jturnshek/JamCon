@@ -19,6 +19,9 @@ final class AppState: ObservableObject {
     /// Input engine - handles all real-time processing
     let engine: InputEngine
 
+    let virtualGamepadAvailability: VirtualGamepadAvailability
+    private let linkedGamepadConfigurationStore: LinkedGamepadConfigurationStore
+
     // MARK: - UI State
 
     /// Currently active tab
@@ -26,6 +29,18 @@ final class AppState: ObservableObject {
 
     /// Available controllers (refreshed on demand)
     @Published var availableControllers: [ControllerInfo] = []
+
+    /// One persisted left/right Joy-Con pair exposed to games as a single
+    /// virtual controller. Selection survives while either half is offline.
+    @Published private(set) var linkedGamepadConfiguration: LinkedGamepadConfiguration {
+        didSet {
+            guard oldValue != linkedGamepadConfiguration else { return }
+            linkedGamepadConfigurationStore.save(linkedGamepadConfiguration)
+            applyLinkedGamepadConfigurationToEngine()
+        }
+    }
+
+    @Published private(set) var virtualGamepadRuntimeStatus: VirtualGamepadRuntimeStatus
 
     /// Devices the app should manage (persisted across restarts).
     @Published private(set) var managedDeviceKeys: Set<String> = [] {
@@ -40,6 +55,7 @@ final class AppState: ObservableObject {
 
     /// Connection status
     @Published var isConnected: Bool = false
+    @Published private(set) var connectedDeviceKeys: Set<String> = []
     @Published var controllerName: String = "No devices managed"
     @Published var activeControllerKind: ControllerKind = .sense {
         didSet {
@@ -94,6 +110,7 @@ final class AppState: ObservableObject {
             guard !isApplyingLoadedSettings else { return }
             settingsStore.update { $0.isEnabled = isEnabled }
             engine.setInputEnabled(isEnabled)
+            applyLinkedGamepadConfigurationToEngine()
         }
     }
 
@@ -378,8 +395,21 @@ final class AppState: ObservableObject {
         UserDefaults.standard.set(enabled, forKey: Self.cursorControlEnabledKey(for: profile))
     }
 
-    init() {
+    init(
+        linkedGamepadConfigurationStore: LinkedGamepadConfigurationStore = LinkedGamepadConfigurationStore(),
+        virtualGamepadAvailability: VirtualGamepadAvailability = .current,
+        virtualGamepadOutput: VirtualGamepadOutputCoordinator? = nil
+    ) {
         // Create the core components
+        self.linkedGamepadConfigurationStore = linkedGamepadConfigurationStore
+        self.virtualGamepadAvailability = virtualGamepadAvailability
+        let linkedConfiguration = linkedGamepadConfigurationStore.load()
+        _linkedGamepadConfiguration = Published(initialValue: linkedConfiguration)
+        _virtualGamepadRuntimeStatus = Published(
+            initialValue: virtualGamepadAvailability.isAvailable
+                ? Self.idleVirtualGamepadStatus(for: linkedConfiguration)
+                : .unavailable(virtualGamepadAvailability)
+        )
         self.settingsStore = SettingsStore()
         self.debugBuffer = DebugBuffer()
         JamLog.setMirror(debugBuffer)
@@ -391,9 +421,20 @@ final class AppState: ObservableObject {
             "Session started version=\(version) build=\(build) accessibility=\(accessibility) "
                 + "log=\(JamLog.fileLogURL.path)"
         )
-        self.engine = InputEngine(settings: settingsStore, debugBuffer: debugBuffer)
+        self.engine = InputEngine(
+            settings: settingsStore,
+            debugBuffer: debugBuffer,
+            virtualGamepadOutput: virtualGamepadOutput
+        )
 
-        _managedDeviceKeys = Published(initialValue: Self.loadManagedDeviceKeys())
+        var managedKeys = Self.loadManagedDeviceKeys()
+        if let left = linkedConfiguration.left {
+            managedKeys.insert(left.managementKey)
+        }
+        if let right = linkedConfiguration.right {
+            managedKeys.insert(right.managementKey)
+        }
+        _managedDeviceKeys = Published(initialValue: managedKeys)
 
         // Restore last configuration target (independent of which device is active).
         _configurationProfile = Published(initialValue: Self.loadSavedConfigurationProfile() ?? .senseRight)
@@ -403,6 +444,8 @@ final class AppState: ObservableObject {
 
         // Setup engine callbacks for UI updates
         setupEngineCallbacks()
+        saveManagedDeviceKeys()
+        applyLinkedGamepadConfigurationToEngine()
     }
 
     deinit {
@@ -424,6 +467,8 @@ final class AppState: ObservableObject {
 
         engine.start()
         refreshControllerList()
+        applyManagedDevicesToEngine()
+        applyLinkedGamepadConfigurationToEngine()
 
         // Sync connection state after a short delay to let HID controllers discover devices
         Task {
@@ -495,6 +540,7 @@ final class AppState: ObservableObject {
         engineDidStart = false
 
         engine.stop()
+        connectedDeviceKeys.removeAll()
         stopLogPolling()
         stopDebugPolling()
         JamLog.flushFileLog()
@@ -732,9 +778,17 @@ final class AppState: ObservableObject {
             }
         }
 
-        engine.onConnectionChanged = { [weak self] connected, name, kind in
+        engine.onConnectionChanged = { [weak self] connected, name, kind, deviceID in
             Task { @MainActor in
                 guard let self else { return }
+                if let deviceID {
+                    let key = "\(kind.rawValue):\(deviceID)"
+                    if connected {
+                        self.connectedDeviceKeys.insert(key)
+                    } else {
+                        self.connectedDeviceKeys.remove(key)
+                    }
+                }
                 self.syncConnectionState()
                 self.statusMessage = self.isConnected ? "Connected" : "Disconnected"
             }
@@ -743,6 +797,15 @@ final class AppState: ObservableObject {
         engine.onBatteryLevelChanged = { [weak self] level in
             Task { @MainActor in
                 self?.batteryLevel = level
+            }
+        }
+
+        engine.onVirtualGamepadStatusChanged = { [weak self] status in
+            Task { @MainActor in
+                guard let self else { return }
+                self.virtualGamepadRuntimeStatus = self.virtualGamepadAvailability.isAvailable
+                    ? status
+                    : .unavailable(self.virtualGamepadAvailability)
             }
         }
 
@@ -790,6 +853,18 @@ final class AppState: ObservableObject {
     }
 
     func setDeviceManaged(_ controller: ControllerInfo, managed: Bool) {
+        if !managed, linkedGamepadConfiguration.contains(deviceID: controller.id) {
+            var configuration = linkedGamepadConfiguration
+            if configuration.left?.deviceID == controller.id {
+                configuration.left = nil
+            }
+            if configuration.right?.deviceID == controller.id {
+                configuration.right = nil
+            }
+            configuration.isEnabled = false
+            linkedGamepadConfiguration = configuration
+        }
+
         var updated = managedDeviceKeys
         if managed {
             // The G502X path currently supports one managed mouse at a time.
@@ -802,6 +877,123 @@ final class AppState: ObservableObject {
             updated.remove(controller.managementKey)
         }
         managedDeviceKeys = updated
+    }
+
+    var leftLinkedGamepadCandidates: [ControllerInfo] {
+        linkedGamepadCandidates(for: .left)
+    }
+
+    var rightLinkedGamepadCandidates: [ControllerInfo] {
+        linkedGamepadCandidates(for: .right)
+    }
+
+    func linkedGamepadCandidates(for side: LinkedJoyConSide) -> [ControllerInfo] {
+        availableControllers
+            .filter { controller in
+                guard controller.kind == .joyCon else { return false }
+                switch side {
+                case .left: return controller.handedness == .left
+                case .right: return controller.handedness == .right
+                }
+            }
+            .sorted { lhs, rhs in
+                if lhs.profileVariant != rhs.profileVariant {
+                    return lhs.profileVariant == .joyCon2
+                }
+                return lhs.displayName < rhs.displayName
+            }
+    }
+
+    func selectLinkedGamepadController(
+        _ controller: ControllerInfo?,
+        for side: LinkedJoyConSide
+    ) {
+        if let controller {
+            guard controller.kind == .joyCon else { return }
+            switch side {
+            case .left:
+                guard controller.handedness == .left else { return }
+            case .right:
+                guard controller.handedness == .right else { return }
+            }
+        }
+
+        var configuration = linkedGamepadConfiguration
+        let selection = controller.map(LinkedJoyConSelection.init(controller:))
+        switch side {
+        case .left:
+            configuration.left = selection
+            if configuration.right?.deviceID == selection?.deviceID {
+                configuration.right = nil
+            }
+        case .right:
+            configuration.right = selection
+            if configuration.left?.deviceID == selection?.deviceID {
+                configuration.left = nil
+            }
+        }
+        if !configuration.isComplete {
+            configuration.isEnabled = false
+        }
+        linkedGamepadConfiguration = configuration
+
+        if let controller {
+            setDeviceManaged(controller, managed: true)
+        }
+    }
+
+    func setLinkedGamepadEnabled(_ enabled: Bool) {
+        guard !enabled || (
+            virtualGamepadAvailability.isAvailable
+                && linkedGamepadConfiguration.isComplete
+        ) else { return }
+        var configuration = linkedGamepadConfiguration
+        configuration.isEnabled = enabled
+        linkedGamepadConfiguration = configuration
+    }
+
+    func retryLinkedGamepad() {
+        guard virtualGamepadAvailability.isAvailable,
+              isEnabled,
+              linkedGamepadConfiguration.isEnabled,
+              linkedGamepadConfiguration.isComplete else { return }
+        engine.retryLinkedGamepadOutput()
+    }
+
+    func linkedGamepadSide(for controller: ControllerInfo) -> LinkedJoyConSide? {
+        linkedGamepadConfiguration.side(for: controller.id)
+    }
+
+    func isLinkedGamepadSelectionConnected(_ side: LinkedJoyConSide) -> Bool {
+        let selection: LinkedJoyConSelection?
+        switch side {
+        case .left: selection = linkedGamepadConfiguration.left
+        case .right: selection = linkedGamepadConfiguration.right
+        }
+        guard let selection else { return false }
+        return connectedDeviceKeys.contains(selection.managementKey)
+    }
+
+    private static func idleVirtualGamepadStatus(
+        for configuration: LinkedGamepadConfiguration
+    ) -> VirtualGamepadRuntimeStatus {
+        guard configuration.isEnabled else { return .disabled }
+        return configuration.isComplete ? .waitingForControllers : .needsControllers
+    }
+
+    private func applyLinkedGamepadConfigurationToEngine() {
+        var effectiveConfiguration = linkedGamepadConfiguration
+        effectiveConfiguration.isEnabled =
+            effectiveConfiguration.isEnabled
+            && virtualGamepadAvailability.isAvailable
+            && isEnabled
+        engine.setLinkedGamepadConfiguration(effectiveConfiguration)
+
+        if !virtualGamepadAvailability.isAvailable {
+            virtualGamepadRuntimeStatus = .unavailable(virtualGamepadAvailability)
+        } else if !isEnabled, linkedGamepadConfiguration.isEnabled {
+            virtualGamepadRuntimeStatus = .disabled
+        }
     }
 
     private static func loadManagedDeviceKeys() -> Set<String> {

@@ -2,7 +2,7 @@ import Foundation
 
 /// Logical buttons for Joy-Con controllers
 /// Note: Left and Right Joy-Con have different button sets
-enum JoyConLogicalButton: String, CaseIterable, Codable {
+enum JoyConLogicalButton: String, CaseIterable, Codable, Sendable {
     // Face buttons (Right Joy-Con only when standalone)
     case a
     case b
@@ -172,6 +172,22 @@ struct JoyConStickCalibration {
         let rangeNeg = centerY - minY
         let rangePos = maxY - centerY
         return max(rangeNeg, rangePos, Self.minEffectiveRange)
+    }
+
+    var negativeRangeX: Double {
+        max(centerX - minX, Self.minEffectiveRange)
+    }
+
+    var positiveRangeX: Double {
+        max(maxX - centerX, Self.minEffectiveRange)
+    }
+
+    var negativeRangeY: Double {
+        max(centerY - minY, Self.minEffectiveRange)
+    }
+
+    var positiveRangeY: Double {
+        max(maxY - centerY, Self.minEffectiveRange)
     }
 
     /// Bounded neutral correction around an immutable connection/factory

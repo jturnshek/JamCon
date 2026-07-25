@@ -10,6 +10,7 @@ It includes a custom Joy-Con HID implementation, low-latency gyro mouse control,
 - Joy-Con and PS VR2 Sense controller support
 - Button mapping for clicks, shortcuts, and system actions
 - Multi-device management with per-profile settings
+- Linked left/right Joy-Cons as one virtual gamepad (requires Apple-approved Virtual HID)
 - Drag, scroll, and radial menu modes
 
 ## Requirements
@@ -52,6 +53,7 @@ build and validation processes run on the developer's local Mac.
 ## Documentation
 
 - Usage: docs/USAGE.md
+- Linked Joy-Con gamepad: docs/VIRTUAL_GAMEPAD.md
 - Development: docs/DEVELOPMENT.md
 - Architecture: docs/ARCHITECTURE.md
 - Troubleshooting: docs/TROUBLESHOOTING.md

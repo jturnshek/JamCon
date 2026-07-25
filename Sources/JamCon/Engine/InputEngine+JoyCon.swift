@@ -10,15 +10,6 @@ extension InputEngine {
     func processJoyConReport(_ report: InputDeviceFrame) {
         assertOnEngineQueue()
         guard isRunning else { return }
-        guard let motion = report.motion.latest else {
-            JamLog.errorThrottled(
-                .joyCon,
-                key: "input.missing-motion.\(report.deviceID)",
-                interval: 2,
-                "Dropping Joy-Con input frame without motion data"
-            )
-            return
-        }
         let engineStartTimestamp = CACurrentMediaTime()
         let healthDevice = ManagedDeviceKey(kind: .joyCon, id: report.deviceID)
         let signpostID = Self.inputPerformanceLog.signpostsEnabled
@@ -78,6 +69,37 @@ extension InputEngine {
         // Bounded neutral correction around the connection/factory anchor.
         let raw = device.mapping.joystickPositionRaw(in: controlBytes)
         device.mapping.calibration.updateAutoCalibration(rawX: raw.x, rawY: raw.y, timestamp: report.timestamp)
+
+        // A linked pair is an exclusive output mode for its two devices. It
+        // consumes controls here, before cursor/button actions, and does not
+        // require an IMU sample to keep gamepad buttons and sticks responsive.
+        if processLinkedJoyConGamepadFrame(
+            device: device,
+            controlBytes: controlBytes,
+            timestamp: engineStartTimestamp
+        ) {
+            recordLinkedGamepadDebugIfNeeded(
+                report: report,
+                device: device,
+                owner: owner,
+                settings: s,
+                engineStartTimestamp: engineStartTimestamp
+            )
+            if report.backend.id == .joyConDirectHID, report.bytes.count > 2 {
+                setBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]), for: owner)
+            }
+            return
+        }
+
+        guard let motion = report.motion.latest else {
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "input.missing-motion.\(report.deviceID)",
+                interval: 2,
+                "Dropping Joy-Con cursor frame without motion data"
+            )
+            return
+        }
 
         // 1. Process Joy-Con buttons
         if device.hasPrimedButtonState {

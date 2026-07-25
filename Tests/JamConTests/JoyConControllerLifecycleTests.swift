@@ -37,12 +37,13 @@ final class JoyConControllerLifecycleTests: XCTestCase {
         XCTAssertEqual(transport.count(of: .open("right")), 1)
 
         let outputReports = transport.outputReports
-        XCTAssertEqual(outputReports.count, 4)
-        XCTAssertEqual(outputReports.map(\.reportID), [0x01, 0x01, 0x01, 0x01])
-        XCTAssertEqual(outputReports.map { $0.data[0] }, [0x01, 0x01, 0x01, 0x01])
-        XCTAssertEqual(outputReports.map { $0.data[1] }, [0x00, 0x01, 0x02, 0x03])
-        XCTAssertEqual(outputReports.map { $0.data[10] }, [0x40, 0x03, 0x48, 0x30])
-        XCTAssertEqual(outputReports.map { $0.data[11] }, [0x01, 0x30, 0x01, 0x01])
+        XCTAssertEqual(outputReports.count, 5)
+        XCTAssertEqual(outputReports.map(\.reportID), [0x01, 0x01, 0x01, 0x01, 0x01])
+        XCTAssertEqual(outputReports.map { $0.data[0] }, [0x01, 0x01, 0x01, 0x01, 0x01])
+        XCTAssertEqual(outputReports.map { $0.data[1] }, [0x00, 0x01, 0x02, 0x03, 0x04])
+        XCTAssertEqual(outputReports.map { $0.data[10] }, [0x40, 0x03, 0x48, 0x30, 0x10])
+        XCTAssertEqual(outputReports.map { $0.data[11] }, [0x01, 0x30, 0x01, 0x01, 0x46])
+        XCTAssertEqual(Array(outputReports[4].data[11...15]), [0x46, 0x60, 0x00, 0x00, 0x09])
 
         controller.setControllerManaged(id: "joy-right", managed: false)
         wait(for: [deactivated], timeout: 1)
@@ -123,7 +124,7 @@ final class JoyConControllerLifecycleTests: XCTestCase {
         controller.setControllerManaged(id: "joy-left", managed: true)
         XCTAssertTrue(transport.flush())
         XCTAssertEqual(transport.count(of: .open("left")), 1)
-        XCTAssertEqual(transport.outputReports.filter { $0.deviceLabel == "left" }.count, 4)
+        XCTAssertEqual(transport.outputReports.filter { $0.deviceLabel == "left" }.count, 5)
 
         controller.setControllerManaged(id: "joy-right", managed: false)
         XCTAssertTrue(transport.flush())
@@ -176,7 +177,49 @@ final class JoyConControllerLifecycleTests: XCTestCase {
         XCTAssertEqual(transport.count(of: .open("right")), 2)
         XCTAssertEqual(transport.count(of: .close("right")), 2)
         XCTAssertEqual(transport.count(of: .stop), 2)
-        XCTAssertEqual(transport.outputReports.count, 8)
+        XCTAssertEqual(transport.outputReports.count, 10)
+    }
+
+    func testFactoryCalibrationReplyIsAttachedToSubsequentInputFrames() throws {
+        let device = FakeJoyConHIDDevice(label: "right")
+        let transport = FakeJoyConHIDTransport(
+            devices: [device: properties(serial: "joy-right")]
+        )
+        let controller = JoyConHIDController(transport: transport)
+        let inputReceived = expectation(description: "standard input received")
+        var deliveredCalibration: InputDeviceAnalogStickCalibration?
+        controller.onReportData = { report in
+            deliveredCalibration = report.analogStickCalibration
+            inputReceived.fulfill()
+        }
+
+        XCTAssertTrue(controller.start())
+        controller.setControllerManaged(id: "joy-right", managed: true)
+        XCTAssertTrue(transport.flush())
+
+        var reply = [UInt8](repeating: 0, count: 29)
+        reply[0] = UInt8(JoyConHIDProtocol.subcommandReplyReportID)
+        reply[13] = 0x90
+        reply[14] = JoyConHIDProtocol.spiReadSubcommand
+        reply.replaceSubrange(15...18, with: [0x46, 0x60, 0x00, 0x00])
+        reply[19] = 9
+        writePackedPair((2_000, 2_100), to: &reply, at: 20)
+        writePackedPair((1_500, 1_400), to: &reply, at: 23)
+        writePackedPair((1_600, 1_500), to: &reply, at: 26)
+        transport.emit(deviceLabel: "right", reportID: 0x21, bytes: reply)
+
+        var standard = [UInt8](repeating: 0, count: JoyConHIDProtocol.reportLength)
+        standard[0] = UInt8(JoyConHIDProtocol.inputReportID)
+        standard[1] = 1
+        transport.emit(deviceLabel: "right", reportID: 0x30, bytes: standard)
+
+        wait(for: [inputReceived], timeout: 1)
+        let calibration = try XCTUnwrap(deliveredCalibration)
+        XCTAssertEqual(calibration.centerX, 2_000)
+        XCTAssertEqual(calibration.centerY, 2_100)
+        XCTAssertEqual(calibration.negativeRangeX, 1_500)
+        XCTAssertEqual(calibration.positiveRangeX, 1_600)
+        controller.stop()
     }
 
     private func properties(
@@ -193,6 +236,17 @@ final class JoyConControllerLifecycleTests: XCTestCase {
             locationID: 12,
             registryEntryID: 34
         )
+    }
+
+    private func writePackedPair(
+        _ pair: (UInt16, UInt16),
+        to bytes: inout [UInt8],
+        at offset: Int
+    ) {
+        bytes[offset] = UInt8(truncatingIfNeeded: pair.0)
+        bytes[offset + 1] = UInt8((pair.0 >> 8) & 0x0F)
+            | UInt8((pair.1 & 0x0F) << 4)
+        bytes[offset + 2] = UInt8(truncatingIfNeeded: pair.1 >> 4)
     }
 }
 
@@ -246,6 +300,7 @@ private final class FakeJoyConHIDTransport: JoyConHIDTransport, @unchecked Senda
     private var runLoop: CFRunLoop?
     private var connectedHandler: (@Sendable (any HIDDeviceHandle) -> Void)?
     private var disconnectedHandler: (@Sendable (any HIDDeviceHandle) -> Void)?
+    private var inputHandlers: [String: HIDReportHandler] = [:]
     private let devices: [(device: FakeJoyConHIDDevice, properties: HIDDeviceProperties)]
 
     init(
@@ -302,7 +357,7 @@ private final class FakeJoyConHIDTransport: JoyConHIDTransport, @unchecked Senda
         for device: any HIDDeviceHandle,
         on _: CFRunLoop,
         reportLength _: Int,
-        handler _: @escaping HIDReportHandler
+        handler: @escaping HIDReportHandler
     ) -> Result<any HIDInputRegistration, HIDTransportError> {
         guard let device = device as? FakeJoyConHIDDevice else {
             return .failure(.unexpectedHandle)
@@ -314,6 +369,9 @@ private final class FakeJoyConHIDTransport: JoyConHIDTransport, @unchecked Senda
 
         switch result {
         case .success:
+            locked {
+                inputHandlers[device.label] = handler
+            }
             return .success(FakeJoyConHIDInputRegistration(deviceLabel: device.label))
         case let .failure(error):
             return .failure(error)
@@ -328,6 +386,7 @@ private final class FakeJoyConHIDTransport: JoyConHIDTransport, @unchecked Senda
         }
         lock.lock()
         events.append(.close(registration.deviceLabel))
+        inputHandlers.removeValue(forKey: registration.deviceLabel)
         lock.unlock()
         return .success(())
     }
@@ -359,6 +418,25 @@ private final class FakeJoyConHIDTransport: JoyConHIDTransport, @unchecked Senda
             guard let self else { return }
             let handler = self.locked { self.disconnectedHandler }
             handler?(device)
+        }
+        CFRunLoopWakeUp(targetRunLoop)
+    }
+
+    func emit(deviceLabel: String, reportID: UInt32, bytes: [UInt8]) {
+        guard let targetRunLoop = locked({ runLoop }) else {
+            XCTFail("Fake transport is not running")
+            return
+        }
+        CFRunLoopPerformBlock(targetRunLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
+            guard let self,
+                  let handler = self.locked({ self.inputHandlers[deviceLabel] }) else {
+                return
+            }
+            var mutableBytes = bytes
+            mutableBytes.withUnsafeMutableBufferPointer { buffer in
+                guard let baseAddress = buffer.baseAddress else { return }
+                handler(reportID, baseAddress, buffer.count)
+            }
         }
         CFRunLoopWakeUp(targetRunLoop)
     }

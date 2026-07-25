@@ -28,6 +28,12 @@ We use a script-based workflow so Accessibility permissions stay stable between 
 
 The first time you run `./dev.sh`, grant Accessibility permission for `/Applications/JamCon.app`.
 
+The restricted Virtual HID build is intentionally separate. After Apple
+approves the entitlement, use `./virtual-gamepad-dev.sh`; see
+`docs/VIRTUAL_GAMEPAD.md` for its signature/profile verification and acceptance
+test. Do not add the restricted entitlement to the normal `dev.sh` path before
+approval because macOS terminates an unauthorized signed process at launch.
+
 ## Code signing
 
 Set `SIGNING_IDENTITY` to the exact identity string shown by:

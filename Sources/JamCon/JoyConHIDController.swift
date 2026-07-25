@@ -14,6 +14,7 @@ private enum JoyCon {
 
 private enum Subcommand {
     enum CommandType: UInt8 {
+        case readSPI = 0x10
         case setInputMode = 0x03
         case setPlayerLights = 0x30
         case enableIMU = 0x40
@@ -75,6 +76,7 @@ final class JoyConHIDController: @unchecked Sendable {
         let inputTimestamp: TimeInterval?
         let timestampSource: InputTimestampSource
         let motionSamples: [IMUSample]
+        let analogStickCalibration: InputDeviceAnalogStickCalibration
 
         var averagedGyro: (x: Int16, y: Int16, z: Int16) {
             JoyConDecodedInputReport(motionSamples: motionSamples).averagedGyro
@@ -104,6 +106,7 @@ final class JoyConHIDController: @unchecked Sendable {
         var outputPacketCounter: UInt8 = 0
         var packetTimingTracker = JoyConPacketTimingTracker()
         var transportAggregator = JoyConTransportAggregator()
+        var stickCalibration = JoyConHIDProtocol.conservativeStickCalibration
 
         init(controller: DiscoveredJoyCon, registration: any HIDInputRegistration) {
             self.controller = controller
@@ -505,6 +508,13 @@ final class JoyConHIDController: @unchecked Sendable {
         sendSubcommand(.setInputMode, data: [JoyCon.InputMode.standardFull.rawValue], to: active)
         sendSubcommand(.enableVibration, data: [0x01], to: active)
         sendSubcommand(.setPlayerLights, data: [0x01], to: active)
+        sendSubcommand(
+            .readSPI,
+            data: JoyConHIDProtocol.factoryStickCalibrationReadPayload(
+                isLeft: currentController.handedness == .left
+            ),
+            to: active
+        )
 
         let displayName = "\(currentController.name) (\(currentController.side))"
         onConnectionChange?(true, displayName, currentController.id)
@@ -561,6 +571,11 @@ final class JoyConHIDController: @unchecked Sendable {
         length: Int,
         reportID: UInt32
     ) {
+        if reportID == JoyConHIDProtocol.subcommandReplyReportID {
+            let bytes = Array(UnsafeBufferPointer(start: report, count: min(length, 64)))
+            handleSubcommandReply(controllerID: controllerID, bytes: bytes)
+            return
+        }
         guard reportID == JoyConHIDProtocol.inputReportID else { return }
         let receivedTimestamp = CACurrentMediaTime()
         let maxLength = min(length, JoyConHIDProtocol.reportLength)
@@ -569,7 +584,11 @@ final class JoyConHIDController: @unchecked Sendable {
         let timerByte = bytes.indices.contains(JoyConHIDProtocol.Offset.timer)
             ? bytes[JoyConHIDProtocol.Offset.timer]
             : nil
-        let timingResult: (JoyConPacketTimingObservation, JoyConTransportSummary?)? = stateLock.withLock { state in
+        let timingResult: (
+            JoyConPacketTimingObservation,
+            JoyConTransportSummary?,
+            InputDeviceAnalogStickCalibration
+        )? = stateLock.withLock { state in
             guard let active = state.activeControllers[controllerID] else { return nil }
             let observation = active.packetTimingTracker.observe(
                 timerByte: timerByte,
@@ -577,9 +596,9 @@ final class JoyConHIDController: @unchecked Sendable {
                 receivedTimestamp: receivedTimestamp
             )
             let summary = active.transportAggregator.record(observation, at: receivedTimestamp)
-            return (observation, summary)
+            return (observation, summary, active.stickCalibration)
         }
-        guard let (timing, transportSummary) = timingResult else { return }
+        guard let (timing, transportSummary, stickCalibration) = timingResult else { return }
         if let transportSummary {
             JamLog.info(
                 .health,
@@ -623,8 +642,30 @@ final class JoyConHIDController: @unchecked Sendable {
             receivedTimestamp: receivedTimestamp,
             inputTimestamp: nil,
             timestampSource: timing.timestampSource,
-            motionSamples: decoded.motionSamples
+            motionSamples: decoded.motionSamples,
+            analogStickCalibration: stickCalibration
         ))
+    }
+
+    private func handleSubcommandReply(controllerID: String, bytes: [UInt8]) {
+        assertOnHIDThread()
+        let loaded: InputDeviceAnalogStickCalibration? = stateLock.withLock { state in
+            guard let active = state.activeControllers[controllerID],
+                  let calibration = JoyConHIDProtocol.decodeFactoryStickCalibrationReply(
+                      bytes,
+                      isLeft: active.controller.handedness == .left
+                  ) else {
+                return nil
+            }
+            active.stickCalibration = calibration
+            return calibration
+        }
+        guard let loaded else { return }
+        JamLog.info(
+            .joyCon,
+            "Original Joy-Con factory stick calibration loaded "
+                + "(center=\(loaded.centerX),\(loaded.centerY))"
+        )
     }
 
     private func sendSubcommand(

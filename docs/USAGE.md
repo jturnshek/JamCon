@@ -77,6 +77,23 @@ JamCon lets you manage multiple supported devices at once:
 - Cursor control can be enabled or disabled per controller profile
 - Multiple managed controllers can stay connected at the same time
 
+## Linked Joy-Con gamepad
+
+The Devices screen can save one left and one right Joy-Con as a linked pair.
+Once JamCon is signed with Apple's restricted Virtual HID entitlement, enabling
+the pair exposes one standard game controller to games. Selected controllers
+automatically become managed and switch exclusively from JamCon's cursor
+pipeline to the gamepad pipeline while the mode is active.
+
+The virtual controller stays present while a selected half reconnects. JamCon
+publishes neutral input after a short report timeout, then resumes only when
+both halves are fresh, preventing a silent controller from leaving a stuck
+stick or button.
+
+See [Linked Joy-Con Virtual Gamepad](VIRTUAL_GAMEPAD.md) for the control layout,
+reconnect behavior, performance design, current entitlement status, and
+approval-day setup.
+
 ## Settings
 
 - Mouse Control: enable/disable gyro mouse movement

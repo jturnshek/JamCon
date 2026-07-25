@@ -6,8 +6,11 @@
 2. The backend copies any callback-owned bytes, decodes transport timing and motion, and emits an InputDeviceFrame.
 3. InputDeviceBackendRegistry validates the frame's backend identity, stable device identity, finite clocks, motion shape, and declared capabilities before forwarding it to InputEngine's serial queue.
 4. InputEngine applies profile settings and application-level button, gyro, scroll, and radial-menu policy.
-5. MouseController posts CGEvents directly to the system.
-6. UI state updates are dispatched to MainActor only.
+5. A linked Joy-Con pair branches before normal JamCon actions into a
+   full-resolution combined gamepad state and an asynchronous CoreHID virtual
+   device; other inputs continue to MouseController.
+6. MouseController posts CGEvents directly to the system.
+7. UI state updates are dispatched to MainActor only.
 
 ## Threading model
 
@@ -36,6 +39,13 @@
 - MouseController: CGEvent-based mouse/keyboard output.
 - SettingsStore: thread-safe settings bridge from UI to engine.
 - DebugBuffer: thread-safe engine-to-UI telemetry and log buffer for diagnostics.
+- LinkedGamepadConfiguration: persisted stable left/right device selections and
+  activation intent.
+- LinkedJoyConGamepadComposer: timestamped latest-half state composer that maps
+  two physical layouts to one standard gamepad and rejects stale input.
+- VirtualGamepadOutputCoordinator: generation-ordered asynchronous CoreHID
+  output that coalesces analog-only updates, preserves bounded digital
+  transitions, and cannot stall InputEngine's queue.
 
 Device transport handles, backend descriptors, common frames, decoded reports, settings snapshots, and mapping profiles are `Sendable`. Raw IOKit and framework references and callback buffers remain inside the concrete backends; adapters immediately copy callback bytes into owned storage. Controller start/stop is serialized, failed startup is retryable, managed selections survive backend restarts and reconnects, and shutdown closes each active input registration exactly once. Deterministic fake transports, native sessions, and registry backends cover those lifecycle contracts without connected hardware.
 
