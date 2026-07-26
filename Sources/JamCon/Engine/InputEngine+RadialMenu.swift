@@ -6,30 +6,60 @@ extension InputEngine {
 
     // MARK: - Gyro Mode Routing
 
-    func beginRadialMenu(owner: ManagedDeviceKey, pointerStyle: RadialMenuPointerStyle, modeState: inout GyroModeState) {
-        if radialMenuOwner == nil {
-            radialMenuOwner = owner
-        }
-        guard radialMenuOwner == owner else { return }
+    @discardableResult
+    func beginRadialMenu(
+        owner: ManagedDeviceKey,
+        activationOwner: SyntheticOutputOwner,
+        pointerStyle: RadialMenuPointerStyle,
+        modeState: inout GyroModeState
+    ) -> Bool {
+        assertOnEngineQueue()
+        precondition(activationOwner.device == owner)
 
+        // A second radial-mapped button must not reset or take ownership of a
+        // gesture that is already in progress. Only the initiating control may
+        // dismiss it on release.
+        guard pendingRadialMenuAction == nil else { return false }
+        if let active = radialMenuActivationOwner {
+            return active == activationOwner
+        }
+
+        guard let position = currentCursorPositionQuartz() else {
+            JamLog.errorThrottled(
+                .engine,
+                key: "radial-menu.cursor-position",
+                interval: 2,
+                "Could not open radial menu because the cursor position was unavailable"
+            )
+            return false
+        }
+        let config = settings.snapshot().radialMenuConfiguration
+
+        radialMenuOwner = owner
+        radialMenuActivationOwner = activationOwner
+        radialMenuActiveConfiguration = config
         modeState.radialMenuButtonHeld = true
         radialMenuLock.withLock { radialMenuAccumulator = .zero }
         radialMenuHapticTracker.begin()
         radialMenuPendingDelta = .zero
 
-        guard let position = currentCursorPositionQuartz() else { return }
-        let config = settings.snapshot().radialMenuConfiguration
-
         if pointerStyle == .ghostCursor {
             mouseController.hideCursor()
         }
-        onRadialMenuShow?(position, config, pointerStyle)
+        publishRadialMenuPresentation(
+            .show(
+                position: position,
+                configuration: config,
+                pointerStyle: pointerStyle
+            )
+        )
 
         if pointerStyle == .systemCursor {
             startRadialMenuCursorTracking(anchor: position)
         } else {
             startRadialMenuUIUpdateTimer()
         }
+        return true
     }
 
     private enum GyroMode {
@@ -54,7 +84,6 @@ extension InputEngine {
         dy: CGFloat,
         cursorEnabled: Bool,
         hasDragMapping: Bool,
-        configuration: RadialMenuConfiguration,
         modeState: GyroModeState
     ) {
         let mode = currentGyroMode(owner: owner, hasDragMapping: hasDragMapping, modeState: modeState)
@@ -71,7 +100,8 @@ extension InputEngine {
                 mouseController.scroll(dx: dx, dy: dy)
             }
         case .radialMenu:
-            guard radialMenuOwner == owner else { return }
+            guard radialMenuOwner == owner,
+                  let configuration = radialMenuActiveConfiguration else { return }
             let scale = max(0.1, configuration.radialMovementScale)
             let scaledDx = dx * scale
             let scaledDy = dy * scale
@@ -97,32 +127,42 @@ extension InputEngine {
         }
     }
 
-    func handleGyroModeRelease(owner: ManagedDeviceKey, action: ButtonAction, modeState: inout GyroModeState) {
+    func handleGyroModeRelease(
+        owner: ManagedDeviceKey,
+        activationOwner: SyntheticOutputOwner?,
+        action: ButtonAction,
+        modeState: inout GyroModeState
+    ) {
         switch action {
         case .drag:
             modeState.dragButtonHeld = false
         case .scroll:
             modeState.scrollButtonHeld = false
         case .radialMenu:
-            guard radialMenuOwner == owner else { return }
-            stopRadialMenuUIUpdateTimer(flush: true)
-            if owner.kind == .mouse {
-                stopRadialMenuCursorTracking()
-            }
-            radialMenuOwner = nil
-            radialMenuHapticTracker.end()
-            modeState.radialMenuButtonHeld = false
+            guard radialMenuOwner == owner,
+                  radialMenuActivationOwner == activationOwner else { return }
 
-            // Determine selected item based on accumulated movement
+            // Resolve against the exact configuration captured when the menu
+            // opened, then tear down the presentation before posting an action
+            // that may start a Space transition.
             let selectedItem = calculateRadialMenuSelection()
-            onRadialMenuHide?(selectedItem)
-
-            // Execute the selected action
+            modeState.radialMenuButtonHeld = false
             if let item = selectedItem {
-                executeRadialMenuAction(item.action, device: owner)
-            }
-            if owner.kind != .mouse {
-                mouseController.showCursor()
+                let pending = PendingRadialMenuAction(id: UUID(), owner: owner)
+                pendingRadialMenuAction = pending
+                dismissActiveRadialMenu(
+                    resetHeldState: false,
+                    afterPresentationApplied: { [weak self] in
+                        guard let self,
+                              self.pendingRadialMenuAction == pending else { return }
+                        self.pendingRadialMenuAction = nil
+                        guard self.isRunning,
+                              self.settings.snapshot().isEnabled else { return }
+                        self.executeRadialMenuAction(item.action, device: owner)
+                    }
+                )
+            } else {
+                dismissActiveRadialMenu(resetHeldState: false)
             }
         default:
             break
@@ -130,19 +170,58 @@ extension InputEngine {
     }
 
     func cancelRadialMenuIfOwned(by owner: ManagedDeviceKey) {
-        guard radialMenuOwner == owner else { return }
+        if radialMenuOwner == owner {
+            dismissActiveRadialMenu()
+        }
+        if pendingRadialMenuAction?.owner == owner {
+            pendingRadialMenuAction = nil
+        }
+    }
 
-        stopRadialMenuUIUpdateTimer(flush: true)
-        if owner.kind == .mouse {
+    /// Cancels the current presentation without executing its selected action.
+    /// Used by disconnect, disable, linked-mode transitions, and engine stop.
+    func dismissActiveRadialMenu(
+        resetHeldState: Bool = true,
+        afterPresentationApplied: (@Sendable () -> Void)? = nil
+    ) {
+        guard let owner = radialMenuOwner else {
+            stopRadialMenuUIUpdateTimer()
             stopRadialMenuCursorTracking()
-            mouseMode.radialMenuButtonHeld = false
-        } else {
-            mouseController.showCursor()
+            radialMenuActivationOwner = nil
+            radialMenuActiveConfiguration = nil
+            radialMenuHapticTracker.end()
+            afterPresentationApplied?()
+            return
         }
 
+        stopRadialMenuUIUpdateTimer()
+        stopRadialMenuCursorTracking()
+        if resetHeldState {
+            setRadialMenuHeld(false, for: owner)
+        }
+        if owner.kind != .mouse {
+            mouseController.showCursor()
+        }
         radialMenuOwner = nil
+        radialMenuActivationOwner = nil
+        radialMenuActiveConfiguration = nil
         radialMenuHapticTracker.end()
-        onRadialMenuHide?(nil)
+        radialMenuLock.withLock { radialMenuAccumulator = .zero }
+        publishRadialMenuPresentation(
+            .hide,
+            afterApplied: afterPresentationApplied
+        )
+    }
+
+    private func setRadialMenuHeld(_ held: Bool, for owner: ManagedDeviceKey) {
+        switch owner.kind {
+        case .sense:
+            senseDevices[owner.id]?.mode.radialMenuButtonHeld = held
+        case .joyCon:
+            joyConDevices[owner.id]?.mode.radialMenuButtonHeld = held
+        case .mouse:
+            mouseMode.radialMenuButtonHeld = held
+        }
     }
 
     // MARK: - Radial Menu Cursor Tracking (Mouse)
@@ -167,7 +246,9 @@ extension InputEngine {
                 self.radialMenuAccumulator = CGPoint(x: dx, y: dy)
             }
 
-            self.onRadialMenuSetPosition?(CGPoint(x: dx, y: dy))
+            self.publishRadialMenuPresentation(
+                .setPosition(offset: CGPoint(x: dx, y: dy))
+            )
         }
         timer.resume()
         radialMenuCursorPollTimer = timer
@@ -191,35 +272,46 @@ extension InputEngine {
             let delta = self.radialMenuPendingDelta
             guard delta != .zero else { return }
             self.radialMenuPendingDelta = .zero
-            self.onRadialMenuUpdate?(delta)
+            self.publishRadialMenuPresentation(.update(delta: delta))
         }
         timer.resume()
         radialMenuUIUpdateTimer = timer
     }
 
-    func stopRadialMenuUIUpdateTimer(flush: Bool = false) {
-        if flush {
-            let delta = radialMenuPendingDelta
-            radialMenuPendingDelta = .zero
-            if delta != .zero {
-                onRadialMenuUpdate?(delta)
-            }
-        } else {
-            radialMenuPendingDelta = .zero
-        }
-
+    func stopRadialMenuUIUpdateTimer() {
+        radialMenuPendingDelta = .zero
         radialMenuUIUpdateTimer?.cancel()
         radialMenuUIUpdateTimer = nil
     }
 
     private func currentCursorPositionQuartz() -> CGPoint? {
-        CGEvent(source: nil)?.location
+        radialMenuCursorPositionProvider()
+    }
+
+    /// Presentation acknowledgements provide a non-blocking ordering barrier:
+    /// an action selected from the menu is posted only after AppKit has hidden
+    /// the overlay. The continuation always returns to engineQueue.
+    private func publishRadialMenuPresentation(
+        _ event: RadialMenuPresentationEvent,
+        afterApplied: (@Sendable () -> Void)? = nil
+    ) {
+        guard let onRadialMenuPresentation else {
+            afterApplied?()
+            return
+        }
+        guard let afterApplied else {
+            onRadialMenuPresentation(event, nil)
+            return
+        }
+        onRadialMenuPresentation(event, { [weak self] in
+            self?.engineQueueAsync(afterApplied)
+        })
     }
 
     // MARK: - Radial Menu
 
     private func calculateRadialMenuSelection() -> RadialMenuItem? {
-        let config = settings.snapshot().radialMenuConfiguration
+        guard let config = radialMenuActiveConfiguration else { return nil }
         let accumulator = radialMenuLock.withLock { radialMenuAccumulator }
         switch RadialMenuGeometry.resolve(offset: accumulator, configuration: config).selection {
         case .inner(let index):

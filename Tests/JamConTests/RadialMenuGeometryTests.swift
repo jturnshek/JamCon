@@ -3,6 +3,35 @@ import CoreGraphics
 @testable import JamCon
 
 final class RadialMenuGeometryTests: XCTestCase {
+    @MainActor
+    func testOverlayUsesCurrentSpaceRatherThanJoiningEverySpace() {
+        let behavior = RadialMenuWindowController.overlayCollectionBehavior
+
+        XCTAssertTrue(behavior.contains(.moveToActiveSpace))
+        XCTAssertTrue(behavior.contains(.fullScreenAuxiliary))
+        XCTAssertTrue(behavior.contains(.stationary))
+        XCTAssertFalse(behavior.contains(.canJoinAllSpaces))
+    }
+
+    @MainActor
+    func testOverlayWindowIsRecreatedAfterEveryDismissal() {
+        let state = RadialMenuState()
+        let controller = RadialMenuWindowController(state: state)
+
+        XCTAssertTrue(controller.hasAllocatedWindow)
+        controller.hide()
+        XCTAssertFalse(controller.hasAllocatedWindow)
+
+        for iteration in 0..<20 {
+            controller.show(
+                at: CGPoint(x: 200 + iteration, y: 200 + iteration)
+            )
+            XCTAssertTrue(controller.hasAllocatedWindow)
+            controller.hide()
+            XCTAssertFalse(controller.hasAllocatedWindow)
+        }
+    }
+
     func testArrowMenuDirectionsMatchVisualOrder() {
         let configuration = RadialMenuConfiguration.arrowKeys
 

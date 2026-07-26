@@ -155,12 +155,22 @@ extension InputEngine {
 
         // Handle gyro mode actions (radial menu for mouse)
         if actions.pressIsGyroMode {
-            g502xButtonPressStates[idx] = ButtonPressState(actions: actions, device: deviceOwner, control: button.rawValue)
+            let state = ButtonPressState(
+                actions: actions,
+                device: deviceOwner,
+                control: button.rawValue
+            )
+            g502xButtonPressStates[idx] = state
             switch actions.press {
             case .radialMenu:
                 JamLog.debug(.g502x, "Opening radial menu (button=\(button))")
                 let owner = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
-                beginRadialMenu(owner: owner, pointerStyle: .systemCursor, modeState: &mouseMode)
+                beginRadialMenu(
+                    owner: owner,
+                    activationOwner: state.pressOwner,
+                    pointerStyle: .systemCursor,
+                    modeState: &mouseMode
+                )
             case .drag, .scroll:
                 // These don't make sense for mouse (it already has native cursor/scroll)
                 // but we handle them for consistency
@@ -210,7 +220,12 @@ extension InputEngine {
 
         // Check for gyro mode button release
         if let state = g502xButtonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(owner: owner, action: state.actions.press, modeState: &mouseMode)
+            handleGyroModeRelease(
+                owner: owner,
+                activationOwner: state.pressOwner,
+                action: state.actions.press,
+                modeState: &mouseMode
+            )
             g502xButtonPressStates[idx] = nil
             return
         }
@@ -218,7 +233,12 @@ extension InputEngine {
         // Also check current mapping for gyro modes
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(owner: owner, action: actions.press, modeState: &mouseMode)
+            handleGyroModeRelease(
+                owner: owner,
+                activationOwner: nil,
+                action: actions.press,
+                modeState: &mouseMode
+            )
             return
         }
 

@@ -812,36 +812,65 @@ final class AppState: ObservableObject {
             }
         }
 
-        engine.onRadialMenuShow = { [weak self] position, configuration, pointerStyle in
-            Task { @MainActor in
-                guard let self else { return }
-                let screenPosition = DisplayCoordinateConverter.appKitScreenPoint(fromQuartz: position)
-                if self.radialMenuWindowController == nil {
-                    self.radialMenuWindowController = RadialMenuWindowController(state: self.radialMenuState)
+        engine.onRadialMenuPresentation = { [weak self] event, didApply in
+            // InputEngine emits from one serial queue. Dispatching every event
+            // onto the main queue through the same FIFO preserves show/update/
+            // hide order even while a Space animation keeps the UI busy.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    didApply?()
+                    return
                 }
-                self.radialMenuState.show(at: screenPosition, configuration: configuration, pointerStyle: pointerStyle)
-                self.radialMenuWindowController?.show(at: screenPosition)
+                self.applyRadialMenuPresentation(
+                    event,
+                    didApply: didApply
+                )
             }
         }
+    }
 
-        engine.onRadialMenuHide = { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.radialMenuState.hide()
-                self.radialMenuWindowController?.hide()
+    private func applyRadialMenuPresentation(
+        _ event: RadialMenuPresentationEvent,
+        didApply: (@Sendable () -> Void)?
+    ) {
+        switch event {
+        case .show(let position, let configuration, let pointerStyle):
+            let screenPosition = DisplayCoordinateConverter.appKitScreenPoint(
+                fromQuartz: position
+            )
+            if radialMenuWindowController == nil {
+                radialMenuWindowController = RadialMenuWindowController(
+                    state: radialMenuState
+                )
             }
-        }
+            radialMenuState.show(
+                at: screenPosition,
+                configuration: configuration,
+                pointerStyle: pointerStyle
+            )
+            radialMenuWindowController?.show(at: screenPosition)
+            didApply?()
 
-        engine.onRadialMenuUpdate = { [weak self] delta in
-            Task { @MainActor in
-                self?.radialMenuState.updateFromDelta(dx: delta.x, dy: delta.y)
+        case .hide:
+            radialMenuState.hide()
+            if let radialMenuWindowController {
+                // Destroying the inactive overlay here leaves it on the source
+                // Space. The next press creates a fresh window on whichever
+                // Space is active then.
+                radialMenuWindowController.hide(
+                    afterDismissal: didApply
+                )
+            } else {
+                didApply?()
             }
-        }
 
-        engine.onRadialMenuSetPosition = { [weak self] offset in
-            Task { @MainActor in
-                self?.radialMenuState.setAbsolutePosition(dx: offset.x, dy: offset.y)
-            }
+        case .update(let delta):
+            radialMenuState.updateFromDelta(dx: delta.x, dy: delta.y)
+            didApply?()
+
+        case .setPosition(let offset):
+            radialMenuState.setAbsolutePosition(dx: offset.x, dy: offset.y)
+            didApply?()
         }
     }
 

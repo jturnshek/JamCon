@@ -161,6 +161,14 @@ final class InputEngine: @unchecked Sendable {
 
     private var batteryStates: [ManagedDeviceKey: InputDeviceBatteryState] = [:]
     var radialMenuOwner: ManagedDeviceKey?
+    var radialMenuActivationOwner: SyntheticOutputOwner?
+    var radialMenuActiveConfiguration: RadialMenuConfiguration?
+    var pendingRadialMenuAction: PendingRadialMenuAction?
+
+    struct PendingRadialMenuAction: Equatable {
+        let id: UUID
+        let owner: ManagedDeviceKey
+    }
 
     // Linked Joy-Con virtual gamepad state. All mutations stay on engineQueue;
     // CoreHID delivery is handed to a latest-wins asynchronous coordinator.
@@ -193,10 +201,9 @@ final class InputEngine: @unchecked Sendable {
 
     // MARK: - Radial Menu State (Internal)
 
-    var radialMenuPosition: CGPoint = .zero
-    var radialMenuAnchor: CGPoint = .zero
     var radialMenuAccumulator: CGPoint = .zero
     var radialMenuHapticTracker = RadialMenuHapticTracker()
+    let radialMenuCursorPositionProvider: @Sendable () -> CGPoint?
 
     // MARK: - Radial Menu UI Throttling
 
@@ -207,13 +214,14 @@ final class InputEngine: @unchecked Sendable {
 
     // MARK: - Radial Menu UI Callback
 
-    /// Called when radial menu should show/hide - UI can observe this.
-    /// This is the ONLY callback to UI, and it's for radial menu overlay.
-    /// The position is reported in Quartz global display coordinates.
-    var onRadialMenuShow: ((_ position: CGPoint, _ configuration: RadialMenuConfiguration, _ pointerStyle: RadialMenuPointerStyle) -> Void)?
-    var onRadialMenuHide: ((_ selectedItem: RadialMenuItem?) -> Void)?
-    var onRadialMenuUpdate: ((_ delta: CGPoint) -> Void)?
-    var onRadialMenuSetPosition: ((_ offset: CGPoint) -> Void)?  // For mouse: absolute position
+    /// A single ordered event stream is the UI boundary for the radial overlay.
+    /// InputEngine emits it only from engineQueue; AppState preserves that order
+    /// when handing events to the main queue. A non-nil acknowledgement must be
+    /// invoked after AppKit has applied that event.
+    var onRadialMenuPresentation: ((
+        _ event: RadialMenuPresentationEvent,
+        _ didApply: (@Sendable () -> Void)?
+    ) -> Void)?
 
     // MARK: - Connection Callbacks (for UI to update controller list)
 
@@ -312,7 +320,10 @@ final class InputEngine: @unchecked Sendable {
         joyConController: JoyConHIDController? = nil,
         joyCon2Session: (any JoyCon2BLESessioning)? = nil,
         g502xController: G502XHIDController? = nil,
-        virtualGamepadOutput: VirtualGamepadOutputCoordinator? = nil
+        virtualGamepadOutput: VirtualGamepadOutputCoordinator? = nil,
+        radialMenuCursorPositionProvider: @escaping @Sendable () -> CGPoint? = {
+            CGEvent(source: nil)?.location
+        }
     ) {
         self.settings = settings
         self.debugBuffer = debugBuffer
@@ -324,6 +335,7 @@ final class InputEngine: @unchecked Sendable {
         self.actionExecutor = actionExecutor ?? ActionExecutor(mouseController: mouseController)
         self.holdScheduler = holdScheduler
         self.virtualGamepadOutput = virtualGamepadOutput ?? VirtualGamepadOutputCoordinator()
+        self.radialMenuCursorPositionProvider = radialMenuCursorPositionProvider
         self.senseController = senseController
         self.senseBackend = SenseInputDeviceBackend(
             discovery: senseController,
@@ -381,20 +393,12 @@ final class InputEngine: @unchecked Sendable {
         let shouldStop = engineQueueSync {
             guard isRunning else { return false }
             isRunning = false
+            pendingRadialMenuAction = nil
             flushInputHealth(at: CACurrentMediaTime())
             flushGyroResponseHealth(at: CACurrentMediaTime())
 
             if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
-                let owner = radialMenuOwner
-                stopRadialMenuUIUpdateTimer()
-                stopRadialMenuCursorTracking()
-                mouseMode.radialMenuButtonHeld = false
-                if owner?.kind != .mouse {
-                    mouseController.showCursor()
-                }
-                radialMenuOwner = nil
-                radialMenuHapticTracker.end()
-                onRadialMenuHide?(nil)
+                dismissActiveRadialMenu()
             }
 
             // Release all controller-owned actions before discarding their state.
@@ -440,16 +444,9 @@ final class InputEngine: @unchecked Sendable {
         }
 
         engineQueueSync {
+            pendingRadialMenuAction = nil
             if radialMenuOwner != nil || radialMenuCursorPollTimer != nil || radialMenuUIUpdateTimer != nil {
-                let owner = radialMenuOwner
-                stopRadialMenuUIUpdateTimer()
-                stopRadialMenuCursorTracking()
-                if owner?.kind != .mouse {
-                    mouseController.showCursor()
-                }
-                radialMenuOwner = nil
-                radialMenuHapticTracker.end()
-                onRadialMenuHide?(nil)
+                dismissActiveRadialMenu()
             }
 
             for device in senseDevices.values {
@@ -531,6 +528,9 @@ final class InputEngine: @unchecked Sendable {
                 if managed {
                     if senseDevices[id]?.profile != profile {
                         if let existing = senseDevices[id] {
+                            cancelRadialMenuIfOwned(
+                                by: ManagedDeviceKey(kind: .sense, id: id)
+                            )
                             resetSenseTransientState(existing)
                         }
                         senseDevices[id] = SenseDeviceState(id: id, profile: profile)
@@ -546,6 +546,9 @@ final class InputEngine: @unchecked Sendable {
                 if managed {
                     if joyConDevices[id]?.profile != profile {
                         if let existing = joyConDevices[id] {
+                            cancelRadialMenuIfOwned(
+                                by: ManagedDeviceKey(kind: .joyCon, id: id)
+                            )
                             resetJoyConTransientState(existing)
                         }
                         joyConDevices[id] = JoyConDeviceState(id: id, profile: profile)
@@ -562,6 +565,14 @@ final class InputEngine: @unchecked Sendable {
                     if selectedMouseID == id,
                        backendRegistry.backend(for: kind)?.isConnected == true {
                         return
+                    }
+                    if let previousID = selectedMouseID, previousID != id {
+                        let previous = ManagedDeviceKey(
+                            kind: .mouse,
+                            id: previousID
+                        )
+                        cancelRadialMenuIfOwned(by: previous)
+                        actionExecutor.releaseAll(for: previous)
                     }
                     selectedMouseID = id
                     resetG502XButtonStateBaseline()
@@ -627,16 +638,25 @@ final class InputEngine: @unchecked Sendable {
             switch kind {
             case .sense:
                 guard let device = senseDevices[id] else { return false }
+                cancelRadialMenuIfOwned(
+                    by: ManagedDeviceKey(kind: .sense, id: id)
+                )
                 resetSenseTransientState(device)
 
             case .joyCon:
                 guard let device = joyConDevices[id] else { return false }
+                cancelRadialMenuIfOwned(
+                    by: ManagedDeviceKey(kind: .joyCon, id: id)
+                )
                 resetJoyConTransientState(device)
                 device.requiresNeutralAfterReconnect = true
                 device.mapping.calibration.reset(requireNeutralValidation: true)
 
             case .mouse:
                 guard selectedMouseID == id else { return false }
+                cancelRadialMenuIfOwned(
+                    by: ManagedDeviceKey(kind: .mouse, id: id)
+                )
                 resetG502XButtonStateBaseline()
                 actionExecutor.releaseAll(for: ManagedDeviceKey(kind: .mouse, id: id))
             }
@@ -735,7 +755,9 @@ final class InputEngine: @unchecked Sendable {
         case .mouse:
             resetG502XButtonStateBaseline()
             if !event.connected, let id = event.deviceID {
-                actionExecutor.releaseAll(for: ManagedDeviceKey(kind: kind, id: id))
+                let key = ManagedDeviceKey(kind: kind, id: id)
+                cancelRadialMenuIfOwned(by: key)
+                actionExecutor.releaseAll(for: key)
             }
         }
 

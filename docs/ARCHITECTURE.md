@@ -44,9 +44,18 @@
 - IOKitSenseHIDTransport: Sense discovery and stable physical identity only. JamCon intentionally does not open Sense HID devices because either raw-open mode terminates their Bluetooth session on macOS.
 - IOKitJoyConHIDTransport: low-level Joy-Con discovery and exclusive input registration.
 - IOKitG502XHIDTransport: low-level Logitech discovery, non-exclusive per-interface input registration, and HID++ feature/output writes. A physical G502 can expose several HID interfaces, which the controller groups under one stable identity before activating only the selected mouse.
-- InputEngine: unified processing for gyro, buttons, and radial menu. Radial
-  selection boundary changes route a best-effort haptic effect back through
-  the owning physical backend without blocking the engine queue.
+- InputEngine: unified processing for gyro, buttons, and radial menu. Each
+  radial gesture captures its initiating control and configuration until
+  release, and all presentation changes cross to the main actor as one ordered
+  event stream. A selected action waits for the main actor to acknowledge that
+  AppKit has dismissed the overlay. Selection boundary changes route a
+  best-effort haptic effect back through the owning physical backend without
+  blocking the engine queue.
+- RadialMenuWindowController: owns a click-through overlay on the current
+  Space. Dismissal destroys the NSWindow, and the next presentation creates a
+  fresh window on the then-active Space. This preserves the native “leave it
+  behind” transition while preventing a stale inactive window from remaining
+  assigned to a previous desktop.
 - GyroProcessor: gyro to mouse translation, smoothing, and bias estimation.
 - MouseController: CGEvent-based mouse/keyboard output.
 - SettingsStore: thread-safe settings bridge from UI to engine.

@@ -9,6 +9,19 @@ enum RadialMenuPointerStyle: Equatable, Sendable {
     case systemCursor
 }
 
+/// Ordered presentation events emitted by InputEngine's serial queue and
+/// consumed by AppState on the main queue.
+enum RadialMenuPresentationEvent: Equatable, Sendable {
+    case show(
+        position: CGPoint,
+        configuration: RadialMenuConfiguration,
+        pointerStyle: RadialMenuPointerStyle
+    )
+    case hide
+    case update(delta: CGPoint)
+    case setPosition(offset: CGPoint)
+}
+
 // MARK: - Radial Menu Action
 
 /// Actions that can be triggered by selecting a radial menu item

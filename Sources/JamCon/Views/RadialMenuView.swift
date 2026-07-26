@@ -440,9 +440,17 @@ private struct RadialMenuSlicesShape: Shape {
 /// Manages the floating window that displays the radial menu
 @MainActor
 class RadialMenuWindowController {
+    static let overlayCollectionBehavior: NSWindow.CollectionBehavior = [
+        .moveToActiveSpace,
+        .fullScreenAuxiliary,
+        .stationary,
+    ]
+
     private var window: NSWindow?
     private var hostingView: NSHostingView<RadialMenuView>?
     private let state: RadialMenuState
+
+    var hasAllocatedWindow: Bool { window != nil }
 
     /// Current menu size from state (dynamic based on configuration)
     private var menuSize: CGFloat { state.menuSize }
@@ -470,14 +478,21 @@ class RadialMenuWindowController {
         window.level = .floating
         window.hasShadow = false  // SwiftUI view handles shadow
         window.ignoresMouseEvents = true  // Click-through
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .stationary]
+        window.collectionBehavior = Self.overlayCollectionBehavior
         window.contentView = hostingView
 
         self.window = window
     }
 
     func show(at position: CGPoint) {
-        guard let window = window, let hostingView = hostingView else { return }
+        // A new NSWindow is deliberately created after every dismissal. A
+        // click-through inactive window cannot reliably migrate itself between
+        // Spaces, while a newly created window naturally belongs to the Space
+        // that is active when the user presses the radial button.
+        if window == nil {
+            setupWindow()
+        }
+        guard let window, let hostingView else { return }
 
         // Update window size to match current configuration
         let size = menuSize
@@ -489,8 +504,16 @@ class RadialMenuWindowController {
         window.orderFront(nil)
     }
 
-    func hide() {
-        window?.orderOut(nil)
+    func hide(afterDismissal completion: (@Sendable () -> Void)? = nil) {
+        guard let window else {
+            completion?()
+            return
+        }
+        window.orderOut(nil)
+        window.contentView = nil
+        self.window = nil
+        hostingView = nil
+        completion?()
     }
 
     func updatePosition(_ position: CGPoint) {

@@ -77,6 +77,10 @@ Supported Joy-Cons give one light haptic acknowledgement when radial selection
 enters a segment, crosses to a different segment, or returns to the deadzone.
 Haptics are best-effort and never delay cursor input.
 
+The radial overlay belongs to the current macOS Space. Space-changing actions
+leave it behind, and the next button press creates a fresh overlay on the
+destination desktop.
+
 ## Multiple devices
 
 JamCon lets you manage multiple supported devices at once:

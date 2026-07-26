@@ -139,7 +139,6 @@ extension InputEngine {
                 dy: dy,
                 cursorEnabled: cursorEnabled,
                 hasDragMapping: buttonProfile.hasDragMapping,
-                configuration: s.radialMenuConfiguration,
                 modeState: device.mode
             )
         }
@@ -268,14 +267,24 @@ extension InputEngine {
 
         // Handle gyro mode actions immediately
         if actions.pressIsGyroMode {
-            device.buttonPressStates[idx] = ButtonPressState(actions: actions, device: owner, control: button.rawValue)
+            let state = ButtonPressState(
+                actions: actions,
+                device: owner,
+                control: button.rawValue
+            )
+            device.buttonPressStates[idx] = state
             switch actions.press {
             case .drag:
                 device.mode.dragButtonHeld = true
             case .scroll:
                 device.mode.scrollButtonHeld = true
             case .radialMenu:
-                beginRadialMenu(owner: owner, pointerStyle: .ghostCursor, modeState: &device.mode)
+                beginRadialMenu(
+                    owner: owner,
+                    activationOwner: state.pressOwner,
+                    pointerStyle: .ghostCursor,
+                    modeState: &device.mode
+                )
             default:
                 break
             }
@@ -323,7 +332,12 @@ extension InputEngine {
         // Release the action that was active when the physical button went down,
         // even if the user edited its mapping while holding it.
         if let state = device.buttonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(owner: owner, action: state.actions.press, modeState: &device.mode)
+            handleGyroModeRelease(
+                owner: owner,
+                activationOwner: state.pressOwner,
+                action: state.actions.press,
+                modeState: &device.mode
+            )
             device.buttonPressStates[idx] = nil
             return
         }
@@ -331,7 +345,12 @@ extension InputEngine {
         // A primed press has no stored state; retain the mapping fallback for it.
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(owner: owner, action: actions.press, modeState: &device.mode)
+            handleGyroModeRelease(
+                owner: owner,
+                activationOwner: nil,
+                action: actions.press,
+                modeState: &device.mode
+            )
             return
         }
 

@@ -91,17 +91,9 @@ extension InputEngine {
             return
         }
 
-        guard let motion = report.motion.latest else {
-            JamLog.errorThrottled(
-                .joyCon,
-                key: "input.missing-motion.\(report.deviceID)",
-                interval: 2,
-                "Dropping Joy-Con cursor frame without motion data"
-            )
-            return
-        }
-
-        // 1. Process Joy-Con buttons
+        // Process buttons before requiring an IMU sample. Joy-Con 2 can emit
+        // valid control-only frames briefly during startup or motion recovery;
+        // dropping one of those could otherwise lose a radial release edge.
         if device.hasPrimedButtonState {
             processJoyConButtonActions(
                 owner: owner,
@@ -118,6 +110,16 @@ extension InputEngine {
                 mapping: device.mapping
             )
             device.hasPrimedButtonState = true
+        }
+
+        guard let motion = report.motion.latest else {
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "input.missing-motion.\(report.deviceID)",
+                interval: 2,
+                "Skipping Joy-Con cursor processing for a control-only frame"
+            )
+            return
         }
 
         // 2. Process gyro through unified pipeline. The decoder exposes all
@@ -164,7 +166,6 @@ extension InputEngine {
                 dy: dy,
                 cursorEnabled: cursorEnabled,
                 hasDragMapping: buttonProfile.hasDragMapping,
-                configuration: s.radialMenuConfiguration,
                 modeState: device.mode
             )
         }
@@ -266,14 +267,24 @@ extension InputEngine {
 
         // Handle gyro mode actions immediately
         if actions.pressIsGyroMode {
-            device.buttonPressStates[idx] = ButtonPressState(actions: actions, device: owner, control: button.rawValue)
+            let state = ButtonPressState(
+                actions: actions,
+                device: owner,
+                control: button.rawValue
+            )
+            device.buttonPressStates[idx] = state
             switch actions.press {
             case .drag:
                 device.mode.dragButtonHeld = true
             case .scroll:
                 device.mode.scrollButtonHeld = true
             case .radialMenu:
-                beginRadialMenu(owner: owner, pointerStyle: .ghostCursor, modeState: &device.mode)
+                beginRadialMenu(
+                    owner: owner,
+                    activationOwner: state.pressOwner,
+                    pointerStyle: .ghostCursor,
+                    modeState: &device.mode
+                )
             default:
                 break
             }
@@ -318,14 +329,24 @@ extension InputEngine {
         device.holdTimers[idx] = nil
 
         if let state = device.buttonPressStates[idx], state.actions.pressIsGyroMode {
-            handleGyroModeRelease(owner: owner, action: state.actions.press, modeState: &device.mode)
+            handleGyroModeRelease(
+                owner: owner,
+                activationOwner: state.pressOwner,
+                action: state.actions.press,
+                modeState: &device.mode
+            )
             device.buttonPressStates[idx] = nil
             return
         }
 
         let actions = mappingProfile.actions(for: button)
         if actions.pressIsGyroMode {
-            handleGyroModeRelease(owner: owner, action: actions.press, modeState: &device.mode)
+            handleGyroModeRelease(
+                owner: owner,
+                activationOwner: nil,
+                action: actions.press,
+                modeState: &device.mode
+            )
             return
         }
 
