@@ -101,6 +101,46 @@ struct JoyCon2BLECadenceEstimator: Sendable {
     }
 }
 
+/// Converts Joy-Con 2's common-report terminal voltage into a stable,
+/// deliberately coarse state-of-charge estimate. The controller does not
+/// expose a coulomb-counted percentage, so a short median rejects report
+/// jitter and the result is rounded to 5% steps.
+struct JoyCon2BLEBatteryEstimator: Sendable {
+    private static let emptyMillivolts = 3_200
+    private static let fullMillivolts = 3_702
+    private static let minimumSamples = 9
+    private static let sampleCapacity = 31
+
+    private var recentMillivolts: [Int] = []
+    private(set) var reading: InputDeviceBatteryState?
+
+    mutating func record(bytes: [UInt8]) -> InputDeviceBatteryState? {
+        guard let voltage = JoyCon2BLEProtocol.batteryVoltageMillivolts(from: bytes)
+        else {
+            return reading
+        }
+        recentMillivolts.append(voltage)
+        if recentMillivolts.count > Self.sampleCapacity {
+            recentMillivolts.removeFirst(recentMillivolts.count - Self.sampleCapacity)
+        }
+        guard recentMillivolts.count >= Self.minimumSamples else { return nil }
+
+        let sorted = recentMillivolts.sorted()
+        let median = sorted[sorted.count / 2]
+        let span = Self.fullMillivolts - Self.emptyMillivolts
+        let clamped = min(Self.fullMillivolts, max(Self.emptyMillivolts, median))
+        let rawPercentage = Double(clamped - Self.emptyMillivolts) * 100 / Double(span)
+        let quantized = min(100, max(5, Int((rawPercentage / 5).rounded()) * 5))
+        reading = InputDeviceBatteryState(
+            percentage: quantized,
+            isEstimated: true,
+            voltageMillivolts: median,
+            isCharging: JoyCon2BLEProtocol.isCharging(from: bytes)
+        )
+        return reading
+    }
+}
+
 enum JoyCon2BLEProtocol {
     static let nintendoVendorID: UInt16 = 0x057E
     static let rightProductID: UInt16 = 0x2066
@@ -124,6 +164,7 @@ enum JoyCon2BLEProtocol {
     static let reportRateDescriptorUUID = "679D5510-5A24-4DEE-9557-95DF80486ECB"
     static let commandUUID = "649D4AC9-8EB7-4E6C-AF44-1EA54FE5F005"
     static let responseUUID = "C765A961-D9D8-4D36-A20A-5315B111836A"
+    static let batteryVoltageOffset = 0x1F
 
     // Buttons + analog stick + IMU. Do not enable the optical sensor, current
     // telemetry, magnetometer, or unknown feature bits on JamCon's input path.
@@ -149,6 +190,23 @@ enum JoyCon2BLEProtocol {
         0x09, 0x91, 0x01, 0x07, 0x00, 0x08, 0x00, 0x00,
         0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ])
+
+    /// Nintendo's short, built-in "button click" vibration. This command is
+    /// available over the same BLE command characteristic as setup and does
+    /// not require enabling the separate raw-vibration stream.
+    static let selectionHaptic = Data([
+        0x0A, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00,
+        0x03, 0x00, 0x00, 0x00,
+    ])
+
+    /// Stops a built-in vibration sample. Ending the click shortly after it
+    /// begins gives radial selection a softer acknowledgement without relying
+    /// on the still-provisional raw Joy-Con 2 rumble amplitude encoding.
+    static let stopHaptic = Data([
+        0x0A, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+    ])
+    static let selectionHapticDuration: TimeInterval = 0.024
 
     /// Responses echo the command byte and subcommand. Byte one is the
     /// controller-level status (0x01 success, 0x00 failure).
@@ -262,6 +320,28 @@ enum JoyCon2BLEProtocol {
             && sample.gyroY == 0
             && sample.gyroZ == 0
         return isZeroFilled ? nil : sample
+    }
+
+    /// Millivolts at bytes 0x1F...0x20 of common BLE input report 0x05.
+    /// Broad plausibility bounds reject malformed/control-only buffers while
+    /// leaving state-of-charge clamping to the estimator.
+    static func batteryVoltageMillivolts(from bytes: [UInt8]) -> Int? {
+        guard bytes.count > batteryVoltageOffset + 1 else { return nil }
+        let voltage = Int(bytes[batteryVoltageOffset])
+            | (Int(bytes[batteryVoltageOffset + 1]) << 8)
+        guard (2_500...4_500).contains(voltage) else { return nil }
+        return voltage
+    }
+
+    /// The common report's top two status bits are zero while externally
+    /// powered/charging and three while running wirelessly.
+    static func isCharging(from bytes: [UInt8]) -> Bool? {
+        guard bytes.indices.contains(7) else { return nil }
+        switch bytes[7] >> 6 {
+        case 0: return true
+        case 3: return false
+        default: return nil
+        }
     }
 
     /// Produces the established Joy-Con family control layout consumed by

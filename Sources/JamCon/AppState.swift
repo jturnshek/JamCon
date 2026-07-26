@@ -89,8 +89,9 @@ final class AppState: ObservableObject {
     /// Accessibility permission
     @Published var hasAccessibilityPermission: Bool = AXIsProcessTrusted()
 
-    /// Battery level (polled periodically)
+    /// Lowest battery reading among connected managed controllers.
     @Published var batteryLevel: Int = 0
+    @Published var batteryLevelIsEstimated: Bool = false
 
     // MARK: - Settings (UI bindings that write to SettingsStore)
 
@@ -496,6 +497,7 @@ final class AppState: ObservableObject {
             }
             if !isConnected {
                 batteryLevel = 0
+                batteryLevelIsEstimated = false
             }
             return
         }
@@ -794,9 +796,10 @@ final class AppState: ObservableObject {
             }
         }
 
-        engine.onBatteryLevelChanged = { [weak self] level in
+        engine.onBatteryLevelChanged = { [weak self] state in
             Task { @MainActor in
-                self?.batteryLevel = level
+                self?.batteryLevel = state?.percentage ?? 0
+                self?.batteryLevelIsEstimated = state?.isEstimated ?? false
             }
         }
 

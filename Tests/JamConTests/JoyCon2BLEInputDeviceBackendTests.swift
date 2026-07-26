@@ -223,6 +223,31 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         )
     }
 
+    func testJoyCon2LeftUsesPhysicallyValidatedCursorAxes() {
+        let original = GyroRemapper.remap(
+            rawX: 100,
+            rawY: 200,
+            rawZ: 300,
+            controllerKind: .joyCon,
+            isLeft: true
+        )
+        let joyCon2 = GyroRemapper.remap(
+            rawX: 100,
+            rawY: 200,
+            rawZ: 300,
+            controllerKind: .joyCon,
+            isLeft: true,
+            profileVariant: .joyCon2
+        )
+
+        XCTAssertEqual(original.pitch, -200)
+        XCTAssertEqual(original.yaw, 300)
+        XCTAssertEqual(original.roll, 100)
+        XCTAssertEqual(joyCon2.pitch, 100)
+        XCTAssertEqual(joyCon2.yaw, 300)
+        XCTAssertEqual(joyCon2.roll, 200)
+    }
+
     func testAdvertisementDecoderRecognizesJoyCon2Identity() {
         var data = Data(repeating: 0, count: 13)
         data[5] = 0x7E
@@ -430,6 +455,44 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
             12
         )
         XCTAssertNil(JoyCon2BLEConnectionPolicy.compatible.coreBluetoothIntervalOverride)
+        XCTAssertEqual(
+            Array(JoyCon2BLEProtocol.selectionHaptic),
+            [
+                0x0A, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00,
+                0x03, 0x00, 0x00, 0x00,
+            ]
+        )
+        XCTAssertEqual(
+            Array(JoyCon2BLEProtocol.stopHaptic),
+            [
+                0x0A, 0x91, 0x01, 0x02, 0x00, 0x04, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+            ]
+        )
+        XCTAssertEqual(JoyCon2BLEProtocol.selectionHapticDuration, 0.024)
+    }
+
+    func testBatteryEstimatorUsesSmoothedVoltageAndRejectsInvalidReports() throws {
+        var estimator = JoyCon2BLEBatteryEstimator()
+        var report = [UInt8](repeating: 0, count: 0x3F)
+        report[7] = 0xC0
+        report[0x1F] = 0xF4
+        report[0x20] = 0x0C // 3316 mV
+
+        for _ in 0..<8 {
+            XCTAssertNil(estimator.record(bytes: report))
+        }
+        let reading = try XCTUnwrap(estimator.record(bytes: report))
+        XCTAssertEqual(reading.percentage, 25)
+        XCTAssertEqual(reading.voltageMillivolts, 3_316)
+        XCTAssertEqual(reading.isCharging, false)
+        XCTAssertTrue(reading.isEstimated)
+
+        var malformed = report
+        malformed[0x1F] = 0
+        malformed[0x20] = 0
+        XCTAssertEqual(estimator.record(bytes: malformed), reading)
+        XCTAssertNil(JoyCon2BLEProtocol.batteryVoltageMillivolts(from: [0, 1]))
     }
 
     func testCadenceEstimatorAdaptsBetweenSupportedRatesAndIgnoresStalls() {
@@ -596,6 +659,43 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         harness.stop()
     }
 
+    func testBackendPublishesBatteryAndRoutesSelectionHapticWhenReady() throws {
+        let session = FakeJoyCon2BLESession()
+        let backend = JoyCon2BLEInputDeviceBackend(session: session)
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
+
+        let device = JoyCon2BLEDevice(
+            id: "joycon2.ble:battery-haptic",
+            name: "Joy-Con 2 (R)",
+            productID: JoyCon2BLEProtocol.rightProductID,
+            handedness: .right
+        )
+        session.emitDiscovered(device)
+        XCTAssertTrue(harness.setDeviceManaged(id: device.id, kind: .joyCon, managed: true))
+        XCTAssertFalse(backend.playHaptic(deviceID: device.id, effect: .selection))
+        session.emitReady(deviceID: device.id)
+        XCTAssertTrue(backend.playHaptic(deviceID: device.id, effect: .selection))
+        XCTAssertEqual(session.hapticCallsCount, 1)
+
+        var report = [UInt8](repeating: 0, count: 0x3F)
+        report[7] = 0xC0
+        report[0x1F] = 0xF4
+        report[0x20] = 0x0C
+        for index in 0..<9 {
+            session.emitInput(
+                deviceID: device.id,
+                bytes: report,
+                timestamp: 42 + Double(index) / 66
+            )
+        }
+
+        let battery = try XCTUnwrap(harness.inputFramesSnapshot().last?.battery)
+        XCTAssertEqual(battery.percentage, 25)
+        XCTAssertEqual(battery.voltageMillivolts, 3_316)
+        harness.stop()
+    }
+
     private func writeInt16(_ value: Int16, to bytes: inout [UInt8], at offset: Int) {
         let raw = UInt16(bitPattern: value)
         bytes[offset] = UInt8(raw & 0xFF)
@@ -631,6 +731,7 @@ private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Send
     private var connectCalls: [String] = []
     private var disconnectCalls: [String] = []
     private var reinitializeCalls: [String] = []
+    private var hapticCalls: [(String, InputDeviceHapticEffect)] = []
 
     func start(handlers: JoyCon2BLESessionHandlers) -> Bool {
         locked { self.handlers = handlers }
@@ -651,6 +752,14 @@ private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Send
 
     func reinitialize(deviceID: String) {
         locked { reinitializeCalls.append(deviceID) }
+    }
+
+    func playHaptic(deviceID: String, effect: InputDeviceHapticEffect) {
+        locked { hapticCalls.append((deviceID, effect)) }
+    }
+
+    var hapticCallsCount: Int {
+        locked { hapticCalls.count }
     }
 
     func connectCallsSnapshot() -> [String] {

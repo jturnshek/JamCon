@@ -51,6 +51,7 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         var retryNotBefore: TimeInterval = 0
         var reconnectScheduled = false
         var stickCalibration: InputDeviceAnalogStickCalibration?
+        var lastHapticTimestamp: TimeInterval = 0
 
         init(device: JoyCon2BLEDevice, peripheral: CBPeripheral) {
             self.device = device
@@ -157,6 +158,62 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
             )
             self.beginInitialization(context)
         }
+    }
+
+    func playHaptic(deviceID: String, effect: InputDeviceHapticEffect) {
+        queue.async { [weak self] in
+            guard let self,
+                  self.started,
+                  let context = self.contextsByID[deviceID],
+                  context.ready else { return }
+
+            let now = CACurrentMediaTime()
+            // Segment boundaries can jitter around an exact angle. The engine
+            // already suppresses unchanged selections; this final transport
+            // guard prevents an unpleasant burst if selection alternates.
+            guard now - context.lastHapticTimestamp >= 0.03 else { return }
+            context.lastHapticTimestamp = now
+
+            let payload: Data
+            switch effect {
+            case .selection:
+                payload = JoyCon2BLEProtocol.selectionHaptic
+            }
+            guard self.writeHapticPayload(payload, context: context) else { return }
+
+            let deviceID = context.device.id
+            self.queue.asyncAfter(
+                deadline: .now() + JoyCon2BLEProtocol.selectionHapticDuration
+            ) { [weak self, weak context] in
+                guard let self,
+                      let context,
+                      self.started,
+                      self.contextsByID[deviceID] === context,
+                      context.ready else { return }
+                _ = self.writeHapticPayload(
+                    JoyCon2BLEProtocol.stopHaptic,
+                    context: context
+                )
+            }
+        }
+    }
+
+    @discardableResult
+    private func writeHapticPayload(_ payload: Data, context: Context) -> Bool {
+        guard context.ready,
+              let characteristic = context.command else { return false }
+
+        let writeType: CBCharacteristicWriteType
+        if characteristic.properties.contains(.writeWithoutResponse) {
+            guard context.peripheral.canSendWriteWithoutResponse else { return false }
+            writeType = .withoutResponse
+        } else if characteristic.properties.contains(.write) {
+            writeType = .withResponse
+        } else {
+            return false
+        }
+        context.peripheral.writeValue(payload, for: characteristic, type: writeType)
+        return true
     }
 
     private func requestConnection(_ context: Context) {

@@ -73,6 +73,10 @@ contains Mission Control, New Tab, previous Space, reverse Tab, Close
 Window/Tab, Play/Pause, next Space, and Reopen Closed Tab. **Reset to Default**
 restores this complete two-ring layout.
 
+Supported Joy-Cons give one light haptic acknowledgement when radial selection
+enters a segment, crosses to a different segment, or returns to the deadzone.
+Haptics are best-effort and never delay cursor input.
+
 ## Multiple devices
 
 JamCon lets you manage multiple supported devices at once:
@@ -95,11 +99,12 @@ publishes neutral input after a short report timeout, then resumes only when
 both halves are fresh, preventing a silent controller from leaving a stuck
 stick or button.
 
-Linked-gamepad mode currently exposes standard sticks, buttons, D-pad, and
-triggers. Rumble requested by a game and virtual battery state are not
-forwarded. Physical Joy-Con motion still powers JamCon's cursor mode, but
-linked mode does not yet expose gyro/accelerometer data onward to games as
-virtual controller motion.
+Linked-gamepad mode exposes standard sticks, buttons, D-pad, and triggers.
+Virtual motion is intentionally omitted. Rumble requested by a game is not yet
+forwarded; JamCon will use reports observed in the first entitled acceptance
+run to add a recognized output protocol rather than a custom format games do
+not send. Physical battery remains visible in JamCon but is not forwarded as
+virtual battery state.
 
 See [Linked Joy-Con Virtual Gamepad](VIRTUAL_GAMEPAD.md) for the control layout,
 reconnect behavior, performance design, current entitlement status, and

@@ -11,14 +11,15 @@ The right Joy-Con 2 (`057E:2066`) has been validated end to end on macOS:
 
 - discovery, management, connection, and reconnect;
 - player LED control and idle connection behavior;
+- voltage-derived battery estimation;
 - independent Joy-Con 2 button mappings, including the C button;
 - analog-stick scrolling and radial-menu input;
 - gyro cursor axes, direction, physical scale, filtering, and acceleration; and
 - sustained decoded input at approximately 66 reports/second.
 
 The left Joy-Con 2 (`057E:2067`) shares the discovery, transport, report, and
-profile infrastructure. Its physical cursor orientation should receive its own
-acceptance pass before being described as equally hardware-validated.
+profile infrastructure. Its horizontal cursor direction has been physically
+validated independently from the right-hand profile.
 
 ## User flow
 
@@ -95,6 +96,7 @@ CoreBluetooth delivers the report payload without a USB report-ID byte.
 | `0x04` | 4 | Buttons |
 | `0x0A` | 3 | Left analog stick |
 | `0x0D` | 3 | Right analog stick |
+| `0x1F` | 2 | Battery terminal voltage in millivolts, little-endian |
 | `0x30` | 2 | Accel X |
 | `0x32` | 2 | Accel Y |
 | `0x34` | 2 | Accel Z |
@@ -104,6 +106,13 @@ CoreBluetooth delivers the report payload without a USB report-ID byte.
 
 Motion fields are little-endian signed 16-bit integers. A single zero-filled
 startup report is ignored while the IMU becomes active.
+
+Battery terminal voltage is median-filtered over a short report window, mapped
+from the observed 3200–3702 mV usable range, and rounded to 5% steps. The UI
+prefixes the value with `~` because terminal voltage under load is an estimate,
+not a coulomb-counted state of charge. Implausible voltages are ignored. Status
+bits distinguish the observed wireless state from charging; unknown status
+values remain unspecified rather than guessed.
 
 `JoyCon2BLEProtocol.controlBytes` converts the common button and stick fields to
 the established Joy-Con family layout consumed by application-level mappings.
@@ -166,6 +175,11 @@ For the validated right-hand grip:
 | Horizontal yaw | Z |
 | Roll | Y |
 
+For the left-hand grip, vertical tilt follows raw X, horizontal pointing follows
+raw Z, and wrist roll follows raw Y. This prevents wrist rotation from leaking
+into vertical cursor motion. Both Joy-Con 2 profiles keep the signs and
+permutation observed in their physical orientation tests.
+
 With the physical coefficient fixed, the normal Joy-Con gyro defaults work
 without Joy-Con 2-specific sensitivity tuning. Transport cadence changes must
 not change cursor distance for the same physical motion.
@@ -209,10 +223,21 @@ higher-rate experiment would need either:
 
 Neither experiment is part of the production application.
 
+## Haptics
+
+Radial-menu selection changes use Nintendo's built-in vibration sample `0x03`,
+described by current protocol research as the short button-click effect. It is
+sent on the existing command characteristic after the controller is input
+ready, then stopped after 24 ms to keep the acknowledgement soft. It requires
+no raw-vibration notification stream and is rate-limited at the transport
+boundary. This keeps haptics best-effort and off the input latency path.
+Hardware acceptance should confirm the intended light intensity on each
+Joy-Con 2 firmware revision.
+
 ## Code map
 
 - `Devices/JoyCon2BLEProtocol.swift`: identity, commands, report decoding,
-  physical constants, rate policy, and cadence estimation.
+  battery/cadence estimation, and physical constants.
 - `Devices/JoyCon2BLESession.swift`: CoreBluetooth lifecycle, initialization,
   report-rate request, reconnect policy, and notification delivery.
 - `Devices/JoyCon2BLEInputDeviceBackend.swift`: managed-device state and common

@@ -67,6 +67,9 @@ extension InputEngine {
         guard let device = senseDevices[report.deviceID] else { return }
         let profile = device.profile
         let owner = ManagedDeviceKey(kind: .sense, id: device.id)
+        if let battery = report.battery {
+            setBatteryState(battery, for: owner)
+        }
 
         let mapping = profile.isLeft ? leftMapping : rightMapping
         let buttonProfile = s.senseButtonMappings[profile] ?? .load(for: profile)
@@ -141,13 +144,7 @@ extension InputEngine {
             )
         }
 
-        // 4. Update battery level (from byte 43)
-        if report.bytes.count > SenseHIDProtocol.Offset.battery {
-            let batteryByte = report.bytes[SenseHIDProtocol.Offset.battery]
-            setBatteryLevel(BatteryHelper.level(from: batteryByte), for: owner)
-        }
-
-        // 5. Record to debug buffer with all pipeline stages
+        // 4. Record to debug buffer with all pipeline stages
         if s.debugRecordingEnabled && (s.debugRecordingTargetKind == nil || s.debugRecordingTargetKind == .sense) {
             let engineEndTimestamp = CACurrentMediaTime()
             let normalizedGyro = GyroRemapper.normalize(

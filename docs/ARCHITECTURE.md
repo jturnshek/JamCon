@@ -3,8 +3,11 @@
 ## Input pipeline
 
 1. A concrete InputDeviceBackend receives framework or HID input on its transport thread.
-2. The backend copies any callback-owned bytes, decodes transport timing and motion, and emits an InputDeviceFrame.
-3. InputDeviceBackendRegistry validates the frame's backend identity, stable device identity, finite clocks, motion shape, and declared capabilities before forwarding it to InputEngine's serial queue.
+2. The backend copies any callback-owned bytes, decodes transport timing,
+   motion, and battery state, and emits an InputDeviceFrame.
+3. InputDeviceBackendRegistry validates the frame's backend identity, stable
+   device identity, finite clocks, motion/battery shape, and declared
+   capabilities before forwarding it to InputEngine's serial queue.
 4. InputEngine applies profile settings and application-level button, gyro, scroll, and radial-menu policy.
 5. A linked Joy-Con pair branches before normal JamCon actions into a
    full-resolution combined gamepad state and an asynchronous CoreHID virtual
@@ -25,7 +28,10 @@
 - AppState: central UI state, persists managed devices and profile settings, and mirrors engine callbacks into SwiftUI state.
 - HIDTransport: shared opaque device handles, device properties, transport errors, callback registrations, and stable identity selection used by controller backends.
 - InputDeviceBackend: common contract for backend identity and capabilities, lifecycle, discovery snapshots, backend-supplied handedness, managed-device intent, connection state, lifecycle events, and high-frequency InputDeviceFrame delivery.
-- InputDeviceFrame: allocation-conscious engine handoff containing stable device/backend identity, monotonic timing, copied diagnostic bytes, and either no motion, one IMU sample, or an adapter-owned sample batch.
+- InputDeviceFrame: allocation-conscious engine handoff containing stable
+  device/backend identity, monotonic timing, copied diagnostic bytes, optional
+  backend-decoded battery state, and either no motion, one IMU sample, or an
+  adapter-owned sample batch.
 - InputDeviceBackendRegistry: ordered owner of the active backends. InputEngine uses it for start/stop, device enumeration, management routing, aggregate connection state, lifecycle callbacks, and validated input-frame delivery. The registry only forwards callbacks while its lifecycle is running, so teardown callbacks cannot revive stopped engine state.
 - SenseInputDeviceBackend: owns the complete Sense adapter by combining IOKit identity discovery with Apple's Game Controller session and resolving native left/right input to stable managed-device IDs.
 - JoyConHIDController and G502XHIDController: complete direct-HID backends with device-specific lifecycle, managed-device policy, setup, decoding, and common-frame emission. They revalidate queued activations and only open explicitly managed devices.
@@ -38,7 +44,9 @@
 - IOKitSenseHIDTransport: Sense discovery and stable physical identity only. JamCon intentionally does not open Sense HID devices because either raw-open mode terminates their Bluetooth session on macOS.
 - IOKitJoyConHIDTransport: low-level Joy-Con discovery and exclusive input registration.
 - IOKitG502XHIDTransport: low-level Logitech discovery, non-exclusive per-interface input registration, and HID++ feature/output writes. A physical G502 can expose several HID interfaces, which the controller groups under one stable identity before activating only the selected mouse.
-- InputEngine: unified processing for gyro, buttons, and radial menu.
+- InputEngine: unified processing for gyro, buttons, and radial menu. Radial
+  selection boundary changes route a best-effort haptic effect back through
+  the owning physical backend without blocking the engine queue.
 - GyroProcessor: gyro to mouse translation, smoothing, and bias estimation.
 - MouseController: CGEvent-based mouse/keyboard output.
 - SettingsStore: thread-safe settings bridge from UI to engine.
@@ -56,7 +64,11 @@ Device transport handles, backend descriptors, common frames, decoded reports, s
 
 ## Backend boundary versus product policy
 
-The backend owns facts and mechanics specific to the physical device: framework or HID objects, discovery, stable identity, handedness, transport lifecycle, report validation, timestamps, common motion extraction, and copied raw diagnostic bytes. Shared models must not infer those facts from vendor or product IDs.
+The backend owns facts and mechanics specific to the physical device:
+framework or HID objects, discovery, stable identity, handedness, transport
+lifecycle, report validation, timestamps, common motion/battery extraction,
+physical haptic encoding, and copied raw diagnostic bytes. Shared models must
+not infer those facts from vendor or product IDs.
 
 InputEngine and the settings UI own JamCon behavior layered on those facts: family-specific button/stick layout interpretation, controller profiles, logical mappings, clutch and scroll overrides, radial-menu behavior, gyro tuning, and synthetic output. An explicit InputEngine processor per controller family is intentional product policy rather than a transport leak; a generic physical-control schema should only be introduced when concrete new-device requirements justify it.
 

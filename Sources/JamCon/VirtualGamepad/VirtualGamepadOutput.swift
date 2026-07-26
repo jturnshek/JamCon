@@ -380,7 +380,22 @@ private final class CoreHIDVirtualGamepadDelegate: HIDVirtualDeviceDelegate, @un
         receivedSetReportRequestOfType type: HIDReportType,
         id: HIDReportID?,
         data: Data
-    ) async throws {}
+    ) async throws {
+        // The generic gamepad intentionally does not claim an unproven rumble
+        // protocol. Preserve bounded diagnostics for the first entitled
+        // acceptance run so any report macOS or a game actually sends can be
+        // identified and implemented against evidence.
+        let bytes = data.prefix(32)
+            .map { String(format: "%02X", $0) }
+            .joined(separator: " ")
+        JamLog.infoThrottled(
+            .engine,
+            key: "virtual-gamepad.set-report",
+            interval: 0.25,
+            "Virtual gamepad output request type=\(String(describing: type)) "
+                + "id=\(String(describing: id)) length=\(data.count) bytes=\(bytes)"
+        )
+    }
 
     func hidVirtualDevice(
         _ device: HIDVirtualDevice,

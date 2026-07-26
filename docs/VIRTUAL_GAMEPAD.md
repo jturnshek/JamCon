@@ -32,12 +32,21 @@ gamepad pipeline. Their normal JamCon cursor, scrolling, button mappings, and
 radial-menu actions do not also fire. Turning the mode off restores normal
 JamCon behavior.
 
-The first production version exposes sticks, buttons, D-pad, and triggers.
-Game-requested rumble and controller battery state are not yet bridged through
-the virtual device. The physical Joy-Cons do provide motion, which remains
-available to JamCon's cursor pipeline when linked mode is off; linked mode does
-not yet expose that gyro/accelerometer data onward to games as virtual
-controller motion.
+The virtual controller deliberately exposes only sticks, buttons, D-pad, and
+triggers. It does not expose gyro/accelerometer data: cross-game motion support
+on macOS is inconsistent, and motion is not required for the intended standard
+gamepad experience. Physical battery readings remain visible in JamCon while
+linked mode is active, using the lower of the two selected controllers, but are
+not advertised as virtual-controller battery state.
+
+Game-requested rumble is not yet bridged through the virtual device. A generic
+HID gamepad does not have one portable motor-output contract that macOS games
+are guaranteed to use. The CoreHID delegate records bounded diagnostics for
+any real output reports received during the first entitled acceptance run;
+that evidence will determine whether the descriptor can safely add a
+recognized output contract. JamCon does not advertise a guessed rumble report
+that games would silently ignore. Physical Joy-Cons can still provide light
+radial-segment haptics in normal JamCon mode.
 
 ## Control layout
 

@@ -159,7 +159,7 @@ final class InputEngine: @unchecked Sendable {
     var joyConDevices: [String: JoyConDeviceState] = [:]    // controllerID -> state
     var selectedMouseID: String?
 
-    private var batteryLevels: [ManagedDeviceKey: Int] = [:]
+    private var batteryStates: [ManagedDeviceKey: InputDeviceBatteryState] = [:]
     var radialMenuOwner: ManagedDeviceKey?
 
     // Linked Joy-Con virtual gamepad state. All mutations stay on engineQueue;
@@ -196,6 +196,7 @@ final class InputEngine: @unchecked Sendable {
     var radialMenuPosition: CGPoint = .zero
     var radialMenuAnchor: CGPoint = .zero
     var radialMenuAccumulator: CGPoint = .zero
+    var radialMenuHapticTracker = RadialMenuHapticTracker()
 
     // MARK: - Radial Menu UI Throttling
 
@@ -223,47 +224,73 @@ final class InputEngine: @unchecked Sendable {
         _ kind: ControllerKind,
         _ deviceID: String?
     ) -> Void)?
-    var onBatteryLevelChanged: ((_ level: Int) -> Void)?
+    var onBatteryLevelChanged: ((_ state: InputDeviceBatteryState?) -> Void)?
     var onVirtualGamepadStatusChanged: ((_ status: VirtualGamepadRuntimeStatus) -> Void)?
 
     // MARK: - Battery Level (thread-safe, polled by UI)
 
     private let batteryLock = OSAllocatedUnfairLock()
-    private var _batteryLevel: Int = 0
+    private var _batteryState: InputDeviceBatteryState?
 
     /// Current battery level (0-100), thread-safe for polling
     var batteryLevel: Int {
-        batteryLock.withLock { _batteryLevel }
+        batteryLock.withLock { _batteryState?.percentage ?? 0 }
     }
 
-    private func updateBatteryLevel(_ level: Int) {
+    private func updateBatteryState(_ state: InputDeviceBatteryState?) {
         let didChange = batteryLock.withLock {
-            if _batteryLevel == level {
+            if _batteryState == state {
                 return false
             }
-            _batteryLevel = level
+            _batteryState = state
             return true
         }
         if didChange {
-            onBatteryLevelChanged?(level)
+            onBatteryLevelChanged?(state)
         }
     }
 
-    func setBatteryLevel(_ level: Int, for device: ManagedDeviceKey) {
-        guard batteryLevels[device] != level else { return }
-        batteryLevels[device] = level
-        updateBatteryFromLevels()
+    func setBatteryState(_ state: InputDeviceBatteryState, for device: ManagedDeviceKey) {
+        let previous = batteryStates[device]
+        batteryStates[device] = state
+        guard previous?.percentage != state.percentage
+                || previous?.isEstimated != state.isEstimated
+                || previous?.isCharging != state.isCharging else {
+            return
+        }
+        updateAggregateBatteryState()
     }
 
     func clearBatteryLevel(for device: ManagedDeviceKey) {
-        if batteryLevels.removeValue(forKey: device) != nil {
-            updateBatteryFromLevels()
+        if batteryStates.removeValue(forKey: device) != nil {
+            updateAggregateBatteryState()
         }
     }
 
-    private func updateBatteryFromLevels() {
-        let aggregate = batteryLevels.values.min() ?? 0
-        updateBatteryLevel(aggregate)
+    private func updateAggregateBatteryState() {
+        let minimum = batteryStates.values.map(\.percentage).min()
+        let aggregate = minimum.flatMap { percentage -> InputDeviceBatteryState? in
+            let candidates = batteryStates.values.filter {
+                $0.percentage == percentage
+            }
+            guard let basis = candidates.first else { return nil }
+            let chargingValues = candidates.compactMap(\.isCharging)
+            let isCharging: Bool?
+            if chargingValues.contains(true) {
+                isCharging = true
+            } else if !chargingValues.isEmpty {
+                isCharging = false
+            } else {
+                isCharging = nil
+            }
+            return InputDeviceBatteryState(
+                percentage: percentage,
+                isEstimated: candidates.contains(where: \.isEstimated),
+                voltageMillivolts: basis.voltageMillivolts,
+                isCharging: isCharging
+            )
+        }
+        updateBatteryState(aggregate)
     }
 
     // MARK: - Running State
@@ -366,6 +393,7 @@ final class InputEngine: @unchecked Sendable {
                     mouseController.showCursor()
                 }
                 radialMenuOwner = nil
+                radialMenuHapticTracker.end()
                 onRadialMenuHide?(nil)
             }
 
@@ -382,7 +410,8 @@ final class InputEngine: @unchecked Sendable {
 
             senseDevices.removeAll(keepingCapacity: true)
             joyConDevices.removeAll(keepingCapacity: true)
-            batteryLevels.removeAll(keepingCapacity: true)
+            batteryStates.removeAll(keepingCapacity: true)
+            updateBatteryState(nil)
             selectedMouseID = nil
             resetLinkedGamepadRuntime(status: .disabled)
 
@@ -419,6 +448,7 @@ final class InputEngine: @unchecked Sendable {
                     mouseController.showCursor()
                 }
                 radialMenuOwner = nil
+                radialMenuHapticTracker.end()
                 onRadialMenuHide?(nil)
             }
 

@@ -29,6 +29,7 @@ struct InputDeviceCapabilities: OptionSet, Hashable, Codable, Sendable {
     static let analogStick = InputDeviceCapabilities(rawValue: 1 << 1)
     static let motion = InputDeviceCapabilities(rawValue: 1 << 2)
     static let battery = InputDeviceCapabilities(rawValue: 1 << 3)
+    static let haptics = InputDeviceCapabilities(rawValue: 1 << 4)
 }
 
 /// Low-frequency metadata used for registry routing and diagnostics. The
@@ -106,6 +107,33 @@ struct InputDeviceAnalogStickCalibration: Equatable, Sendable {
     let negativeRangeY: UInt16
 }
 
+/// A backend-decoded battery reading. Voltage-derived and coarse state
+/// readings are explicitly marked estimated so the UI does not imply
+/// coulomb-counter precision that the controller does not provide.
+struct InputDeviceBatteryState: Equatable, Sendable {
+    let percentage: Int
+    let isEstimated: Bool
+    let voltageMillivolts: Int?
+    let isCharging: Bool?
+
+    init(
+        percentage: Int,
+        isEstimated: Bool,
+        voltageMillivolts: Int? = nil,
+        isCharging: Bool? = nil
+    ) {
+        self.percentage = percentage
+        self.isEstimated = isEstimated
+        self.voltageMillivolts = voltageMillivolts
+        self.isCharging = isCharging
+    }
+}
+
+enum InputDeviceHapticEffect: Equatable, Sendable {
+    /// A short, quiet boundary acknowledgement suitable for UI navigation.
+    case selection
+}
+
 /// Common high-frequency handoff from every device adapter to the engine.
 /// Raw bytes remain available for device-specific control mapping and bounded
 /// diagnostics, while identity, timing, and motion have one shared contract.
@@ -126,6 +154,8 @@ struct InputDeviceFrame: Equatable, Sendable {
     let motionSampleRate: Double?
     /// Optional factory/user calibration supplied by the physical device.
     let analogStickCalibration: InputDeviceAnalogStickCalibration?
+    /// Optional backend-decoded battery state.
+    let battery: InputDeviceBatteryState?
 
     var length: Int { bytes.count }
 
@@ -141,7 +171,8 @@ struct InputDeviceFrame: Equatable, Sendable {
         timestampSource: InputTimestampSource,
         gyroScale: Double? = nil,
         motionSampleRate: Double? = nil,
-        analogStickCalibration: InputDeviceAnalogStickCalibration? = nil
+        analogStickCalibration: InputDeviceAnalogStickCalibration? = nil,
+        battery: InputDeviceBatteryState? = nil
     ) {
         self.backend = backend
         self.deviceID = deviceID
@@ -155,6 +186,7 @@ struct InputDeviceFrame: Equatable, Sendable {
         self.gyroScale = gyroScale
         self.motionSampleRate = motionSampleRate
         self.analogStickCalibration = analogStickCalibration
+        self.battery = battery
     }
 }
 
@@ -171,6 +203,9 @@ enum InputDeviceFrameContractViolation: String, Equatable, Sendable {
     case invalidMotionSampleRate
     case emptyMotionBatch
     case undeclaredMotion
+    case invalidBatteryPercentage
+    case invalidBatteryVoltage
+    case undeclaredBattery
 
     var message: String {
         switch self {
@@ -192,6 +227,12 @@ enum InputDeviceFrameContractViolation: String, Equatable, Sendable {
             return "the frame contains an empty motion batch"
         case .undeclaredMotion:
             return "the frame contains motion from a backend that does not declare motion capability"
+        case .invalidBatteryPercentage:
+            return "the battery percentage is outside 0...100"
+        case .invalidBatteryVoltage:
+            return "the optional battery voltage is not positive"
+        case .undeclaredBattery:
+            return "the frame contains battery data from a backend that does not declare battery capability"
         }
     }
 }
@@ -251,6 +292,18 @@ extension InputDeviceFrame {
                 return .undeclaredMotion
             }
         }
+        if let battery {
+            guard (0...100).contains(battery.percentage) else {
+                return .invalidBatteryPercentage
+            }
+            if let voltageMillivolts = battery.voltageMillivolts,
+               voltageMillivolts <= 0 {
+                return .invalidBatteryVoltage
+            }
+            guard expectedBackend.capabilities.contains(.battery) else {
+                return .undeclaredBattery
+            }
+        }
         return nil
     }
 }
@@ -300,12 +353,19 @@ protocol InputDeviceBackend: AnyObject, Sendable {
     func setDeviceManaged(id: String, managed: Bool)
     @discardableResult
     func restartDevice(id: String) -> Bool
+    @discardableResult
+    func playHaptic(deviceID: String, effect: InputDeviceHapticEffect) -> Bool
 
     /// Replaces the backend's lifecycle observers. Configure before start.
     func setEventHandlers(_ handlers: InputDeviceBackendEventHandlers)
 }
 
 extension InputDeviceBackend {
+    @discardableResult
+    func playHaptic(deviceID _: String, effect _: InputDeviceHapticEffect) -> Bool {
+        false
+    }
+
     /// Default transport restart for backends without an in-place reset.
     /// Concrete backends can preserve their physical connection by overriding
     /// this requirement.
@@ -502,6 +562,21 @@ final class InputDeviceBackendRegistry: @unchecked Sendable {
         return true
     }
 
+    /// Routes a best-effort physical haptic effect without blocking the
+    /// engine's input queue.
+    @discardableResult
+    func playHaptic(
+        id: String,
+        kind: ControllerKind,
+        effect: InputDeviceHapticEffect
+    ) -> Bool {
+        guard let backend = resolveBackend(id: id, kind: kind),
+              backend.backendDescriptor.capabilities.contains(.haptics) else {
+            return false
+        }
+        return backend.playHaptic(deviceID: id, effect: effect)
+    }
+
     private func resolveBackend(
         id: String,
         kind: ControllerKind
@@ -536,7 +611,7 @@ extension JoyConHIDController: InputDeviceBackend {
             id: .joyConDirectHID,
             kind: .joyCon,
             displayName: "Joy-Con Direct HID",
-            capabilities: [.buttons, .analogStick, .motion, .battery]
+            capabilities: [.buttons, .analogStick, .motion, .battery, .haptics]
         )
     }
 
@@ -562,7 +637,8 @@ extension JoyConHIDController: InputDeviceBackend {
                 receivedTimestamp: report.receivedTimestamp,
                 inputTimestamp: report.inputTimestamp,
                 timestampSource: report.timestampSource,
-                analogStickCalibration: report.analogStickCalibration
+                analogStickCalibration: report.analogStickCalibration,
+                battery: JoyConHIDProtocol.batteryState(from: report.bytes)
             ))
         }
     }

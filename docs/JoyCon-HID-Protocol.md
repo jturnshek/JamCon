@@ -24,6 +24,11 @@ The setup reports use incrementing packet counters and a neutral rumble
 payload. If the calibration reply is lost, JamCon retries that request up to
 three times at 250 ms intervals, then keeps the conservative fallback range.
 
+For radial-menu boundary feedback, output report `0x10` sends a low-amplitude
+320/160 Hz HD Rumble pulse and a neutral stop 40 ms later. Both actuator slots
+are populated so the same transport code works for either Joy-Con side. Haptic
+delivery is asynchronous and cancelled when the device closes.
+
 ## Report Structure
 
 - Report length: 49 bytes
@@ -114,3 +119,6 @@ Upper nibble of byte 2 encodes battery level:
 - 0x6: Medium
 - 0x4: Low
 - 0x2: Critical
+
+These are charge bands, not exact percentages. JamCon displays representative
+values with an approximation marker.

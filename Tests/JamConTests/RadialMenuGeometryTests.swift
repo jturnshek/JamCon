@@ -103,6 +103,22 @@ final class RadialMenuGeometryTests: XCTestCase {
         )
     }
 
+    func testHapticTrackerAcknowledgesOnlySelectionBoundaryCrossings() {
+        var tracker = RadialMenuHapticTracker()
+
+        XCTAssertFalse(tracker.update(nil))
+        tracker.begin()
+        XCTAssertFalse(tracker.update(nil))
+        XCTAssertTrue(tracker.update(.inner(0)))
+        XCTAssertFalse(tracker.update(.inner(0)))
+        XCTAssertTrue(tracker.update(.inner(1)))
+        XCTAssertTrue(tracker.update(.outer(1)))
+        XCTAssertTrue(tracker.update(nil))
+        XCTAssertFalse(tracker.update(nil))
+        tracker.end()
+        XCTAssertFalse(tracker.update(.inner(0)))
+    }
+
     private func resolve(
         _ point: CGPoint,
         _ configuration: RadialMenuConfiguration

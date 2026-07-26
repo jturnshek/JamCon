@@ -9,7 +9,11 @@ struct MenuBarView: View {
             if appState.isConnected {
                 Text(appState.controllerName)
                 if appState.batteryLevel > 0 {
-                    Text("Battery: \(appState.batteryLevel)%")
+                    Text(
+                        "Battery: "
+                            + (appState.batteryLevelIsEstimated ? "~" : "")
+                            + "\(appState.batteryLevel)%"
+                    )
                 }
             } else {
                 Text(appState.controllerName)

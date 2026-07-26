@@ -14,6 +14,7 @@ extension InputEngine {
 
         modeState.radialMenuButtonHeld = true
         radialMenuLock.withLock { radialMenuAccumulator = .zero }
+        radialMenuHapticTracker.begin()
         radialMenuPendingDelta = .zero
 
         guard let position = currentCursorPositionQuartz() else { return }
@@ -74,13 +75,22 @@ extension InputEngine {
             let scale = max(0.1, configuration.radialMovementScale)
             let scaledDx = dx * scale
             let scaledDy = dy * scale
-            radialMenuLock.withLock {
+            let selection = radialMenuLock.withLock {
                 radialMenuAccumulator.x += scaledDx
                 radialMenuAccumulator.y += scaledDy
-                radialMenuAccumulator = RadialMenuGeometry.resolve(
+                let result = RadialMenuGeometry.resolve(
                     offset: radialMenuAccumulator,
                     configuration: configuration
-                ).clampedOffset
+                )
+                radialMenuAccumulator = result.clampedOffset
+                return result.selection
+            }
+            if radialMenuHapticTracker.update(selection) {
+                _ = backendRegistry.playHaptic(
+                    id: owner.id,
+                    kind: owner.kind,
+                    effect: .selection
+                )
             }
             radialMenuPendingDelta.x += dx
             radialMenuPendingDelta.y += dy
@@ -100,6 +110,7 @@ extension InputEngine {
                 stopRadialMenuCursorTracking()
             }
             radialMenuOwner = nil
+            radialMenuHapticTracker.end()
             modeState.radialMenuButtonHeld = false
 
             // Determine selected item based on accumulated movement
@@ -130,6 +141,7 @@ extension InputEngine {
         }
 
         radialMenuOwner = nil
+        radialMenuHapticTracker.end()
         onRadialMenuHide?(nil)
     }
 

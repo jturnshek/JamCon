@@ -246,6 +246,28 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             frame(backend: backend.backendDescriptor, motion: .batch([])),
             frame(
                 backend: backend.backendDescriptor,
+                battery: InputDeviceBatteryState(
+                    percentage: -1,
+                    isEstimated: true
+                )
+            ),
+            frame(
+                backend: backend.backendDescriptor,
+                battery: InputDeviceBatteryState(
+                    percentage: 50,
+                    isEstimated: true,
+                    voltageMillivolts: 0
+                )
+            ),
+            frame(
+                backend: backend.backendDescriptor,
+                battery: InputDeviceBatteryState(
+                    percentage: 50,
+                    isEstimated: true
+                )
+            ),
+            frame(
+                backend: backend.backendDescriptor,
                 motion: .single(IMUSample(
                     accelX: 0,
                     accelY: 0,
@@ -261,6 +283,31 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         backend.emitInputFrame(valid)
 
         XCTAssertEqual(harness.inputFramesSnapshot(), [valid])
+        harness.stop()
+    }
+
+    func testRegistryAcceptsBatteryWhenBackendDeclaresCapability() {
+        let descriptor = InputDeviceBackendDescriptor(
+            id: InputDeviceBackendID(rawValue: "test.battery"),
+            kind: .joyCon,
+            displayName: "Battery Test",
+            capabilities: [.battery]
+        )
+        let backend = FakeInputDeviceBackend(descriptor: descriptor)
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
+        let batteryFrame = frame(
+            backend: descriptor,
+            battery: InputDeviceBatteryState(
+                percentage: 25,
+                isEstimated: true,
+                voltageMillivolts: 3_316
+            )
+        )
+
+        backend.emitInputFrame(batteryFrame)
+
+        XCTAssertEqual(harness.inputFramesSnapshot(), [batteryFrame])
         harness.stop()
     }
 
@@ -382,7 +429,8 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
         receivedTimestamp: TimeInterval = 10,
         inputTimestamp: TimeInterval? = nil,
         gyroScale: Double? = nil,
-        motionSampleRate: Double? = nil
+        motionSampleRate: Double? = nil,
+        battery: InputDeviceBatteryState? = nil
     ) -> InputDeviceFrame {
         InputDeviceFrame(
             backend: backend,
@@ -395,7 +443,8 @@ final class InputDeviceBackendRegistryTests: XCTestCase {
             inputTimestamp: inputTimestamp,
             timestampSource: .hostReceipt,
             gyroScale: gyroScale,
-            motionSampleRate: motionSampleRate
+            motionSampleRate: motionSampleRate,
+            battery: battery
         )
     }
 }

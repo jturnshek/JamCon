@@ -28,6 +28,31 @@ enum JoyConHIDProtocol {
         negativeRangeY: 1_600
     )
 
+    /// Original Joy-Con reports only four documented charge bands, not an
+    /// exact state of charge. Representative percentages keep the existing UI
+    /// useful while `isEstimated` makes that limitation explicit.
+    static func batteryState(from bytes: [UInt8]) -> InputDeviceBatteryState? {
+        guard bytes.indices.contains(Offset.battery) else { return nil }
+        let level = (bytes[Offset.battery] >> 4) & 0x0F
+        let percentage: Int
+        switch level {
+        case 0x08:
+            percentage = 100
+        case 0x06:
+            percentage = 60
+        case 0x04:
+            percentage = 30
+        case 0x02:
+            percentage = 10
+        default:
+            return nil
+        }
+        return InputDeviceBatteryState(
+            percentage: percentage,
+            isEstimated: true
+        )
+    }
+
     // MARK: - IMU Constants
 
     /// Gyroscope scale factor (raw units to degrees/second)

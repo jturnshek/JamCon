@@ -33,13 +33,14 @@ struct ConnectionIndicator: View {
 /// Battery level indicator with icon and percentage
 struct BatteryIndicator: View {
     let level: Int  // 0-100
+    var isEstimated: Bool = false
 
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: BatteryHelper.icon(for: level))
                 .foregroundColor(BatteryHelper.color(for: level))
                 .font(.system(size: 14))
-            Text("\(level)%")
+            Text("\(isEstimated ? "~" : "")\(level)%")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(.secondary)
         }

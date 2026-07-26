@@ -31,7 +31,10 @@ struct TabHeader<TrailingContent: View>: View {
                 trailing
             }
             if appState.isConnected && appState.batteryLevel > 0 {
-                BatteryIndicator(level: appState.batteryLevel)
+                BatteryIndicator(
+                    level: appState.batteryLevel,
+                    isEstimated: appState.batteryLevelIsEstimated
+                )
             }
             ConnectionIndicator(isConnected: appState.isConnected)
         }

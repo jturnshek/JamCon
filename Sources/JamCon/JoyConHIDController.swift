@@ -5,6 +5,7 @@ import os.lock
 private enum JoyCon {
     enum OutputType: UInt8 {
         case subcommand = 0x01
+        case rumble = 0x10
     }
 
     enum InputMode: UInt8 {
@@ -111,6 +112,8 @@ final class JoyConHIDController: @unchecked Sendable {
         var stickCalibration = JoyConHIDProtocol.conservativeStickCalibration
         var calibrationRequestAttempts = 0
         var calibrationRetryWorkItem: DispatchWorkItem?
+        var hapticStopWorkItem: DispatchWorkItem?
+        var lastHapticTimestamp: TimeInterval = 0
         var hasLoadedFactoryCalibration = false
 
         init(controller: DiscoveredJoyCon, registration: any HIDInputRegistration) {
@@ -454,6 +457,16 @@ final class JoyConHIDController: @unchecked Sendable {
         }
     }
 
+    @discardableResult
+    func playHaptic(deviceID: String, effect: InputDeviceHapticEffect) -> Bool {
+        let isActive = stateLock.withLock { $0.activeControllers[deviceID] != nil }
+        guard isActive else { return false }
+        performHIDOperation { [weak self] in
+            self?.playHapticOnHIDThread(deviceID: deviceID, effect: effect)
+        }
+        return true
+    }
+
     private func activateController(_ controller: DiscoveredJoyCon) {
         assertOnHIDThread()
         let controllerID = controller.id
@@ -543,6 +556,8 @@ final class JoyConHIDController: @unchecked Sendable {
         assertOnHIDThread()
         active.calibrationRetryWorkItem?.cancel()
         active.calibrationRetryWorkItem = nil
+        active.hapticStopWorkItem?.cancel()
+        active.hapticStopWorkItem = nil
         if case let .failure(error) = transport.closeInput(active.registration) {
             JamLog.errorThrottled(
                 .joyCon,
@@ -717,6 +732,70 @@ final class JoyConHIDController: @unchecked Sendable {
             deadline: .now() + Self.calibrationRetryDelay,
             execute: retry
         )
+    }
+
+    private func playHapticOnHIDThread(
+        deviceID: String,
+        effect: InputDeviceHapticEffect
+    ) {
+        assertOnHIDThread()
+        guard let active = stateLock.withLock({ $0.activeControllers[deviceID] }) else {
+            return
+        }
+
+        let now = CACurrentMediaTime()
+        guard now - active.lastHapticTimestamp >= 0.03 else { return }
+        active.lastHapticTimestamp = now
+        active.hapticStopWorkItem?.cancel()
+        let pulse: [UInt8]
+        switch effect {
+        case .selection:
+            // 320 Hz / 160 Hz, about 3% amplitude. Both slots are populated
+            // because an individual Joy-Con may be used on either side.
+            pulse = [0x00, 0x15, 0x40, 0x44]
+        }
+        sendRumble(pulse, to: active)
+
+        let stop = DispatchWorkItem { [weak self, weak active] in
+            guard let self, let active else { return }
+            self.performHIDOperation { [weak self, weak active] in
+                guard let self, let active else { return }
+                let isCurrent = self.stateLock.withLock {
+                    $0.activeControllers[deviceID] === active
+                }
+                guard isCurrent else { return }
+                active.hapticStopWorkItem = nil
+                self.sendRumble([0x00, 0x01, 0x40, 0x40], to: active)
+            }
+        }
+        active.hapticStopWorkItem = stop
+        DispatchQueue.global(qos: .userInteractive).asyncAfter(
+            deadline: .now() + 0.032,
+            execute: stop
+        )
+    }
+
+    private func sendRumble(_ actuator: [UInt8], to active: ActiveController) {
+        precondition(actuator.count == 4)
+        var report = [UInt8](repeating: 0, count: 10)
+        report[0] = JoyCon.OutputType.rumble.rawValue
+        report[1] = active.outputPacketCounter
+        active.outputPacketCounter = (active.outputPacketCounter &+ 1) & 0x0F
+        report.replaceSubrange(2...5, with: actuator)
+        report.replaceSubrange(6...9, with: actuator)
+
+        if case let .failure(error) = transport.sendOutputReport(
+            report,
+            reportID: JoyCon.OutputType.rumble.rawValue,
+            using: active.registration
+        ) {
+            JamLog.errorThrottled(
+                .joyCon,
+                key: "haptic.\(active.controller.id)",
+                interval: 2,
+                "Joy-Con haptic output failed: \(error)"
+            )
+        }
     }
 
     private func sendSubcommand(

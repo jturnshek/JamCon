@@ -41,6 +41,9 @@ extension InputEngine {
         guard let device = joyConDevices[report.deviceID] else { return }
         let profile = device.profile
         let owner = ManagedDeviceKey(kind: .joyCon, id: device.id)
+        if let battery = report.battery {
+            setBatteryState(battery, for: owner)
+        }
 
         let controlBytes: [UInt8]
         if report.backend.id == .joyCon2BluetoothLE {
@@ -85,9 +88,6 @@ extension InputEngine {
                 settings: s,
                 engineStartTimestamp: engineStartTimestamp
             )
-            if report.backend.id == .joyConDirectHID, report.bytes.count > 2 {
-                setBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]), for: owner)
-            }
             return
         }
 
@@ -174,11 +174,6 @@ extension InputEngine {
            cursorEnabled,
            device.mapping.calibration.isCalibrated {
             processJoyConJoystickScroll(bytes: controlBytes, mapping: device.mapping, settings: s)
-        }
-
-        // 4. Update battery level (Joy-Con battery is in byte 2, upper nibble)
-        if report.backend.id == .joyConDirectHID, report.bytes.count > 2 {
-            setBatteryLevel(BatteryHelper.joyConLevel(from: report.bytes[2]), for: owner)
         }
 
         // 4. Record to debug buffer with all pipeline stages

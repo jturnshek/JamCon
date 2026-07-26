@@ -52,7 +52,10 @@ enum GyroRemapper {
                 if !isLeft {
                     return (pitch: rawX, yaw: rawZ, roll: rawY)
                 }
-                return (pitch: -mapped.pitch, yaw: -mapped.yaw, roll: mapped.roll)
+                // Physical Joy-Con 2 Left validation puts intended tilt on raw
+                // X, horizontal pointing on raw Z, and wrist roll on raw Y.
+                // Its horizontal sign matches the validated right-hand grip.
+                return (pitch: rawX, yaw: rawZ, roll: rawY)
             }
             return mapped
 

@@ -54,6 +54,37 @@ final class JoyConControllerLifecycleTests: XCTestCase {
         XCTAssertEqual(transport.count(of: .close("right")), 1)
     }
 
+    func testSelectionHapticSendsLightPulseThenNeutralStop() {
+        let device = FakeJoyConHIDDevice(label: "right")
+        let transport = FakeJoyConHIDTransport(devices: [
+            device: properties(serial: "joy-right"),
+        ])
+        let controller = JoyConHIDController(transport: transport)
+        let activated = expectation(description: "controller activated")
+        controller.onConnectionChange = { connected, _, _ in
+            if connected { activated.fulfill() }
+        }
+
+        XCTAssertTrue(controller.start())
+        controller.setControllerManaged(id: "joy-right", managed: true)
+        wait(for: [activated], timeout: 1)
+        XCTAssertTrue(controller.playHaptic(deviceID: "joy-right", effect: .selection))
+        XCTAssertTrue(waitUntil {
+            transport.outputReports.filter { $0.reportID == 0x10 }.count == 2
+        })
+
+        let haptics = transport.outputReports.filter { $0.reportID == 0x10 }
+        XCTAssertEqual(
+            haptics[0].data,
+            [0x10, 0x05, 0x00, 0x15, 0x40, 0x44, 0x00, 0x15, 0x40, 0x44]
+        )
+        XCTAssertEqual(
+            haptics[1].data,
+            [0x10, 0x06, 0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40]
+        )
+        controller.stop()
+    }
+
     func testRemovalQueuedBeforeActivationCannotOpenStaleDevice() {
         let device = FakeJoyConHIDDevice(label: "right")
         let transport = FakeJoyConHIDTransport(devices: [device: properties(serial: "joy-right")])

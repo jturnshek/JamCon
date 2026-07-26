@@ -5,6 +5,30 @@ enum RadialMenuSelection: Equatable {
     case outer(Int)
 }
 
+/// Tracks radial boundary crossings without coupling geometry to a device
+/// transport. Entering a segment, changing segments, and returning to the
+/// deadzone each produce one acknowledgement.
+struct RadialMenuHapticTracker {
+    private(set) var isActive = false
+    private var selection: RadialMenuSelection?
+
+    mutating func begin() {
+        isActive = true
+        selection = nil
+    }
+
+    mutating func update(_ next: RadialMenuSelection?) -> Bool {
+        guard isActive, next != selection else { return false }
+        selection = next
+        return true
+    }
+
+    mutating func end() {
+        isActive = false
+        selection = nil
+    }
+}
+
 struct RadialMenuGeometryResult: Equatable {
     let clampedOffset: CGPoint
     let selection: RadialMenuSelection?

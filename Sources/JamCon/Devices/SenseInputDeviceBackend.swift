@@ -197,7 +197,16 @@ final class SenseInputDeviceBackend: InputDeviceBackend, @unchecked Sendable {
             timestamp: frame.timestamp,
             receivedTimestamp: frame.timestamp,
             inputTimestamp: nil,
-            timestampSource: .hostReceipt
+            timestampSource: .hostReceipt,
+            battery: frame.bytes.indices.contains(SenseHIDProtocol.Offset.battery)
+                && frame.bytes[SenseHIDProtocol.Offset.battery] > 0
+                ? InputDeviceBatteryState(
+                    percentage: SenseHIDProtocol.batteryPercentage(
+                        from: frame.bytes[SenseHIDProtocol.Offset.battery]
+                    ),
+                    isEstimated: false
+                )
+                : nil
         ))
     }
 

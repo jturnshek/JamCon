@@ -37,6 +37,7 @@ protocol JoyCon2BLESessioning: AnyObject, Sendable {
     func connect(deviceID: String)
     func disconnect(deviceID: String)
     func reinitialize(deviceID: String)
+    func playHaptic(deviceID: String, effect: InputDeviceHapticEffect)
 }
 
 final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendable {
@@ -44,7 +45,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
         id: .joyCon2BluetoothLE,
         kind: .joyCon,
         displayName: "Joy-Con 2 Bluetooth LE",
-        capabilities: [.buttons, .analogStick, .motion]
+        capabilities: [.buttons, .analogStick, .motion, .battery, .haptics]
     )
 
     private struct State {
@@ -55,6 +56,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
         var firstReportLogged: Set<String> = []
         var cadenceLogged: Set<String> = []
         var cadenceEstimators: [String: JoyCon2BLECadenceEstimator] = [:]
+        var batteryEstimators: [String: JoyCon2BLEBatteryEstimator] = [:]
         var stickCalibrations: [String: InputDeviceAnalogStickCalibration] = [:]
         var handlers = InputDeviceBackendEventHandlers.none
     }
@@ -112,6 +114,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             state.firstReportLogged.removeAll(keepingCapacity: true)
             state.cadenceLogged.removeAll(keepingCapacity: true)
             state.cadenceEstimators.removeAll(keepingCapacity: true)
+            state.batteryEstimators.removeAll(keepingCapacity: true)
             state.stickCalibrations.removeAll(keepingCapacity: true)
             return devices
         }
@@ -148,6 +151,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             state.firstReportLogged.remove(id)
             state.cadenceLogged.remove(id)
             state.cadenceEstimators.removeValue(forKey: id)
+            state.batteryEstimators.removeValue(forKey: id)
             state.stickCalibrations.removeValue(forKey: id)
             return (false, wasReady ? state.devices[id] : nil, state.handlers)
         }
@@ -177,6 +181,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             state.firstReportLogged.remove(id)
             state.cadenceLogged.remove(id)
             state.cadenceEstimators.removeValue(forKey: id)
+            state.batteryEstimators.removeValue(forKey: id)
             state.stickCalibrations.removeValue(forKey: id)
             return (device, state.handlers, wasReady)
         }
@@ -189,6 +194,18 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             event.handler.connectionChanged(false, event.device.name, event.device.id)
         }
         session.reinitialize(deviceID: id)
+        return true
+    }
+
+    @discardableResult
+    func playHaptic(deviceID: String, effect: InputDeviceHapticEffect) -> Bool {
+        let isReady = locked {
+            $0.started
+                && $0.managedDeviceIDs.contains(deviceID)
+                && $0.readyDeviceIDs.contains(deviceID)
+        }
+        guard isReady else { return false }
+        session.playHaptic(deviceID: deviceID, effect: effect)
         return true
     }
 
@@ -238,6 +255,7 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             state.firstReportLogged.remove(deviceID)
             state.cadenceLogged.remove(deviceID)
             state.cadenceEstimators.removeValue(forKey: deviceID)
+            state.batteryEstimators.removeValue(forKey: deviceID)
             state.stickCalibrations.removeValue(forKey: deviceID)
             return (state.devices[deviceID], state.handlers, wasReady)
         }
@@ -263,7 +281,8 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             logFirstReport: Bool,
             stableCadence: Double?,
             motionSampleRate: Double,
-            stickCalibration: InputDeviceAnalogStickCalibration?
+            stickCalibration: InputDeviceAnalogStickCalibration?,
+            battery: InputDeviceBatteryState?
         )? in
             guard state.started,
                   state.managedDeviceIDs.contains(deviceID),
@@ -275,6 +294,10 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
                 )
             let motionSampleRate = estimator.record(timestamp: receivedTimestamp)
             state.cadenceEstimators[deviceID] = estimator
+            var batteryEstimator = state.batteryEstimators[deviceID]
+                ?? JoyCon2BLEBatteryEstimator()
+            let battery = batteryEstimator.record(bytes: bytes)
+            state.batteryEstimators[deviceID] = batteryEstimator
             let stableCadence = estimator.hasStableEstimate
                 && state.cadenceLogged.insert(deviceID).inserted
                 ? motionSampleRate
@@ -284,7 +307,8 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
                 shouldLog,
                 stableCadence,
                 motionSampleRate,
-                state.stickCalibrations[deviceID]
+                state.stickCalibrations[deviceID],
+                battery
             )
         }
         guard let output else { return }
@@ -327,7 +351,8 @@ final class JoyCon2BLEInputDeviceBackend: InputDeviceBackend, @unchecked Sendabl
             timestampSource: .hostReceipt,
             gyroScale: JoyCon2BLEProtocol.gyroScale,
             motionSampleRate: output.motionSampleRate,
-            analogStickCalibration: output.stickCalibration
+            analogStickCalibration: output.stickCalibration,
+            battery: output.battery
         ))
     }
 
