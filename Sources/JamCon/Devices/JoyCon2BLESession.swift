@@ -97,17 +97,26 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         queue.async { [weak self] in
             guard let self else { return }
             self.started = false
+            self.desiredDeviceIDs.removeAll(keepingCapacity: true)
+            self.handlers = nil
             if self.central.state == .poweredOn {
                 self.central.stopScan()
-                for context in self.contextsByID.values
-                    where context.peripheral.state != .disconnected {
+            }
+            for context in self.contextsByID.values {
+                // Engine stops are also used for system sleep. Keep the
+                // discovered peripheral identity so wake can reconnect it
+                // directly even when the controller does not advertise
+                // again. Only the live GATT state belongs to this run.
+                context.connectionGeneration += 1
+                context.reconnectScheduled = false
+                context.retryNotBefore = 0
+                context.peripheral.delegate = nil
+                self.resetConnectionState(context)
+                if self.central.state == .poweredOn,
+                   context.peripheral.state != .disconnected {
                     self.central.cancelPeripheralConnection(context.peripheral)
                 }
             }
-            self.contextsByID.removeAll(keepingCapacity: true)
-            self.contextIDByPeripheral.removeAll(keepingCapacity: true)
-            self.desiredDeviceIDs.removeAll(keepingCapacity: true)
-            self.handlers = nil
         }
     }
 
@@ -115,7 +124,16 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         queue.async { [weak self] in
             guard let self else { return }
             self.desiredDeviceIDs.insert(deviceID)
-            guard let context = self.contextsByID[deviceID] else { return }
+            guard let context = self.contextsByID[deviceID] else {
+                JamLog.errorThrottled(
+                    .joyCon,
+                    key: "joycon2.connect.missing-context.\(deviceID)",
+                    interval: 5,
+                    "Joy-Con 2 reconnect is waiting for Bluetooth discovery because its peripheral context is missing: \(deviceID)"
+                )
+                self.startScanningIfPossible()
+                return
+            }
             self.requestConnection(context)
         }
     }
@@ -139,8 +157,15 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
         queue.async { [weak self] in
             guard let self,
                   self.started,
-                  self.desiredDeviceIDs.contains(deviceID),
-                  let context = self.contextsByID[deviceID] else { return }
+                  self.desiredDeviceIDs.contains(deviceID) else { return }
+            guard let context = self.contextsByID[deviceID] else {
+                JamLog.error(
+                    .joyCon,
+                    "Cannot reset Joy-Con 2 because its Bluetooth peripheral context is missing: \(deviceID)"
+                )
+                self.startScanningIfPossible()
+                return
+            }
 
             guard context.peripheral.state == .connected,
                   context.command != nil,
@@ -224,7 +249,37 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
             scheduleReconnect(context, delay: context.retryNotBefore - now)
             return
         }
-        guard context.peripheral.state == .disconnected else { return }
+        guard central.state == .poweredOn else {
+            scheduleReconnect(context, delay: 1)
+            return
+        }
+
+        switch context.peripheral.state {
+        case .connected:
+            guard !context.ready else {
+                context.reconnectScheduled = false
+                return
+            }
+            context.connectionGeneration += 1
+            JamLog.info(
+                .joyCon,
+                "Restoring Joy-Con 2 input over the existing Bluetooth connection: \(context.device.name)"
+            )
+            prepareConnectedPeripheral(context)
+            return
+        case .connecting, .disconnecting:
+            // A sleep teardown can still be completing when the wake path
+            // reapplies management. Poll the retained peripheral until
+            // CoreBluetooth either finishes disconnecting or reports the
+            // connection callback.
+            scheduleReconnect(context, delay: 1)
+            return
+        case .disconnected:
+            break
+        @unknown default:
+            scheduleReconnect(context, delay: 1)
+            return
+        }
 
         context.reconnectScheduled = false
         context.connectionGeneration += 1
@@ -323,6 +378,14 @@ final class JoyCon2BLESession: NSObject, JoyCon2BLESessioning, @unchecked Sendab
 
     private func context(for peripheral: CBPeripheral) -> Context? {
         contextIDByPeripheral[peripheral.identifier].flatMap { contextsByID[$0] }
+    }
+
+    private func prepareConnectedPeripheral(_ context: Context) {
+        context.retryNotBefore = 0
+        context.reconnectScheduled = false
+        resetConnectionState(context)
+        context.peripheral.delegate = self
+        context.peripheral.discoverServices([serviceUUID])
     }
 
     private func beginInitialization(_ context: Context) {
@@ -623,6 +686,11 @@ extension JoyCon2BLESession: CBCentralManagerDelegate {
         switch central.state {
         case .poweredOn:
             startScanningIfPossible()
+            for deviceID in desiredDeviceIDs {
+                if let context = contextsByID[deviceID] {
+                    requestConnection(context)
+                }
+            }
         case .unknown, .resetting:
             break
         case .poweredOff:
@@ -664,6 +732,7 @@ extension JoyCon2BLESession: CBCentralManagerDelegate {
             existing.device = device
             if existing.peripheral !== peripheral {
                 existing.peripheral.delegate = nil
+                resetConnectionState(existing)
                 existing.peripheral = peripheral
             }
             contextIDByPeripheral[peripheral.identifier] = id
@@ -685,9 +754,7 @@ extension JoyCon2BLESession: CBCentralManagerDelegate {
         context.retryNotBefore = 0
         context.reconnectScheduled = false
         JamLog.info(.joyCon, "Joy-Con 2 Bluetooth connected: \(context.device.name)")
-        resetConnectionState(context)
-        peripheral.delegate = self
-        peripheral.discoverServices([serviceUUID])
+        prepareConnectedPeripheral(context)
     }
 
     func centralManager(

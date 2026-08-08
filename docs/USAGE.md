@@ -11,9 +11,11 @@
 JamCon connects through the Joy-Con 2 proprietary BLE service; it does not use
 the original Joy-Con HID pairing path.
 
-After the Mac wakes from sleep, the Joy-Con 2 may not resume advertising on its
-own. Hold the controller's sync button until the player lights chase; JamCon
-will reconnect the managed controller without needing to select it again.
+After the Mac wakes from sleep, JamCon reconnects a previously discovered,
+managed Joy-Con 2 directly without waiting for it to advertise again. If macOS
+has discarded the saved Bluetooth peripheral, hold the controller's sync button
+until the player lights chase; JamCon will rediscover it without needing to
+select it again.
 
 ### Canonical one-handed Joy-Con controls
 

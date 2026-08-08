@@ -628,6 +628,37 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
         harness.stop()
     }
 
+    func testBackendReconnectsManagedDeviceAfterRestartWithoutRediscovery() {
+        let session = FakeJoyCon2BLESession()
+        let backend = JoyCon2BLEInputDeviceBackend(session: session)
+        let harness = InputDeviceBackendContractHarness(backend: backend)
+        XCTAssertTrue(harness.start())
+
+        let device = JoyCon2BLEDevice(
+            id: "joycon2.ble:wake-reconnect",
+            name: "Joy-Con 2 (R)",
+            productID: JoyCon2BLEProtocol.rightProductID,
+            handedness: .right
+        )
+        session.emitDiscovered(device)
+        XCTAssertTrue(harness.setDeviceManaged(id: device.id, kind: .joyCon, managed: true))
+        session.emitReady(deviceID: device.id)
+
+        harness.stop()
+        XCTAssertEqual(harness.connectionEventsSnapshot().map(\.connected), [true])
+        XCTAssertFalse(backend.isConnected)
+        XCTAssertEqual(harness.availableDevicesSnapshot(), [device.controllerInfo])
+
+        XCTAssertTrue(harness.start())
+        XCTAssertTrue(harness.setDeviceManaged(id: device.id, kind: .joyCon, managed: true))
+
+        XCTAssertEqual(session.startCallsCount, 2)
+        XCTAssertEqual(session.stopCallsCount, 1)
+        XCTAssertEqual(session.connectCallsSnapshot(), [device.id, device.id])
+        XCTAssertEqual(harness.availableDevicesSnapshot(), [device.controllerInfo])
+        harness.stop()
+    }
+
     func testBackendForwardsControlsWhenIMUDataIsTemporarilyUnavailable() throws {
         let session = FakeJoyCon2BLESession()
         let backend = JoyCon2BLEInputDeviceBackend(session: session)
@@ -728,18 +759,26 @@ final class JoyCon2BLEInputDeviceBackendTests: XCTestCase {
 private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Sendable {
     private let lock = NSLock()
     private var handlers: JoyCon2BLESessionHandlers?
+    private var startCalls = 0
+    private var stopCalls = 0
     private var connectCalls: [String] = []
     private var disconnectCalls: [String] = []
     private var reinitializeCalls: [String] = []
     private var hapticCalls: [(String, InputDeviceHapticEffect)] = []
 
     func start(handlers: JoyCon2BLESessionHandlers) -> Bool {
-        locked { self.handlers = handlers }
+        locked {
+            startCalls += 1
+            self.handlers = handlers
+        }
         return true
     }
 
     func stop() {
-        locked { handlers = nil }
+        locked {
+            stopCalls += 1
+            handlers = nil
+        }
     }
 
     func connect(deviceID: String) {
@@ -760,6 +799,14 @@ private final class FakeJoyCon2BLESession: JoyCon2BLESessioning, @unchecked Send
 
     var hapticCallsCount: Int {
         locked { hapticCalls.count }
+    }
+
+    var startCallsCount: Int {
+        locked { startCalls }
+    }
+
+    var stopCallsCount: Int {
+        locked { stopCalls }
     }
 
     func connectCallsSnapshot() -> [String] {

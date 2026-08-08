@@ -21,9 +21,10 @@ screen open. Joy-Con 2 uses JamCon's custom BLE connection rather than the
 original Joy-Con HID path. Avoid repeatedly reconnecting it in rapid succession:
 the controller can enter a temporary radio cooldown after failed attempts.
 
-If the Mac has just woken from sleep, hold SYNC until the player lights chase.
-JamCon restarts its input engine automatically on wake and reconnects as soon as
-the controller advertises, but the controller may not advertise again by itself.
+After the Mac wakes from sleep, JamCon reuses the previously discovered
+Bluetooth peripheral to reconnect a managed Joy-Con 2 without waiting for a new
+advertisement. If that direct reconnect does not complete, hold SYNC until the
+player lights chase so macOS can rediscover the controller.
 
 ## Collect recent diagnostics
 

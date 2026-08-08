@@ -63,6 +63,14 @@ All CoreBluetooth objects and mutable connection state stay on the dedicated
 `JamCon.JoyCon2.BLE` queue. The backend forwards copied bytes and timestamps
 through the common `InputDeviceFrame` boundary.
 
+Engine shutdown clears live GATT characteristics, notification state, retries,
+and desired connections, but retains discovered peripheral identities for the
+life of the app. System-wake startup can therefore reconnect a managed Joy-Con 2
+directly in the disconnected state, wait for an in-progress disconnect, or
+restore service discovery when CoreBluetooth kept the peripheral connected.
+A fresh advertisement remains the fallback when macOS no longer retains the
+peripheral.
+
 ## Initialization
 
 After service and characteristic discovery, JamCon:
