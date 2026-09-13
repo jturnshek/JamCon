@@ -692,12 +692,10 @@ final class AppState: ObservableObject {
     private func reloadSettingsForConfigurationProfile() {
         let kind = configurationProfile.kind
         let profile = configurationProfile
-        let gyroState = GyroSettingsState.load(for: kind)
-
-        // Update settings store
-        settingsStore.update { s in
-            s.gyroSettings[kind] = gyroState
-        }
+        // The store already contains edits whose debounced disk save is still
+        // pending. Reading defaults here would roll those edits back.
+        let settings = settingsStore.snapshot()
+        let gyroState = settings.gyroSettings[kind] ?? .defaultForKind(kind)
         withApplyingLoadedSettings {
             sensitivity = gyroState.sensitivity
             gyroScale = gyroState.gyroScale
@@ -724,9 +722,7 @@ final class AppState: ObservableObject {
 
             // Cursor control enablement (per profile; default true).
             if profile.kind != .mouse {
-                let enabled = settingsStore.snapshot().cursorControlEnabledByProfile[profile] ?? true
-                cursorControlEnabled = enabled
-                settingsStore.update { $0.cursorControlEnabledByProfile[profile] = enabled }
+                cursorControlEnabled = settings.cursorControlEnabledByProfile[profile] ?? true
             } else {
                 cursorControlEnabled = true
             }
@@ -739,32 +735,18 @@ final class AppState: ObservableObject {
     /// Reload per-profile button mappings for the current configuration target.
     private func reloadButtonMappingForConfigurationProfile() {
         let profile = configurationProfile
+        let settings = settingsStore.snapshot()
         withApplyingLoadedSettings {
             switch profile.kind {
             case .sense:
-                let mapping = SenseButtonMappingProfile.load(for: profile)
-                buttonMappingProfile = mapping
-                settingsStore.update { $0.senseButtonMappings[profile] = mapping }
+                buttonMappingProfile = settings.senseButtonMappings[profile] ?? .default
 
             case .joyCon:
-                let mapping: JoyConButtonMappingProfile
-                if JoyConButtonMappingProfile.hasPerProfileSettings(for: profile) {
-                    mapping = .load(for: profile)
-                } else {
-                    mapping = .defaultProfile(for: profile)
-                }
-                joyConButtonMappingProfile = mapping
-                settingsStore.update { $0.joyConButtonMappings[profile] = mapping }
+                joyConButtonMappingProfile = settings.joyConButtonMappings[profile]
+                    ?? .defaultProfile(for: profile)
 
             case .mouse:
-                let mapping: G502XButtonMappingProfile
-                if G502XButtonMappingProfile.hasPerProfileSettings(for: profile) {
-                    mapping = .load(for: profile)
-                } else {
-                    mapping = .default
-                }
-                g502xButtonMappingProfile = mapping
-                settingsStore.update { $0.g502xButtonMappings[profile] = mapping }
+                g502xButtonMappingProfile = settings.g502xButtonMappings[profile] ?? .default
             }
         }
     }

@@ -87,6 +87,8 @@ extension InputEngine {
 
     func resetG502XButtonStateBaseline() {
         g502xHasPrimedButtonState = false
+        mouseMode.dragButtonOwners.removeAll()
+        mouseMode.scrollButtonOwners.removeAll()
         for i in 0..<g502xPreviousButtonStates.count {
             if let pressState = g502xButtonPressStates[i] {
                 actionExecutor.execute(pressState.actions.press, isPressed: false, owner: pressState.pressOwner)
@@ -140,7 +142,7 @@ extension InputEngine {
                 if isPressed {
                     handleG502XButtonDown(button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleG502XButtonUp(button: button, mappingProfile: profile)
+                    handleG502XButtonUp(button: button)
                 }
             }
 
@@ -175,9 +177,9 @@ extension InputEngine {
                 // These don't make sense for mouse (it already has native cursor/scroll)
                 // but we handle them for consistency
                 if actions.press == .drag {
-                    mouseMode.dragButtonHeld = true
+                    mouseMode.dragButtonOwners.insert(state.pressOwner)
                 } else {
-                    mouseMode.scrollButtonHeld = true
+                    mouseMode.scrollButtonOwners.insert(state.pressOwner)
                 }
             default:
                 break
@@ -209,7 +211,7 @@ extension InputEngine {
         }
     }
 
-    private func handleG502XButtonUp(button: G502XLogicalButton, mappingProfile: G502XButtonMappingProfile) {
+    private func handleG502XButtonUp(button: G502XLogicalButton) {
         let idx = button.index
 
         // Cancel hold timer
@@ -218,8 +220,10 @@ extension InputEngine {
 
         let owner = ManagedDeviceKey(kind: .mouse, id: selectedMouseID ?? "mouse")
 
-        // Check for gyro mode button release
-        if let state = g502xButtonPressStates[idx], state.actions.pressIsGyroMode {
+        // Primed buttons own no action. Otherwise release the captured action,
+        // even if the current mapping changed while this button was held.
+        guard let state = g502xButtonPressStates[idx] else { return }
+        if state.actions.pressIsGyroMode {
             handleGyroModeRelease(
                 owner: owner,
                 activationOwner: state.pressOwner,
@@ -229,20 +233,6 @@ extension InputEngine {
             g502xButtonPressStates[idx] = nil
             return
         }
-
-        // Also check current mapping for gyro modes
-        let actions = mappingProfile.actions(for: button)
-        if actions.pressIsGyroMode {
-            handleGyroModeRelease(
-                owner: owner,
-                activationOwner: nil,
-                action: actions.press,
-                modeState: &mouseMode
-            )
-            return
-        }
-
-        guard let state = g502xButtonPressStates[idx] else { return }
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {

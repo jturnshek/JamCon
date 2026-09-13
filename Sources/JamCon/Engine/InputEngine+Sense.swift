@@ -201,7 +201,7 @@ extension InputEngine {
                 if isPressed {
                     handleSenseButtonDown(owner: owner, device: device, button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleSenseButtonUp(owner: owner, device: device, button: button, mappingProfile: profile)
+                    handleSenseButtonUp(owner: owner, device: device, button: button)
                 }
             }
 
@@ -222,7 +222,7 @@ extension InputEngine {
             if triggerPressed {
                 handleSenseButtonDown(owner: owner, device: device, button: .trigger, actions: actions, holdThreshold: holdThreshold)
             } else {
-                handleSenseButtonUp(owner: owner, device: device, button: .trigger, mappingProfile: profile)
+                handleSenseButtonUp(owner: owner, device: device, button: .trigger)
             }
         }
 
@@ -275,9 +275,9 @@ extension InputEngine {
             device.buttonPressStates[idx] = state
             switch actions.press {
             case .drag:
-                device.mode.dragButtonHeld = true
+                device.mode.dragButtonOwners.insert(state.pressOwner)
             case .scroll:
-                device.mode.scrollButtonHeld = true
+                device.mode.scrollButtonOwners.insert(state.pressOwner)
             case .radialMenu:
                 beginRadialMenu(
                     owner: owner,
@@ -320,8 +320,7 @@ extension InputEngine {
     private func handleSenseButtonUp(
         owner: ManagedDeviceKey,
         device: SenseDeviceState,
-        button: LogicalButton,
-        mappingProfile: SenseButtonMappingProfile
+        button: LogicalButton
     ) {
         let idx = button.index
 
@@ -329,9 +328,10 @@ extension InputEngine {
         device.holdTimers[idx]?.cancel()
         device.holdTimers[idx] = nil
 
-        // Release the action that was active when the physical button went down,
-        // even if the user edited its mapping while holding it.
-        if let state = device.buttonPressStates[idx], state.actions.pressIsGyroMode {
+        // Primed buttons own no action. Otherwise release the captured action,
+        // even if the current mapping changed while this button was held.
+        guard let state = device.buttonPressStates[idx] else { return }
+        if state.actions.pressIsGyroMode {
             handleGyroModeRelease(
                 owner: owner,
                 activationOwner: state.pressOwner,
@@ -341,20 +341,6 @@ extension InputEngine {
             device.buttonPressStates[idx] = nil
             return
         }
-
-        // A primed press has no stored state; retain the mapping fallback for it.
-        let actions = mappingProfile.actions(for: button)
-        if actions.pressIsGyroMode {
-            handleGyroModeRelease(
-                owner: owner,
-                activationOwner: nil,
-                action: actions.press,
-                modeState: &device.mode
-            )
-            return
-        }
-
-        guard let state = device.buttonPressStates[idx] else { return }
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {

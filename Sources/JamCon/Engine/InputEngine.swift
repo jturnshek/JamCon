@@ -77,8 +77,10 @@ final class InputEngine: @unchecked Sendable {
     }
 
     struct GyroModeState {
-        var dragButtonHeld: Bool = false
-        var scrollButtonHeld: Bool = false
+        var dragButtonOwners: Set<SyntheticOutputOwner> = []
+        var scrollButtonOwners: Set<SyntheticOutputOwner> = []
+        var dragButtonHeld: Bool { !dragButtonOwners.isEmpty }
+        var scrollButtonHeld: Bool { !scrollButtonOwners.isEmpty }
         var radialMenuButtonHeld: Bool = false
     }
 

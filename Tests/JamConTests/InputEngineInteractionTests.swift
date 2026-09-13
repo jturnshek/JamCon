@@ -3,6 +3,117 @@ import QuartzCore
 @testable import JamCon
 
 final class InputEngineInteractionTests: XCTestCase {
+    func testRemappingHeldMouseButtonToGyroModeReleasesCapturedOutput() {
+        for kind in ControllerKind.allCases {
+            for mode: ButtonAction in [.drag, .scroll, .radialMenu] {
+                let harness = ButtonLifecycleHarness(kind: kind)
+                defer { harness.engine.stop() }
+                harness.setActions(ButtonActions(press: .mouseClick(.left)))
+                harness.process()
+                harness.process(first: true)
+                harness.setActions(ButtonActions(press: mode))
+                harness.process()
+                XCTAssertEqual(harness.backend.events, [
+                    .mouseButton(.left, isPressed: true),
+                    .mouseButton(.left, isPressed: false),
+                ], "\(kind): remapped to \(mode)")
+            }
+        }
+    }
+
+    func testRemappingHeldKeyToGyroModeReleasesCapturedOutput() {
+        let key = KeyCombo(keyCode: 49)
+        for kind in ControllerKind.allCases {
+            for mode: ButtonAction in [.drag, .scroll, .radialMenu] {
+                let harness = ButtonLifecycleHarness(kind: kind)
+                defer { harness.engine.stop() }
+                harness.setActions(ButtonActions(press: .none, hold: .keyPress(key)))
+                harness.process()
+                harness.process(first: true)
+                harness.engine.engineQueueSync { harness.scheduler.fireAll() }
+                harness.setActions(ButtonActions(press: mode))
+                harness.process()
+                XCTAssertEqual(harness.backend.events, [
+                    .key(key, isPressed: true),
+                    .key(key, isPressed: false),
+                ], "\(kind): remapped to \(mode)")
+            }
+        }
+    }
+
+    func testReleasingOneOfTwoGyroModeButtonsPreservesOther() {
+        for kind in ControllerKind.allCases {
+            for mode: ButtonAction in [.drag, .scroll] {
+                let harness = ButtonLifecycleHarness(kind: kind)
+                defer { harness.engine.stop() }
+                harness.setActions(ButtonActions(press: mode))
+                harness.setActions(ButtonActions(press: mode), second: true)
+                harness.process()
+                harness.process(first: true)
+                harness.process(first: true, second: true)
+                harness.process(first: true, second: true) // Duplicate frame
+                harness.process(second: true)
+                XCTAssertTrue(harness.isHeld(mode), "\(kind): \(mode)")
+                harness.process()
+                XCTAssertFalse(harness.isHeld(mode), "\(kind): \(mode)")
+            }
+        }
+    }
+
+    func testPrimedGyroModeReleaseDoesNotCancelAnotherButton() {
+        for kind in ControllerKind.allCases {
+            for mode: ButtonAction in [.drag, .scroll] {
+                let harness = ButtonLifecycleHarness(kind: kind)
+                defer { harness.engine.stop() }
+                harness.setActions(ButtonActions(press: mode))
+                harness.setActions(ButtonActions(press: mode), second: true)
+                harness.process(first: true) // Already held at connection; no action owned
+                harness.process(first: true, second: true)
+                harness.process(second: true)
+                XCTAssertTrue(harness.isHeld(mode), "\(kind): \(mode)")
+                harness.process()
+                XCTAssertFalse(harness.isHeld(mode), "\(kind): \(mode)")
+            }
+        }
+    }
+
+    func testGyroModeReleaseUsesCapturedMapping() {
+        for kind in ControllerKind.allCases {
+            let harness = ButtonLifecycleHarness(kind: kind)
+            defer { harness.engine.stop() }
+            harness.setActions(ButtonActions(press: .scroll))
+            harness.process()
+            harness.process(first: true)
+            harness.setActions(ButtonActions(press: .drag))
+            harness.process()
+            XCTAssertFalse(harness.isHeld(.scroll), "\(kind)")
+            XCTAssertFalse(harness.isHeld(.drag), "\(kind)")
+        }
+    }
+
+    func testGyroModeOwnershipClearsWhenInputIsDisabled() {
+        for kind in ControllerKind.allCases {
+            for mode: ButtonAction in [.drag, .scroll] {
+                let harness = ButtonLifecycleHarness(kind: kind)
+                defer { harness.engine.stop() }
+                harness.setActions(ButtonActions(press: mode))
+                harness.process()
+                harness.process(first: true)
+                XCTAssertTrue(harness.isHeld(mode))
+                harness.settings.update { $0.isEnabled = false }
+                harness.engine.setInputEnabled(false)
+                XCTAssertFalse(harness.isHeld(mode))
+                harness.settings.update { $0.isEnabled = true }
+                harness.engine.setInputEnabled(true)
+                harness.process(first: true) // Re-prime without reactivating the mode
+                XCTAssertFalse(harness.isHeld(mode))
+                harness.process()
+                harness.process(first: true)
+                XCTAssertTrue(harness.isHeld(mode))
+            }
+        }
+    }
+
     func testDuplicatePressAndMappingEditStillReleaseCapturedAction() {
         let harness = makeHarness(actions: ButtonActions(press: .mouseClick(.left)))
 
@@ -600,5 +711,114 @@ private final class EngineRecordingBackend: SyntheticEventBackend {
 
     func post(_ event: SyntheticOutputEvent) {
         events.append(event)
+    }
+}
+
+/// Exercises each family's real button edge processing with copied input frames.
+private final class ButtonLifecycleHarness {
+    let settings = SettingsStore()
+    let backend = EngineRecordingBackend()
+    let scheduler = ManualHoldScheduler()
+    let engine: InputEngine
+    let kind: ControllerKind
+    let deviceID = "button-lifecycle-test"
+
+    init(kind: ControllerKind) {
+        self.kind = kind
+        settings.update {
+            $0.isEnabled = true
+            $0.joystickScrollEnabled = false
+            $0.cursorControlEnabledByProfile[.senseRight] = false
+            $0.cursorControlEnabledByProfile[.joyConRight] = false
+            $0.senseButtonMappings[.senseRight] = SenseButtonMappingProfile()
+            $0.joyConButtonMappings[.joyConRight] = JoyConButtonMappingProfile()
+            $0.g502xButtonMappings[.mouse] = G502XButtonMappingProfile()
+        }
+        engine = InputEngine(
+            settings: settings,
+            debugBuffer: DebugBuffer(),
+            actionExecutor: ActionExecutor(eventBackend: backend),
+            holdScheduler: scheduler
+        )
+        engine.engineQueueSync {
+            engine.isRunning = true
+            switch kind {
+            case .sense:
+                engine.senseDevices[deviceID] = InputEngine.SenseDeviceState(id: deviceID, profile: .senseRight)
+            case .joyCon:
+                engine.joyConDevices[deviceID] = InputEngine.JoyConDeviceState(id: deviceID, profile: .joyConRight)
+            case .mouse:
+                engine.selectedMouseID = deviceID
+            }
+        }
+    }
+
+    func setActions(_ actions: ButtonActions, second: Bool = false) {
+        settings.update {
+            switch kind {
+            case .sense:
+                $0.senseButtonMappings[.senseRight]?.setActions(actions, for: second ? .bumper : .trigger)
+            case .joyCon:
+                $0.joyConButtonMappings[.joyConRight]?.setActions(actions, for: second ? .r : .zr)
+            case .mouse:
+                $0.g502xButtonMappings[.mouse]?.setActions(actions, for: second ? .dpiUp : .dpiShift)
+            }
+        }
+    }
+
+    func process(first: Bool = false, second: Bool = false) {
+        let descriptor: InputDeviceBackendDescriptor
+        var bytes: [UInt8]
+        let motion: InputDeviceMotionSamples
+        switch kind {
+        case .sense:
+            descriptor = engine.senseBackend.backendDescriptor
+            bytes = [UInt8](repeating: 0, count: SenseHIDProtocol.reportLength)
+            bytes[0] = UInt8(SenseHIDProtocol.inputReportID)
+            bytes[SenseHIDProtocol.Offset.triggerAnalog] = first ? 255 : 0
+            bytes[9] = second ? 0x20 : 0 // Right bumper
+            motion = .single(try! SenseInputReportDecoder.decode(bytes).motion)
+        case .joyCon:
+            descriptor = engine.joyConController.backendDescriptor
+            bytes = [UInt8](repeating: 0, count: JoyConInputReportDecoder.minimumReportLength)
+            bytes[0] = UInt8(JoyConHIDProtocol.inputReportID)
+            bytes[3] = (first ? 0x80 : 0) | (second ? 0x40 : 0) // ZR, R
+            motion = .batch(try! JoyConInputReportDecoder.decode(bytes).motionSamples)
+        case .mouse:
+            descriptor = engine.g502xController.backendDescriptor
+            bytes = [first ? 0x20 : 0, second ? 0x02 : 0] // DPI Shift, DPI Up
+            motion = .none
+        }
+        let timestamp = CACurrentMediaTime()
+        let report = InputDeviceFrame(
+            backend: descriptor,
+            deviceID: deviceID,
+            reportID: UInt32(bytes[0]),
+            bytes: bytes,
+            motion: motion,
+            timestamp: timestamp,
+            receivedTimestamp: timestamp,
+            inputTimestamp: nil,
+            timestampSource: .hostReceipt
+        )
+        engine.engineQueueSync {
+            switch kind {
+            case .sense: engine.processSenseReport(report)
+            case .joyCon: engine.processJoyConReport(report)
+            case .mouse: engine.processG502XReport(report)
+            }
+        }
+    }
+
+    func isHeld(_ action: ButtonAction) -> Bool {
+        engine.engineQueueSync {
+            let mode: InputEngine.GyroModeState
+            switch kind {
+            case .sense: mode = engine.senseDevices[deviceID]!.mode
+            case .joyCon: mode = engine.joyConDevices[deviceID]!.mode
+            case .mouse: mode = engine.mouseMode
+            }
+            return action == .drag ? mode.dragButtonHeld : mode.scrollButtonHeld
+        }
     }
 }

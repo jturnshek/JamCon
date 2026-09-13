@@ -44,32 +44,56 @@ final class MouseController: @unchecked Sendable {
     private var clickCount: Int64 = 0
 
     private var cachedDisplayBounds: [CGRect]
-    private var cachedPosition: CGPoint
-    private var lastResyncTime: TimeInterval = 0
+    private var lastDisplayRefreshTime: TimeInterval
+    private var movementRemainder: CGPoint = .zero
     private var scrollAccumulator = PixelScrollAccumulator()
 
     private let doubleClickInterval: TimeInterval
-    private let resyncInterval: TimeInterval
+    private let displayRefreshInterval: TimeInterval
+    private let cursorPositionProvider: () -> CGPoint
+    private let displayBoundsProvider: () -> [CGRect]
+    private let postEvent: (CGEvent) -> Void
 
     // MARK: - Initialization
 
-    init(doubleClickInterval: TimeInterval = 0.5, resyncInterval: TimeInterval = 5.0) {
+    init(
+        doubleClickInterval: TimeInterval = 0.5,
+        displayRefreshInterval: TimeInterval = 5.0,
+        cursorPositionProvider: @escaping () -> CGPoint = { MouseController.currentCursorPosition() },
+        displayBoundsProvider: @escaping () -> [CGRect] = { MouseController.activeDisplayBounds() },
+        postEvent: @escaping (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) }
+    ) {
         self.doubleClickInterval = doubleClickInterval
-        self.resyncInterval = resyncInterval
-        self.cachedDisplayBounds = MouseController.activeDisplayBounds()
-        self.cachedPosition = MouseController.currentCursorPosition()
-        self.lastResyncTime = CACurrentMediaTime()
+        self.displayRefreshInterval = displayRefreshInterval
+        self.cursorPositionProvider = cursorPositionProvider
+        self.displayBoundsProvider = displayBoundsProvider
+        self.postEvent = postEvent
+        self.cachedDisplayBounds = displayBoundsProvider()
+        self.lastDisplayRefreshTime = CACurrentMediaTime()
     }
 
     /// Move the mouse by a relative amount, clamped to screen bounds
     func moveRelative(dx: CGFloat, dy: CGFloat) {
-        resyncIfNeeded()
+        guard dx.isFinite, dy.isFinite else { return }
 
-        // Update cached position in Quartz display coordinates (origin top-left)
-        cachedPosition.x += dx
-        cachedPosition.y += dy  // input dy is screen-down; Quartz Y increases downward
-        cachedPosition = DisplayGeometry.closestPoint(cachedPosition, in: cachedDisplayBounds)
-        let point = cachedPosition
+        // Keep fractional motion locally; repeatedly adding subpixel deltas to
+        // the system's rounded cursor position would otherwise lose slow input.
+        movementRemainder.x += dx
+        movementRemainder.y += dy
+        let stepX = movementRemainder.x.rounded(.towardZero)
+        let stepY = movementRemainder.y.rounded(.towardZero)
+        movementRemainder.x -= stepX
+        movementRemainder.y -= stepY
+        guard stepX != 0 || stepY != 0 else { return }
+
+        refreshDisplayBoundsIfNeeded()
+        // A physical mouse, trackpad, or another app can move the cursor at any
+        // time. Only display geometry is cached; every move uses the live position.
+        let currentPosition = cursorPositionProvider()
+        let target = CGPoint(x: currentPosition.x + stepX, y: currentPosition.y + stepY)
+        let point = DisplayGeometry.closestPoint(target, in: cachedDisplayBounds)
+        if point.x != target.x { movementRemainder.x = 0 }
+        if point.y != target.y { movementRemainder.y = 0 }
 
         // Determine event type based on whether a mouse button is held
         let mouseType: CGEventType
@@ -103,7 +127,7 @@ final class MouseController: @unchecked Sendable {
             return
         }
 
-        event.post(tap: .cghidEventTap)
+        postEvent(event)
     }
 
     // MARK: - Scroll
@@ -134,16 +158,15 @@ final class MouseController: @unchecked Sendable {
             return
         }
 
-        event.post(tap: .cghidEventTap)
+        postEvent(event)
     }
 
     // MARK: - Mouse Clicks
 
     /// Press mouse button down
     func mouseDown(button: MouseButton) {
-        resyncIfNeeded(force: true)
-        let currentPos = Self.currentCursorPosition()
-        cachedPosition = currentPos
+        refreshDisplayBoundsIfNeeded(force: true)
+        let currentPos = cursorPositionProvider()
         let point = DisplayGeometry.closestPoint(currentPos, in: cachedDisplayBounds)
 
         let eventType: CGEventType
@@ -197,14 +220,13 @@ final class MouseController: @unchecked Sendable {
         // Track this button as held (for drag events)
         heldMouseButtons.insert(button)
 
-        event.post(tap: .cghidEventTap)
+        postEvent(event)
     }
 
     /// Release mouse button
     func mouseUp(button: MouseButton) {
-        resyncIfNeeded(force: true)
-        let currentPos = Self.currentCursorPosition()
-        cachedPosition = currentPos
+        refreshDisplayBoundsIfNeeded(force: true)
+        let currentPos = cursorPositionProvider()
         let point = DisplayGeometry.closestPoint(currentPos, in: cachedDisplayBounds)
         heldMouseButtons.remove(button)
 
@@ -238,7 +260,7 @@ final class MouseController: @unchecked Sendable {
         // Set click state to match the mouseDown (for double/triple click recognition)
         event.setIntegerValueField(.mouseEventClickState, value: clickCount)
 
-        event.post(tap: .cghidEventTap)
+        postEvent(event)
     }
 
     /// Perform a click (down + up)
@@ -249,12 +271,11 @@ final class MouseController: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    private func resyncIfNeeded(force: Bool = false) {
+    private func refreshDisplayBoundsIfNeeded(force: Bool = false) {
         let now = CACurrentMediaTime()
-        guard force || now - lastResyncTime >= resyncInterval else { return }
-        cachedDisplayBounds = MouseController.activeDisplayBounds()
-        cachedPosition = MouseController.currentCursorPosition()
-        lastResyncTime = now
+        guard force || now - lastDisplayRefreshTime >= displayRefreshInterval else { return }
+        cachedDisplayBounds = displayBoundsProvider()
+        lastDisplayRefreshTime = now
     }
 
     private static func currentCursorPosition() -> CGPoint {

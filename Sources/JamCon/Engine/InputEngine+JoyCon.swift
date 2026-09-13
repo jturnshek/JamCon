@@ -230,7 +230,7 @@ extension InputEngine {
                 if isPressed {
                     handleJoyConButtonDown(owner: owner, device: device, button: button, actions: actions, holdThreshold: holdThreshold)
                 } else {
-                    handleJoyConButtonUp(owner: owner, device: device, button: button, mappingProfile: profile)
+                    handleJoyConButtonUp(owner: owner, device: device, button: button)
                 }
             }
 
@@ -275,9 +275,9 @@ extension InputEngine {
             device.buttonPressStates[idx] = state
             switch actions.press {
             case .drag:
-                device.mode.dragButtonHeld = true
+                device.mode.dragButtonOwners.insert(state.pressOwner)
             case .scroll:
-                device.mode.scrollButtonHeld = true
+                device.mode.scrollButtonOwners.insert(state.pressOwner)
             case .radialMenu:
                 beginRadialMenu(
                     owner: owner,
@@ -319,8 +319,7 @@ extension InputEngine {
     private func handleJoyConButtonUp(
         owner: ManagedDeviceKey,
         device: JoyConDeviceState,
-        button: JoyConLogicalButton,
-        mappingProfile: JoyConButtonMappingProfile
+        button: JoyConLogicalButton
     ) {
         let idx = button.index
 
@@ -328,7 +327,10 @@ extension InputEngine {
         device.holdTimers[idx]?.cancel()
         device.holdTimers[idx] = nil
 
-        if let state = device.buttonPressStates[idx], state.actions.pressIsGyroMode {
+        // Primed buttons own no action. Otherwise release the captured action,
+        // even if the current mapping changed while this button was held.
+        guard let state = device.buttonPressStates[idx] else { return }
+        if state.actions.pressIsGyroMode {
             handleGyroModeRelease(
                 owner: owner,
                 activationOwner: state.pressOwner,
@@ -338,19 +340,6 @@ extension InputEngine {
             device.buttonPressStates[idx] = nil
             return
         }
-
-        let actions = mappingProfile.actions(for: button)
-        if actions.pressIsGyroMode {
-            handleGyroModeRelease(
-                owner: owner,
-                activationOwner: nil,
-                action: actions.press,
-                modeState: &device.mode
-            )
-            return
-        }
-
-        guard let state = device.buttonPressStates[idx] else { return }
 
         // Handle mouse click release
         if case .mouseClick = state.actions.press {

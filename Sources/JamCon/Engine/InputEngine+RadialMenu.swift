@@ -135,9 +135,13 @@ extension InputEngine {
     ) {
         switch action {
         case .drag:
-            modeState.dragButtonHeld = false
+            if let activationOwner {
+                modeState.dragButtonOwners.remove(activationOwner)
+            }
         case .scroll:
-            modeState.scrollButtonHeld = false
+            if let activationOwner {
+                modeState.scrollButtonOwners.remove(activationOwner)
+            }
         case .radialMenu:
             guard radialMenuOwner == owner,
                   radialMenuActivationOwner == activationOwner else { return }
